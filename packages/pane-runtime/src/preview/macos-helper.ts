@@ -101,3 +101,37 @@ export function helperStatus(path = MACOS_HELPER_SOCKET): Promise<HelperStatus |
     helper.send({ op: "status" });
   });
 }
+
+/**
+ * Ask the helper to put a stranded pointer back on a screen the person at
+ * this Mac can actually see, and wait no longer than a heartbeat and a half
+ * for it.
+ *
+ * A viewer's pointer events move the real cursor onto the virtual display, so
+ * discarding that display mid-session can leave the local user with no cursor
+ * at all (measured on the M5). The caller is a display teardown: a helper that
+ * is not running cannot warp the cursor, and a slow one must never hold up
+ * closing a pane, so every failure path here resolves quietly. Nothing is lost
+ * by that silence, because a virtual screen can outlive the helper and the
+ * helper rescues a stranded pointer on its next start; the request is the
+ * fast path, not the only one.
+ */
+export function rescueStrandedCursor(path = MACOS_HELPER_SOCKET): Promise<void> {
+  return new Promise((resolve) => {
+    const helper = new MacOSHelper(path);
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      helper.close();
+      resolve();
+    };
+    const timer = setTimeout(finish, 1500);
+    helper.onClose = finish;
+    helper.onMessage = (message) => {
+      if (message.type === "rescued") finish();
+    };
+    helper.send({ op: "rescue-cursor" });
+  });
+}

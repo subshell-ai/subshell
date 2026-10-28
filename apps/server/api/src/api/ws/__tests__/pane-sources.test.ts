@@ -2,8 +2,14 @@ import { describe, expect, it } from "bun:test";
 import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLogTailSource, createPanePollSource } from "@/api/ws/pane-sources.js";
+import {
+  createLogTailSource,
+  createPanePollSource,
+  createRemoteTailSource,
+  tailCloseReason,
+} from "@/api/ws/pane-sources.js";
 import type { NodeLauncher } from "@/modules/nodes/node-launcher.js";
+import type { RemoteLauncher } from "@/modules/nodes/remote-launcher.js";
 
 const scratch = mkdtempSync(join(tmpdir(), "pane-sources-"));
 let seq = 0;
@@ -235,5 +241,332 @@ describe("createPanePollSource", () => {
     const atStop = fake.captures;
     await Bun.sleep(700);
     expect(fake.captures).toBe(atStop);
+  });
+});
+
+/**
+ * The remote tail is the shared pump for every viewer of a node pane, so a
+ * source that goes silent without saying so freezes the pane for all of them
+ * until the server restarts (the 2026-10-27 stuck-pane incident). These cases
+ * pin the two ways it refuses to go silent: a refused `tail_start`, and a
+ * watchdog that reads a growing log against a dead-silent relay.
+ */
+describe("createRemoteTailSource", () => {
+  interface RemoteTailFake {
+    launcher: RemoteLauncher;
+    /** The agent's `tail_start` callback, so the test can deliver (or not). */
+    deliveries: ((bytes: Uint8Array, next: number) => void)[];
+    /** How many relay disposers ran. */
+    relayDisposed: number;
+    sizeCalls: number;
+    /** When true, a probe parks until `releaseProbe`. A flag so one case can
+     * park the FIRST probe and let the rest answer live. */
+    hold: boolean;
+    releaseProbe: () => void;
+  }
+
+  function remoteTailStub(opts: {
+    /** Reject the tail_start round-trip (the agent's relay refused). */
+    refuse?: string;
+    /** What the size probe answers (the node's current EOF). */
+    size: () => number;
+    /** When set, probes park until `releaseProbe`. */
+    holdProbes?: boolean;
+    /** The first N size probes reject (transient RPC failure); later ones answer. */
+    probeRejects?: number;
+  }): RemoteTailFake {
+    const fake: RemoteTailFake = {
+      deliveries: [],
+      relayDisposed: 0,
+      sizeCalls: 0,
+      hold: opts.holdProbes ?? false,
+      releaseProbe: () => {},
+      launcher: {} as RemoteLauncher,
+    };
+    fake.launcher = {
+      tailStart: async (
+        _id: string,
+        _subId: string,
+        _fromByte: number,
+        onChunk: (bytes: Uint8Array, next: number) => void,
+      ) => {
+        if (opts.refuse) throw new Error(opts.refuse);
+        fake.deliveries.push(onChunk);
+        let disposedOnce = false; // the REAL launcher disposer is idempotent; mirror it
+        return () => {
+          if (disposedOnce) return;
+          disposedOnce = true;
+          fake.relayDisposed += 1;
+        };
+      },
+      readLogSized: async () => {
+        fake.sizeCalls += 1;
+        if (opts.probeRejects && fake.sizeCalls <= opts.probeRejects) {
+          throw new Error("transient node RPC failure");
+        }
+        // Snapshot at command time, like the node answers; the hold then lets
+        // a test deliver bytes into the flight and prove the verdict re-check.
+        const size = opts.size();
+        if (fake.hold) {
+          await new Promise<void>((resolve) => {
+            fake.releaseProbe = resolve;
+          });
+        }
+        return { bytes: new Uint8Array(0), next: size, size };
+      },
+    } as unknown as RemoteLauncher;
+    return fake;
+  }
+
+  /** Fast watchdog so a stall verdict does not cost a test its patience. */
+  const FAST = { stallCheckMs: 20, stallAfterMs: 60 };
+
+  it("reports a refused tail_start instead of streaming silence", async () => {
+    const fake = remoteTailStub({ refuse: "node refused", size: () => 500 });
+    const seen: string[] = [];
+    const deaths: string[] = [];
+    const stop = createRemoteTailSource({
+      launcher: fake.launcher,
+      subshellId: "s1",
+      fromByte: 400,
+      ...FAST,
+      onDead: (why) => deaths.push(why),
+    }).start((t) => seen.push(t));
+    try {
+      await waitFor(() => deaths.length > 0, "the refusal to be reported");
+      expect(deaths).toHaveLength(1);
+      expect(deaths[0]).toContain("tail_start refused");
+      expect(deaths[0]).toContain("node refused");
+      expect(seen).toEqual([]); // nothing painted, and nothing pretending to
+    } finally {
+      stop();
+    }
+  });
+
+  it("reports a stall when the log grows and the relay delivers nothing", async () => {
+    // The dead-pump shape from the field: the node keeps appending, the
+    // plane-side relay hands over zero bytes. A quiet pane (next case) must
+    // NOT read this way, which is why growth is part of the verdict.
+    let size = 400;
+    const fake = remoteTailStub({ size: () => size });
+    const deaths: string[] = [];
+    const stop = createRemoteTailSource({
+      launcher: fake.launcher,
+      subshellId: "s1",
+      fromByte: 400,
+      ...FAST,
+      onDead: (why) => deaths.push(why),
+    }).start(() => {});
+    try {
+      await Bun.sleep(100); // several checks while size still equals the cursor
+      expect(deaths).toEqual([]);
+      size = 1200; // the pane starts printing; the dead pump says nothing
+      await waitFor(() => deaths.length > 0, "the watchdog verdict");
+      // Tie the producer string to the mapper predicate in one assertion: a
+      // reword that keeps the word "stalled" but not its position (e.g. "pump
+      // stalled: …") must redden this, or the stall family would silently map
+      // to "tail refused" and send the operator down the node-link path.
+      expect(deaths[0].startsWith("stalled")).toBe(true);
+      expect(tailCloseReason(deaths[0])).toBe("tail stalled");
+      expect(deaths[0]).toContain("EOF 1200");
+      expect(fake.relayDisposed).toBe(1); // the corpse is disposed, not nursed
+    } finally {
+      stop();
+    }
+  });
+
+  it("leaves a quiet pane alone (no bytes, no verdict)", async () => {
+    const fake = remoteTailStub({ size: () => 400 });
+    const deaths: string[] = [];
+    const stop = createRemoteTailSource({
+      launcher: fake.launcher,
+      subshellId: "s1",
+      fromByte: 400,
+      ...FAST,
+      onDead: (why) => deaths.push(why),
+    }).start(() => {});
+    try {
+      await Bun.sleep(250); // many check intervals over the stall threshold
+      expect(deaths).toEqual([]);
+      expect(fake.sizeCalls).toBeGreaterThan(0); // the watchdog really was probing
+    } finally {
+      stop();
+    }
+  });
+
+  it("keeps a delivering pump healthy", async () => {
+    let size = 400;
+    const fake = remoteTailStub({ size: () => size });
+    const seen: string[] = [];
+    const deaths: string[] = [];
+    const stop = createRemoteTailSource({
+      launcher: fake.launcher,
+      subshellId: "s1",
+      fromByte: 400,
+      ...FAST,
+      onDead: (why) => deaths.push(why),
+    }).start((t) => seen.push(t));
+    try {
+      await waitFor(() => fake.deliveries.length === 1, "the tail_start handshake");
+      const onChunk = fake.deliveries[0];
+      // Bytes arrive as the log grows: the cursor and the clock both stay
+      // fresh, so no probe even runs.
+      for (let at = 500; at <= 1500; at += 100) {
+        size = at;
+        onChunk(Buffer.from(`x${at}`), at);
+        await Bun.sleep(30);
+      }
+      expect(deaths).toEqual([]);
+      expect(seen.join("")).toContain("x1500");
+      // The documented economy: a pump that keeps delivering pays for no
+      // probe run (the interval's silence gate short-circuits before the
+      // RPC). One is tolerated for event-loop jitter around the first
+      // armed check; delete that gate and a 20 ms interval over this loop
+      // produces dozens, so the alarm still fires instantly.
+      expect(fake.sizeCalls).toBeLessThanOrEqual(1);
+    } finally {
+      stop();
+    }
+  });
+
+  it("a burst landing mid-probe is alive, not stalled", async () => {
+    // The probe's EOF is a snapshot; a chunk delivered while it is in flight
+    // moves the cursor PAST that answer, and `size < cursor` is otherwise
+    // exactly the rewind shape. The verdict must re-ask the silence question
+    // at resolution, not at the tick that armed the probe.
+    let size = 400;
+    const fake = remoteTailStub({ size: () => size, holdProbes: true });
+    const deaths: string[] = [];
+    const stop = createRemoteTailSource({
+      launcher: fake.launcher,
+      subshellId: "s1",
+      fromByte: 400,
+      ...FAST,
+      onDead: (why) => deaths.push(why),
+    }).start(() => {});
+    try {
+      await waitFor(() => fake.deliveries.length === 1, "the tail_start handshake");
+      const onChunk = fake.deliveries[0];
+      await waitFor(() => fake.sizeCalls >= 1, "the first parked probe");
+      // The pump wakes while that probe is in flight: the cursor passes the
+      // answer it will bring back.
+      size = 800;
+      onChunk(Buffer.from("burst"), 800);
+      fake.releaseProbe();
+      await Bun.sleep(120);
+      expect(deaths).toEqual([]); // the stale answer was refused at the gate
+      // And the watchdog is not defanged: true silence with a moving log
+      // still earns the verdict. A tick that armed its probe just before the
+      // hold came off would otherwise sit parked, so pump the release until
+      // the verdict lands (releasing an answered probe is a no-op).
+      fake.hold = false;
+      size = 1200;
+      for (let i = 0; i < 25 && deaths.length === 0; i++) {
+        await Bun.sleep(40);
+        fake.releaseProbe();
+      }
+      expect(deaths.length).toBe(1);
+      // Tie the producer string to the mapper predicate in one assertion: a
+      // reword that keeps the word "stalled" but not its position (e.g. "pump
+      // stalled: …") must redden this, or the stall family would silently map
+      // to "tail refused" and send the operator down the node-link path.
+      expect(deaths[0].startsWith("stalled")).toBe(true);
+      expect(tailCloseReason(deaths[0])).toBe("tail stalled");
+    } finally {
+      stop();
+    }
+  });
+
+  it("a transient probe failure does not burn the pump or wedge the watchdog", async () => {
+    // MINOR 4: the .catch that resets probeInFlight on a failed probe is
+    // load-bearing. If it left probeInFlight stuck true, a real stall later
+    // would never report — the 2026-10-27 freeze reborn behind green suites.
+    // The first probes reject (simulating a flaky node RPC); once they
+    // recover, the genuine stall must STILL be caught and reported.
+    const fake = remoteTailStub({ size: () => 1200, probeRejects: 2 });
+    const deaths: string[] = [];
+    const stop = createRemoteTailSource({
+      launcher: fake.launcher,
+      subshellId: "s1",
+      fromByte: 400,
+      ...FAST,
+      onDead: (why) => deaths.push(why),
+    }).start(() => {});
+    try {
+      // Two rejected probes must NOT strand the watchdog: it keeps ticking.
+      await waitFor(() => deaths.length > 0, "the verdict after recovered probes");
+      // Tie the producer string to the mapper predicate in one assertion: a
+      // reword that keeps the word "stalled" but not its position (e.g. "pump
+      // stalled: …") must redden this, or the stall family would silently map
+      // to "tail refused" and send the operator down the node-link path.
+      expect(deaths[0].startsWith("stalled")).toBe(true);
+      expect(tailCloseReason(deaths[0])).toBe("tail stalled");
+      expect(fake.sizeCalls).toBeGreaterThanOrEqual(3); // it probed past the two failures
+    } finally {
+      stop();
+    }
+  });
+
+  it("treats a rewind (log smaller than the cursor) as a stall too", async () => {
+    // The retention-sweep-then-relaunch shape: the log under the pump got
+    // replaced, so `size > cursor` would wait forever for a byte that can
+    // never arrive at that offset again.
+    let size = 1000;
+    const fake = remoteTailStub({ size: () => size });
+    const deaths: string[] = [];
+    const stop = createRemoteTailSource({
+      launcher: fake.launcher,
+      subshellId: "s1",
+      fromByte: 0,
+      ...FAST,
+      onDead: (why) => deaths.push(why),
+    }).start(() => {});
+    try {
+      await waitFor(() => fake.deliveries.length === 1, "the tail_start handshake");
+      fake.deliveries[0](Buffer.from("hello"), 1000); // cursor now at 1000
+      size = 20; // the file was replaced under the pump
+      await waitFor(() => deaths.length > 0, "the rewind verdict");
+      // Tie the producer string to the mapper predicate in one assertion: a
+      // reword that keeps the word "stalled" but not its position (e.g. "pump
+      // stalled: …") must redden this, or the stall family would silently map
+      // to "tail refused" and send the operator down the node-link path.
+      expect(deaths[0].startsWith("stalled")).toBe(true);
+      expect(tailCloseReason(deaths[0])).toBe("tail stalled");
+    } finally {
+      stop();
+    }
+  });
+
+  it("stops probing once the stream is disposed", async () => {
+    // A quiet pane (size equals the cursor): the watchdog probes and waits
+    // forever without a verdict. The claim is only that after dispose even
+    // the probing stops.
+    const fake = remoteTailStub({ size: () => 400 });
+    const deaths: string[] = [];
+    const stop = createRemoteTailSource({
+      launcher: fake.launcher,
+      subshellId: "s1",
+      fromByte: 400,
+      ...FAST,
+      onDead: (why) => deaths.push(why),
+    }).start(() => {});
+    await waitFor(() => fake.sizeCalls >= 1, "a first probe");
+    stop();
+    const atStop = fake.sizeCalls;
+    await Bun.sleep(200);
+    expect(fake.sizeCalls).toBe(atStop); // no interval left to tick
+    expect(deaths).toEqual([]); // and nothing left to report to
+  });
+});
+
+describe("tailCloseReason (pure mapper)", () => {
+  it("maps the stall family to 'tail stalled' and the refusal family to 'tail refused'", () => {
+    // Both arms pinned: an operator reads this string to pick which path to
+    // chase (relay silence vs node-link refusal); a collapse to a constant is
+    // the bug this guards.
+    expect(tailCloseReason("stalled: EOF 1200, delivered 400, silent 30000ms")).toBe("tail stalled");
+    expect(tailCloseReason("tail_start refused: node refused")).toBe("tail refused");
+    // Anything not clearly a stall reads as a refusal (conservative default).
+    expect(tailCloseReason("weird")).toBe("tail refused");
   });
 });

@@ -14,6 +14,7 @@
     "@internal/backend-errors",
     "@internal/brand",
     "@internal/e2e",
+    "@internal/helper-panel",
     "@internal/mcp-core",
     "@internal/mobile",
     "@internal/node-admin",

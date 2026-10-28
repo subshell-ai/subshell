@@ -55,10 +55,10 @@ import { prepareLocalPlugins } from "@/modules/plugins/store.js";
  * still clean up their own fixture *rows*.
  */
 export async function setupAuthTables(): Promise<void> {
-  // Same order as `apps/server/api/src/index.ts` at boot. There are no
-  // cross-table foreign keys between the app tables and better-auth's, so the
-  // order is immaterial today — but a pristine-database bug is exactly what
-  // this helper exists to prevent, so the suite exercises production's order
+  // Same order as `apps/server/api/src/index.ts` at boot. App tables can
+  // reference better-auth tables that are created afterward; finish both
+  // migration runners before using cross-table cascades. This helper
+  // exercises production's order
   // rather than a second one nothing else uses.
   await runMigrations();
   await runAuthMigrations();

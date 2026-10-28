@@ -1,0 +1,5 @@
+---
+"@internal/server": patch
+---
+
+A terminal no longer stays garbled after the pane it watches resizes. The reported shape: a TUI with a block that repaints constantly (a spinner, a pinned status line) would start drawing that block over the transcript, "where new output is mixed in", and keep doing it until the tab was closed. The window is the resize itself: bytes the pane emitted while changing its grid addressed a size the viewer never rendered, and every later frame the app positions relative to them lands a constant offset off. Only the attach can lay down a true base (absolute capture, cursor restore, confirmed geometry), so when a viewer adopts a grid other than the one its replay was painted into, and pane bytes arrived in between, it now silently re-attaches and heals. Once per observed change, debounced so a window drag settles before the replay, and gapped so a bouncing grid cannot turn the self-heal into a reconnect storm. The client never asks the server for a size, only for fresh truth.

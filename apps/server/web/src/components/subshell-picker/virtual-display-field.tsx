@@ -5,6 +5,7 @@ import { DisplayMissingRequirements } from "@/components/display-missing-require
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useNodeDisplayReadiness } from "@/hooks/use-node-display-readiness";
+import { nodeDefaultForMachine, offeredDisplayProviders } from "@/lib/display-provider-choice";
 import { DisplayProviderPicker } from "./display-provider-picker";
 
 export function VirtualDisplayField({
@@ -16,6 +17,7 @@ export function VirtualDisplayField({
   provider,
   onProviderChange,
   resetReason,
+  launchError,
 }: {
   node: Node | null;
   id: string;
@@ -25,9 +27,34 @@ export function VirtualDisplayField({
   provider?: string;
   onProviderChange?: (provider: string | undefined) => void;
   resetReason?: string;
+  /**
+   * The launch this control lost: a create the node refused over the display
+   * (the budget, a provider that does not run here, the switch). It arrives
+   * from the dialog because the refusal names the whole launch, but it reads
+   * as this checkbox's own result, so it renders here, not at the form's
+   * foot. `isDisplayLaunchRefusal` decides which errors are this kind.
+   */
+  launchError?: string | null;
 }) {
   const { check, reason, needsSetup, shouldCheck } = useNodeDisplayReadiness(node, provider);
-  const providers = node?.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER];
+  // A provider this machine's OS cannot drive is not a choice, so it is not
+  // offered: Xvfb is Linux's display server and BetterDisplay is macOS's, and a
+  // list that shows the other one sends the person to a launch the machine
+  // refuses. The stored list is the owner's, so this narrows what the row shows
+  // rather than rewriting it, and an id the catalog does not ship stays put for
+  // the node's own readiness answer to rule. An OS that has not answered is no
+  // verdict at all (`providersForMachine`), so the row keeps offering what the
+  // node holds and the kept pick stays visible beside the name it carries. What
+  // it does keep showing, by `offeredDisplayProviders`, is a pick the node has
+  // not enabled: the gold reason beside this row tells the person to choose
+  // another provider, and a trigger reading "Node default" hides the choice that
+  // sentence is about.
+  const providers = offeredDisplayProviders(
+    node?.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER],
+    node?.os,
+    provider,
+  );
+  const defaultProvider = nodeDefaultForMachine(node?.virtualDisplayProvider, node?.os);
   const control = (
     <div className="flex items-center gap-3">
       <Checkbox
@@ -40,6 +67,7 @@ export function VirtualDisplayField({
           `${id}-cost`,
           ...(reason ? [`${id}-reason`] : []),
           ...(resetReason ? [`${id}-reset`] : []),
+          ...(launchError && checked ? [`${id}-launch-error`] : []),
         ].join(" ")}
       />
       <Label htmlFor={id}>Virtual display</Label>
@@ -74,7 +102,7 @@ export function VirtualDisplayField({
           value={provider}
           onChange={onProviderChange}
           providers={providers}
-          defaultProvider={node?.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER}
+          defaultProvider={defaultProvider}
         />
       )}
       <p id={`${id}-hint`} className="text-detail text-muted-foreground">
@@ -85,18 +113,22 @@ export function VirtualDisplayField({
           {resetReason}
         </p>
       )}
+      {/* The refusal is this checkbox's own result, so it reads here only while
+          the box is on. Turning the display off does not discard the message:
+          `splitLaunchError` sees the same condition and hands the line to the
+          form, where it still explains why the last launch failed. */}
+      {checked && launchError && (
+        <p id={`${id}-launch-error`} role="alert" className="text-destructive text-detail">
+          {launchError}
+        </p>
+      )}
       <p id={`${id}-cost`} className="text-detail text-warning">
         Uses extra memory and CPU. Not required for web app previews.
       </p>
       {reason && (
         <p id={`${id}-reason`} className="text-detail text-warning">
           {needsSetup ? (
-            <a
-              href="https://docs.subshell.sh/nodes/manage#apps-browsers-and-virtual-displays"
-              target="_blank"
-              rel="noreferrer"
-              className="underline"
-            >
+            <a href="https://docs.subshell.sh/previews/setup" target="_blank" rel="noreferrer" className="underline">
               Set up virtual display
             </a>
           ) : (

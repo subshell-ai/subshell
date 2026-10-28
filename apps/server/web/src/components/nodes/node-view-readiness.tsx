@@ -25,8 +25,8 @@ export function NodeViewReadiness({
         <a
           href={
             provider === "betterdisplay"
-              ? "https://docs.subshell.sh/nodes/manage#macos-display-helper"
-              : "https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux"
+              ? "https://docs.subshell.sh/previews/macos"
+              : "https://docs.subshell.sh/previews/linux"
           }
           target="_blank"
           rel="noreferrer"

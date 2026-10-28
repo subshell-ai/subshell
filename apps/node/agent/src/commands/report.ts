@@ -10,6 +10,7 @@ import type {
 import { log } from "../log.js";
 import { readMaintenance, reportableMaintenance, writeMaintenance } from "../maintenance.js";
 import { readPreviewEnabled, reportablePreviewEnabled } from "../preview/flags.js";
+import { selfInvocation } from "../self-invoke.js";
 import { readSshEnabled, reportableSshEnabled } from "../ssh-enabled.js";
 import type { CommandContext, WatcherRegistration } from "./context.js";
 
@@ -43,6 +44,27 @@ export const EXIT_WATCH_INTERVAL_MS = 2_000;
  * both rc=1 from one CLI call, only stderr differs.
  */
 export const NODE_EXIT_UNREACHABLE_TICKS = 2;
+
+/**
+ * How many shared ticks (≈2 s each) between two looks at a live pane's
+ * capture child. `#{pane_pipe}` is NOT relied on as a liveness signal: two
+ * measurements of the same tmux 3.6 disagreed on what a killed writer leaves
+ * it reading (0 vs 1, depending on whether the tracked shell or its grandchild
+ * died), which is exactly the unreliability that makes the flag unusable as
+ * the detector. The honest signal is the invariant the whole path serves:
+ * if the pane's SCREEN moves and the LOG does not, the writer is dead.
+ */
+export const PIPE_GUARD_CHECK_TICKS = 10;
+
+/**
+ * Accumulated drift observations before re-arming, across checks (so the
+ * re-arm lands a little over a minute into "printing into a dead pipe").
+ * Generous on purpose: the check
+ * itself spawns tmux, and a single race (output landing between the capture
+ * and the stat) must not spend a re-arm — replacing the pipe closes the old
+ * child and opens the new one, and bytes in that microsecond gap are lost.
+ */
+export const PIPE_GUARD_MISSED_LIMIT = 3;
 
 /**
  * Announce one maintenance state to the plane and remember having done so.
@@ -398,6 +420,7 @@ export async function runExitWatchTick(ctx: CommandContext): Promise<void> {
         for (const { subshellId, reg } of entries) {
           if (alive.has(subshellId)) {
             reg.unreachable = 0; // an authoritative answer breaks any unreachable streak
+            await guardPipeChild(ctx, socket, subshellId, reg); // the writer can die quietly; see its docstring
             continue;
           }
           // Re-check OWNERSHIP, not just membership: execKill/execTerminate may
@@ -429,6 +452,51 @@ export async function runExitWatchTick(ctx: CommandContext): Promise<void> {
     }
   }
   if (ctx.watchers.size === 0) stopLoop(ctx); // last pane left the building — no idle tick
+}
+
+/**
+ * One look at a live pane's capture child: compare its screen with its log.
+ * Both unchanged → nothing (a quiet pane is not a dead writer). Log moved →
+ * healthy, reset. Screen moved while the log stood still → strike; enough
+ * strikes without log progress re-arm the pipe (without `-o`, which replaces the
+ * child — with it tmux would call the dead writer "already on").
+ *
+ * Every call runs inside the tick's per-pane flow but cannot wound it: any
+ * failure (a throwing probe, an unstubbed fake in tests) is swallowed — the
+ * death watch is the tick's real job, this is its insurance.
+ */
+async function guardPipeChild(
+  ctx: CommandContext,
+  socket: string,
+  subshellId: string,
+  reg: WatcherRegistration,
+): Promise<void> {
+  try {
+    let g = reg.pipeGuard;
+    if (!g) {
+      g = { lastScreen: "", lastSize: -1, missed: 0, ticks: 0 };
+      reg.pipeGuard = g;
+    }
+    if (++g.ticks < PIPE_GUARD_CHECK_TICKS) return;
+    g.ticks = 0;
+    const screen = await ctx.tmux.capturePane(socket, subshellId);
+    const size = Bun.file(ctx.meta.logPath(subshellId)).size;
+    if (size !== g.lastSize) {
+      g.missed = 0; // the log moved with the screen: healthy
+    } else if (screen !== g.lastScreen) {
+      g.missed += 1; // Quiet intervals neither prove health nor add strikes.
+    }
+    g.lastScreen = screen;
+    g.lastSize = size;
+    if (g.missed < PIPE_GUARD_MISSED_LIMIT) return;
+    g.missed = 0;
+    const logFile = ctx.meta.logPath(subshellId);
+    ctx.tmux.pipePane(socket, subshellId, logFile, selfInvocation("pane-log"), { replace: true });
+    log(`exit watcher: pane ${subshellId} printed while its replay log stood still; re-armed the capture child`);
+  } catch {
+    // The guard must never cost the tick its death watch (or a test suite its
+    // unstubbed fakes).
+  }
 }
 
 /**

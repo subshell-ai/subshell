@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { ApiError } from "@internal/node-admin";
-import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
+import { createSubshellErrorMessage, isDisplayLaunchRefusal } from "@/lib/create-subshell-error";
 
 /**
  * Launch-failure copy (spec 2026-08-31 §6.6): the create path answers 409
@@ -49,5 +49,50 @@ describe("createSubshellErrorMessage", () => {
     // Anything that is not an ApiError keeps the historical fallback chain.
     expect(createSubshellErrorMessage(new Error("boom"), "Failed to create subshell")).toBe("boom");
     expect(createSubshellErrorMessage(null, "Failed to create subshell")).toBe("Failed to create subshell");
+  });
+});
+
+/**
+ * Which create failures belong to the Virtual display control (and so render
+ * inside the field, not at the form's foot). The contract is the refusal WORD
+ * the server mirrors: `screenLaunchRemedy` always names it in parentheses,
+ * and the service's switch preflight carries `preview-node-off`.
+ */
+describe("isDisplayLaunchRefusal", () => {
+  it("routes the budget refusal the AI PC actually answered", () => {
+    expect(
+      isDisplayLaunchRefusal(
+        "API 400: That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or launch without a screen. (preview-display-not-ready: display :90 / rfb 5910 not answering within 10000ms (Xvfb socket never appeared))",
+      ),
+    ).toBe(true);
+  });
+  it("routes every other display-owned word, bare or suffixed", () => {
+    expect(isDisplayLaunchRefusal("… (preview-display-unsupported)")).toBe(true);
+    expect(isDisplayLaunchRefusal("… (preview-display-missing-requirements: x11vnc)")).toBe(true);
+    expect(isDisplayLaunchRefusal("… (preview-display-provider-disabled)")).toBe(true);
+    expect(isDisplayLaunchRefusal("… (preview-display-provider-conflict: …)")).toBe(true);
+    expect(isDisplayLaunchRefusal("Virtual displays are disabled on this node. (preview-node-off)")).toBe(true);
+  });
+  it("does not let a preset name steer the routing", () => {
+    // The create path interpolates a person-chosen name straight into the
+    // message, so substring matching would move an unrelated 409 under the
+    // Virtual display checkbox and blame the screen toggle for a switched-off
+    // preset. Only the mirrored tail group is the server's own words.
+    expect(isDisplayLaunchRefusal('Preset "preview-display-test" is disabled')).toBe(false);
+    expect(isDisplayLaunchRefusal('Preset "preview-node-off" is disabled')).toBe(false);
+    expect(isDisplayLaunchRefusal('Preset "check (preview-display-x" is disabled')).toBe(false);
+  });
+
+  it("leaves every other failure at the form line", () => {
+    // A display MENTION is not a display REFUSAL: only the server's words
+    // route, so an offline node or a bad directory never lands on the field.
+    expect(isDisplayLaunchRefusal("That node is offline. Start its Subshell daemon or choose another node.")).toBe(
+      false,
+    );
+    expect(isDisplayLaunchRefusal("API 409: That harness is disabled or not installed on that node")).toBe(false);
+    expect(
+      isDisplayLaunchRefusal("This preset’s display settings are invalid. Edit the preset before launching."),
+    ).toBe(false);
+    expect(isDisplayLaunchRefusal("")).toBe(false);
   });
 });

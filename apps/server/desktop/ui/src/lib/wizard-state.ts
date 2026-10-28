@@ -69,7 +69,8 @@ export type ScreenId =
   | "supervision"
   | "settings"
   | "backup"
-  | "restore";
+  | "restore"
+  | "display";
 
 /**
  * The label on the way into the Reset screen, and the Reset screen's own
@@ -158,6 +159,12 @@ export function prereqState(probe: Probe): PrereqState {
  * `desktop_open_assistant` grant it already holds. That would be a decision to
  * take on its merits rather than a hole; the screen changes nothing a signed-in
  * admin cannot change on the Networking page.
+ *
+ * `display` — **Virtual Displays** — is the rail's door onto the macOS display
+ * helper (2026-10-26). It is on this list for the same reason `settings` is: the
+ * rail selects a SCREEN, and a screen is reached through this list or not at
+ * all. Nothing about the machine implies wanting it, so it can never be earned
+ * from a probe, and the rail is the only door today.
  */
 export const REQUESTED_SCREENS: readonly ScreenId[] = [
   "update",
@@ -167,6 +174,7 @@ export const REQUESTED_SCREENS: readonly ScreenId[] = [
   "settings",
   "backup",
   "restore",
+  "display",
 ];
 
 /**

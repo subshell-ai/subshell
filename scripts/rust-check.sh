@@ -32,6 +32,16 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 env -u SHELLOPTS -u BASHOPTS bash "$ROOT/native/display-helper/test.sh"
 
+# The helper bundle carries the panel page (see native/display-helper/build_support.rs).
+# A debug build tolerates its absence with a placeholder that names this very
+# command, because the CI Rust lanes run with no node_modules at all; when the
+# workspace IS installed, build it, so clippy and any local `cargo build`
+# bundle the real page rather than the placeholder.
+if [ -d "$ROOT/node_modules" ]; then
+  echo "==> packages/helper-panel"
+  (cd "$ROOT" && bunx turbo run build --filter=@internal/helper-panel)
+fi
+
 TRIPLE="$(rustc --print host-tuple)"
 
 # dir : sidecar stem. Each app's tauri.conf.json carries the same stem; the stem names the binary the app WRAPS, not the app.

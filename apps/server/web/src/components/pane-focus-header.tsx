@@ -10,7 +10,7 @@ import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDevices } from "@/components/subshell-devices";
 import { SubshellDot } from "@/components/subshell-dot";
 import { TrustIndicators } from "@/components/trust-indicators";
-import { VirtualDisplayIndicator } from "@/components/virtual-display-indicator";
+import { VirtualDisplayEntry } from "@/components/virtual-display-indicator";
 import { useCloseSubshellLanding } from "@/hooks/use-close-subshell-landing";
 import { useHarnessSubagents } from "@/hooks/use-harness-subagents";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
@@ -19,8 +19,10 @@ import { useNodes } from "@/hooks/use-nodes";
 import { useOpenVirtualDisplay } from "@/hooks/use-open-virtual-display";
 import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
 import { usePaneDevices } from "@/hooks/use-pane-devices";
+import { usePaneDiagnostics } from "@/hooks/use-pane-diagnostics";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
+import { useUnsavedPreviewCount } from "@/hooks/use-unsaved-preview-count";
 import { invalidateAfterRename } from "@/hooks/use-workspaces";
 import { FALLBACK_NODE_ID, nodeLabelFor } from "@/lib/subshell-node-groups";
 import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
@@ -40,11 +42,16 @@ function FocusedPaneActions({
 }) {
   const subshell = useSubshellRow(id);
   const copyMode = usePaneCopyMode(id);
+  // The Wave C HUD, at the one surface outside the subshell page that has a
+  // terminal to point it at: this header sits directly above the focused
+  // pane's dock terminal, which reads the same per-device preference.
+  const [diagOn, diagToggle] = usePaneDiagnostics(id);
   const coarse = useIsCoarsePointer();
   const closeLanding = useCloseSubshellLanding();
   return subshell ? (
     <SubshellActionsMenu
       subshell={subshell}
+      diagnostics={{ on: diagOn, onToggle: diagToggle }}
       copyMode={coarse ? copyMode : undefined}
       onDeleted={() => closeLanding(subshell.id, workspaceId ? { id: workspaceId, panes } : null)}
     />
@@ -88,6 +95,7 @@ export function PaneFocusHeader({
   const focusedPane = panes.find((pane) => pane.subshellId === focusedId);
   const subshell = useSubshellRow(focusedPane?.subshellId ?? "");
   const openVirtualDisplay = useOpenVirtualDisplay(subshell);
+  const unsavedPreview = useUnsavedPreviewCount(focusedPane?.subshellId, subshell);
   const devices = usePaneDevices(focusedPane?.id);
   const trustNotices = useTrustNotices(focusedPane ? subshell : undefined);
   const stacked = useIsStackedHeader();
@@ -158,7 +166,9 @@ export function PaneFocusHeader({
       }
       actions={
         <>
-          {isPane && <VirtualDisplayIndicator display={subshell?.virtualDisplay} onOpen={openVirtualDisplay} />}
+          {isPane && (
+            <VirtualDisplayEntry subshell={subshell} unsavedCount={unsavedPreview} onOpen={openVirtualDisplay} />
+          )}
           {isPane && subshell && <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />}
           {isPane && <TrustIndicators notices={trustNotices} />}
           {devices && <SubshellDevices key={focusedPane?.id} state={devices.state} onSizing={devices.onSizing} />}

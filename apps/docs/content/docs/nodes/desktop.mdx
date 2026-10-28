@@ -10,7 +10,7 @@ Make your desktop machine a node through Subshell Client.
 Follow [Install Subshell Client](/install/desktop-client), then open **Settings** → **Nodes** in the server dashboard's sidebar and select **Add node** at the top of the page. Choose a reachable address, generate a setup key, and select **Desktop App** to find the enrollment values.
 
 <figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/node-enrollment.png" alt="Install Subshell client dialog showing a sample server address, Generate setup key, and Desktop App instructions." width="1072" height="984" loading="lazy" decoding="async" unoptimized />
+  <ImageZoom src="/screenshots/node-enrollment.png" alt="Install Subshell client dialog showing a sample server address, Generate setup key, and Desktop App instructions." width="1072" height="956" loading="lazy" decoding="async" unoptimized />
   <figcaption>Select Desktop App in Add node to find the values needed for enrollment. The address is an example; no setup key has been generated. Select the image to enlarge it.</figcaption>
 </figure>
 
@@ -33,6 +33,14 @@ The client bundles the node binary. It can enroll even when the control plane ha
 Install coding agent CLIs under the node's OS account. Set [Directory restrictions](/nodes/directories) and confirm the appropriate persistence mode before leaving a task running.
 
 Agents run on the node. The server stores your instance settings and serves the dashboard.
+
+## Run graphical apps on this machine
+
+Follow [Preview prerequisites and setup](/previews/setup) to enable web previews
+or virtual displays on the enrolled node. For a Mac, follow
+[macOS virtual displays](/previews/macos) to open **Virtual Displays** in the
+local node window, enable the helper, and grant macOS permissions. For a Linux
+machine, follow [Linux virtual displays](/previews/linux).
 
 ## Re-register an existing node
 

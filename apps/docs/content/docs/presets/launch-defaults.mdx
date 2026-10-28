@@ -19,7 +19,7 @@ Create a preset and have launch access to the intended machine. Use an absolute 
 6. Select **Save**.
 
 <figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/preset-launch-defaults.png" alt="Launch defaults showing the Server machine, a project directory, Review changes prompt, and enabled agent-created launches." width="1748" height="932" loading="lazy" decoding="async" unoptimized />
+  <ImageZoom src="/screenshots/preset-launch-defaults.png" alt="Launch defaults showing the Server machine, a project directory, Review changes prompt, and enabled agent-created launches." width="1748" height="1610" loading="lazy" decoding="async" unoptimized />
   <figcaption>The example combines a project location with review instructions. Its optional MCP switch allows agents to use the preset. Select the image to enlarge it.</figcaption>
 </figure>
 
@@ -36,9 +36,12 @@ Prompt text guides the agent; it isn't a security boundary. Agent flags and perm
 
 Enable **Virtual display** to include a screen when launching from this preset.
 Under **Display provider**, keep **Node default** or choose a specific provider.
-Saving the preset doesn't enable displays on its machine or start any processes.
+The list shows only providers the selected machine's operating system can run,
+and it follows the machine: choosing one that can't run what you'd saved clears
+the pick back to **Node default** rather than storing a launch the node will
+refuse. Saving the preset doesn't enable displays on its machine or start any processes.
 At launch, the chosen node must allow that provider and meet its requirements.
-See [Web previews & screens](/guides/preview#use-a-virtual-display-on-linux).
+See [Web previews & screens](/previews/linux).
 
 The launch form copies this choice along with the other defaults. You can select
 another enabled provider or turn off Virtual display before starting. Once a

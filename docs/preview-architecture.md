@@ -3,7 +3,7 @@
 Preview connects a browser to a subshell's dev server, browser frames, or
 virtual display through the server. The current implementation is shared by
 enrolled nodes and the server's built-in node. User procedures live in the
-[Preview guide](../apps/docs/content/docs/guides/preview.mdx); the threat model
+[Preview guide](../apps/docs/content/docs/previews/index.mdx); the threat model
 and audit findings live in [security §11.15](security.md#1115-web-previews-and-virtual-displays)
 and [the preview audit](security-actionable.md#preview-feature-audit-2026-10-24).
 
@@ -169,8 +169,15 @@ Each HTTP request uses a fresh lane. The server strips dashboard cookies,
 HTTP authorization, API keys, and known edge-identity headers,
 sets `Host` to the saved destination (loopback for automatic views), frames the HTTP request over the lane, and releases it
 when the response completes or the browser aborts. It does not retry partial
-writes. Root-relative redirects are prefixed with the session path; HTML and
-JavaScript asset URLs are not rewritten.
+writes. Personal proxy settings default to rewriting app URLs and redirects,
+with preview-host forwarding off. Supported HTML attributes, CSS URLs/imports,
+and module import specifiers are mapped under the session path. An injected
+browser script handles common dynamic request and DOM URL APIs; target CSP can
+block it. Text rewriting is bounded to 16 MiB decoded, while untransformed
+bodies stream. Rewriting preserves the opaque-origin sandbox, so storage,
+service workers, and arbitrary app behavior still need a normal browser context.
+See [Configure an app preview](../apps/docs/content/docs/previews/apps.mdx#configure-an-app-preview)
+for personal settings and their defaults.
 
 Target `Set-Cookie` pairs remain in the session's server-side jar and are used
 only on subsequent target requests. No target cookie is installed on the

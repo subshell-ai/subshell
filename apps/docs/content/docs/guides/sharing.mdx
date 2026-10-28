@@ -17,7 +17,7 @@ Only the owner can change sharing. The recipient needs an account on the same in
 4. Review the listed recipients and their access levels, then select **Save**.
 
 <figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/session-sharing.png" alt="Sharing dialog with Everyone granted View access, permission dropdowns, and a searchable recipient picker." width="1072" height="884" loading="lazy" decoding="async" unoptimized />
+  <ImageZoom src="/screenshots/session-sharing.png" alt="Sharing dialog with Everyone granted View access, permission dropdowns, and a searchable recipient picker." width="1072" height="856" loading="lazy" decoding="async" unoptimized />
   <figcaption>Select an access level for each recipient, then save the grants. Select the image to enlarge it.</figcaption>
 </figure>
 
@@ -40,7 +40,7 @@ Attached viewers can see other viewers' device names and terminal dimensions. No
 
 ## Revoke access
 
-Remove the relevant grants in the sharing dialog. An agent's pane token can list shared sessions, but it can't inspect or change another user's session through that grant.
+Remove the relevant grants in the sharing dialog. Saving changes reconnects recipients' open terminals and checks their current access. A removed recipient can no longer read or type; someone changed from Edit to View reconnects with a read-only terminal. Your own terminal stays connected. Commands already sent may finish. An agent's pane token can list shared sessions, but it can't inspect or change another user's session through that grant.
 
 ## Next steps
 

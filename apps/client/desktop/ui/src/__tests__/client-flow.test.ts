@@ -294,22 +294,35 @@ describe("registerSteps", () => {
  * machine's journey, not about who asked.
  */
 describe("railFor", () => {
-  it("answers the six standing sections for a settled machine on a standing screen", () => {
+  it("answers the seven standing sections for a settled Mac on a standing screen", () => {
     // Service and Control Plane joined by operator ruling 2026-09-22 (live
     // screenshots): the node's machinery and the plane address's home move
     // out of the status screen, and the rail carries them.
-    for (const screen of ["status", "service", "plane", "update", "about"] as const) {
-      const sections = railFor(screen, true);
+    for (const screen of ["status", "service", "plane", "update", "about", "display"] as const) {
+      const sections = railFor(screen, true, true);
       expect(
         sections?.map((s) => s.id),
         screen,
-      ).toEqual(["plane", "status", "service", "update", "about", "reset"]);
+      ).toEqual(["plane", "status", "service", "update", "about", "display", "reset"]);
       expect(
         sections?.map((s) => s.label),
         screen,
-      ).toEqual(["Control Plane", "Status", "Service", "Update", "About", "Reset"]);
+      ).toEqual(["Control Plane", "Status", "Service", "Update", "About", "Virtual Displays", "Reset"]);
     }
-    expect(railFor("status", true)?.find((s) => s.id === "reset")?.danger).toBe(true);
+    expect(railFor("status", true, true)?.find((s) => s.id === "reset")?.danger).toBe(true);
+  });
+
+  it("leaves Virtual Displays off the rail where there is no display helper", () => {
+    // The section is platform FACT, not vocabulary: BetterDisplay is macOS
+    // only, so a Linux node's rail would otherwise carry a door onto nothing.
+    // The explicit `false` is the point of the parameter: read off the user
+    // agent, this assertion could only ever run on the runner's own OS.
+    const sections = railFor("plane", true, false);
+    expect(sections?.map((s) => s.id)).toEqual(["plane", "status", "service", "update", "about", "reset"]);
+    expect(sections?.some((s) => s.id === "display")).toBe(false);
+    // Reset keeps the last slot either way: the destructive door is last on
+    // every platform, and nothing joins the rail after it.
+    expect(sections?.at(-1)?.id).toBe("reset");
   });
 
   it("answers null for every FTE walk screen, enroll and the unread state", () => {
@@ -326,8 +339,11 @@ describe("railFor", () => {
   it("carries the Reset DOOR on every standing section, danger-styled", () => {
     // Reset is not a section (dialog ruling 2026-09-22): the rail's sixth
     // item is a door that opens the confirmation over whatever stands.
-    const sections = railFor("plane", true);
-    expect(sections?.map((s) => s.id)).toEqual(["plane", "status", "service", "update", "about", "reset"]);
+    // Pinned to a Mac explicitly: left to the default, this assertion would
+    // read the RUNNER's platform and mean two different things on the two CI
+    // lanes.
+    const sections = railFor("plane", true, true);
+    expect(sections?.map((s) => s.id)).toEqual(["plane", "status", "service", "update", "about", "display", "reset"]);
     expect(sections?.find((s) => s.id === "reset")?.danger).toBe(true);
   });
 
@@ -335,7 +351,7 @@ describe("railFor", () => {
     // The tray can raise About mid-walk, and the router honours it; wave 2's
     // ruling keeps the render and takes away the rail — the exclusion is
     // about the machine's journey, not about who asked.
-    for (const screen of ["status", "service", "plane", "update", "about"] as const) {
+    for (const screen of ["status", "service", "plane", "update", "about", "display"] as const) {
       expect(railFor(screen, false), screen).toBeNull();
     }
   });
@@ -346,6 +362,7 @@ describe("railFor", () => {
     expect(railActive("plane")).toBe("plane");
     expect(railActive("update")).toBe("update");
     expect(railActive("about")).toBe("about");
+    expect(railActive("display")).toBe("display");
     // Reset activates NOTHING (dialog ruling 2026-09-22): it is a door in
     // the rail, not a section, and the standing screen keeps the highlight
     // while the confirmation is up.

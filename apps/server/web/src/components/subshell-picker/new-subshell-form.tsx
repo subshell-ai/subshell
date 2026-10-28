@@ -2,7 +2,8 @@ import type { Node } from "@internal/node-admin";
 import { Input, Label } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import type { JSX } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { LaunchErrorLine } from "@/components/launch-error-line";
 import { ListLoadError } from "@/components/list-load-error";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
 import { LaunchCommandPreview } from "@/components/subshell-picker/launch-command-preview";
@@ -25,6 +26,7 @@ import { useNodes } from "@/hooks/use-nodes";
 import { usePresets } from "@/hooks/use-presets";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
 import { useSubshellsList } from "@/hooks/use-subshells";
+import { providerForMachine } from "@/lib/display-provider-choice";
 import { isOfflineAgent } from "@/lib/node-label";
 import { presetChoiceLabel } from "@/lib/preset-access";
 import { loadRecentPresetPicks, recordRecentPresetPick } from "@/lib/preset-recents";
@@ -85,11 +87,20 @@ export function NewSubshellForm({
   firstRun = false,
   skipPriorLaunch = false,
   onLeave,
+  launchError,
 }: {
   value: NewSubshellFormValue;
   onChange: (value: NewSubshellFormValue) => void;
   /** Field element ids; defaults to the dialog's (e2e-pinned) set. */
   ids?: NewSubshellFormIds;
+  /**
+   * The create failure this launch's Virtual display control owns, when the
+   * server refused the display itself (`isDisplayLaunchRefusal` picks these
+   * out). It renders under the checkbox rather than in the dialog's
+   * form-level line: the refusal answers the one control that asked for the
+   * screen, and a warning belongs at the decision point.
+   */
+  launchError?: string | null;
   /**
    * The setup assistant's first launch: the Agent gets the one hint that
    * teaches the word, and the Preset row is hidden (there are no presets yet
@@ -138,6 +149,15 @@ export function NewSubshellForm({
   // Unanswered or malformed data cannot invalidate a held selection.
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
   const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === value.nodeId) ?? null;
+  // The machine owns which display provider is even possible, and three paths
+  // can move it: the Machine select, a preset apply that names its own node,
+  // and the recents auto-default. So the check rides the resolved pair rather
+  // than any one handler: a form holding BetterDisplay for a Linux node would
+  // offer, and launch with, the choice the OS gate exists to remove.
+  useEffect(() => {
+    const kept = providerForMachine(value.displayProvider, selectedNode?.os);
+    if (kept !== value.displayProvider) onChange({ ...value, displayProvider: kept });
+  }, [value, onChange, selectedNode?.os]);
   const displayCheck = useNodeDisplayReadiness(selectedNode, value.displayProvider);
 
   // The ONE effect (prior-launch node+dir → re-home → seed → agent)
@@ -242,7 +262,15 @@ export function NewSubshellForm({
   // The whole node list goes through, because the empty state's job is now to
   // say — per machine — what is in the way and who can move it.
   if (nodes !== null && !targets.some(isSelectable)) {
-    return <NoLaunchTargets nodes={nodes} onNavigate={onLeave} />;
+    // The form is gone, so nothing downstream can host the refusal it carried:
+    // render it here, or a launch that the node refused over its display
+    // vanishes the moment every machine becomes unselectable behind the dialog.
+    return (
+      <>
+        <LaunchErrorLine message={launchError} />
+        <NoLaunchTargets nodes={nodes} onNavigate={onLeave} />
+      </>
+    );
   }
 
   return (
@@ -404,6 +432,7 @@ export function NewSubshellForm({
           node={selectedNode}
           id={ids.virtualDisplay}
           resetReason={value.displayResetReason}
+          launchError={launchError}
           provider={value.displayProvider}
           onProviderChange={(displayProvider) => onChange({ ...value, displayProvider, displayResetReason: undefined })}
           checked={value.virtualDisplay === true}

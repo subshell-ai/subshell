@@ -1,6 +1,9 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "stream",
+  "globalDependencies": [
+    "packages/assistant/tokens.css"
+  ],
   "tasks": {
     "clean": {
       "cache": false

@@ -82,6 +82,7 @@ import {
 } from "./lib/wizard-state";
 import { useAssistantRunners } from "./runners";
 import { AddressesScreen } from "./screens/addresses-screen";
+import { DisplayScreen } from "./screens/display-screen";
 import { HandoffScreen } from "./screens/handoff-screen";
 import { PermissionsScreen } from "./screens/permissions-screen";
 import { ResetDialog, type ResetLog } from "./screens/reset-dialog";
@@ -986,7 +987,10 @@ export function Host(): React.JSX.Element {
    * screen — facts, the log tail, one button (operator ruling 2026-09-23: no
    * more bounce through the handoff for a deliberate select).
    */
-  const railSections = railFor(r, probe?.onboarded ?? false);
+  // The platform is the probe's, never the build machine's: this window shows
+  // the machine it runs on today, and the Virtual Displays section is a
+  // platform fact (`railFor` takes it as a required argument for that reason).
+  const railSections = railFor(r, probe?.onboarded ?? false, probe?.platform === "darwin");
   const rail =
     railSections === null ? undefined : (
       <Rail
@@ -1250,6 +1254,16 @@ export function Host(): React.JSX.Element {
           return { title: "Your Server Is Running", subtitle: "Everything the server reports is below.", problem };
         return { title: recoveryTitle(probe.next), subtitle: recoverySubtitle(probe.next), problem };
       }
+      case "display":
+        // Verbatim the Subshell Client's own sentence for the same subject
+        // (`subtitles.ts`): two apps, one thing they are both telling you
+        // about, and a reader who opens both should not meet two names for it.
+        return {
+          title: "Virtual Displays",
+          subtitle:
+            "A virtual display gives a subshell a screen for graphical apps without needing another physical monitor.",
+          problem,
+        };
       // Task 7 lands these screens' strings with it.
       default:
         return { title: "", subtitle: "", problem };
@@ -1501,6 +1515,13 @@ export function Host(): React.JSX.Element {
             onRunSettings={(fn) => void runSettings(fn)}
             onClose={close}
           />
+        );
+        break;
+      case "display":
+        // The rail's macOS-only section is the only door here, and the screen's
+        // one press opens a native panel, so it takes no probe and runs nothing.
+        content = (
+          <DisplayScreen rail={rail} strings={shell("display")} entranceKey={entranceKey} probe={p} onClose={close} />
         );
         break;
       case "permissions":

@@ -117,6 +117,9 @@ interface DepOverrides {
   xSocketReady?: boolean;
   /** Readiness budget override. */
   readyBudgetMs?: number;
+  /** Exit this child the moment it spawns: the way a display server that dies
+   *  on its own (missing peer, exhausted /dev/shm, bad auth) presents. */
+  exitsEarly?: "Xvfb" | "x11vnc";
 }
 
 /**
@@ -139,7 +142,9 @@ function makeDeps(over: DepOverrides = {}) {
   };
   let pidSeq = 4100;
   let clock = Date.now();
+  const lines: string[] = [];
   const deps: DisplayDeps = {
+    log: (line) => lines.push(line),
     spawnSync: (argv) => {
       calls.push({ kind: "spawnSync", argv });
       if (String(argv[0]).endsWith("xauth")) writeFileSync(String(argv[2]), "", { mode: 0o600 });
@@ -148,8 +153,13 @@ function makeDeps(over: DepOverrides = {}) {
     spawn: (argv, opts) => {
       const child = new FakeChild(pidSeq++);
       alivePids.add(child.pid);
+      if (over.exitsEarly && String(argv[0]).endsWith(over.exitsEarly)) child.fireExit(1);
       const rfbIdx = argv.indexOf("-rfbport");
       if (over.x11vncListens !== false && rfbIdx >= 0) busy.add(Number(argv[rfbIdx + 1]));
+      // The real spawn appends both child streams to `logPath`; a refusal
+      // reads those tails back into the daemon log, so the double has to put
+      // something there or the tail lines would be testing their own absence.
+      writeFileSync(opts.logPath, `# fake ${String(argv[0]).split("/").pop()} output\n`, { flag: "a" });
       const jsonFile = join(opts.logPath, "..", "display.json");
       calls.push({
         kind: "spawn",
@@ -189,7 +199,7 @@ function makeDeps(over: DepOverrides = {}) {
     calls.filter((c): c is Extract<DepCall, { kind: "spawn" }> => c.kind === "spawn");
   const killPids = (): number[] => calls.flatMap((c) => (c.kind === "kill" && c.signal !== 0 ? [c.pid] : []));
   const probes = (): number[] => calls.flatMap((c) => (c.kind === "kill" && c.signal === 0 ? [c.pid] : []));
-  return { deps, calls, busy, alivePids, spawns, killPids, probes, advanceClock: (ms: number) => (clock += ms) };
+  return { deps, calls, busy, alivePids, spawns, killPids, probes, lines, advanceClock: (ms: number) => (clock += ms) };
 }
 
 /** Let the resolved `exited` promises run their watch handlers. */
@@ -418,6 +428,23 @@ describe("PreviewDisplays.openFor", () => {
     expect(reg.getFor(PANE)).toBeNull();
   });
 
+  it("refuses the moment a display child dies, rather than waiting out the budget", async () => {
+    // A child that has already exited can never become ready, and the loop
+    // used to have exactly one way out. Every spawn-time death - a missing
+    // peer, an exhausted /dev/shm, bad auth - therefore burned the whole
+    // readiness budget per launch, doubling the wait a Create spinner shows
+    // and eating a third of the plane's 60 s launch window to learn nothing
+    // the first poll had not already told.
+    const dataDir = onDir("child-dies");
+    const { deps, killPids } = makeDeps({ xSocketReady: false, exitsEarly: "Xvfb", readyBudgetMs: 10_000 });
+    const reg = new PreviewDisplays(dataDir, deps);
+    await expect(reg.openFor(PANE, { width: 640, height: 480 })).rejects.toThrow(/gave up: Xvfb exited/);
+    // Same teardown as a budget expiry: both children signalled, dir and lock gone.
+    expect(killPids().length).toBe(2);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-90.lock"))).toBe(false);
+  });
+
   it("an X socket that comes up but an rfb server that never listens also refuses preview-display-not-ready", async () => {
     // The second readiness phase, with its own pin: xSocketReady true, but the
     // x11vnc double never occupies the port, so the rfb poll exhausts the
@@ -428,6 +455,53 @@ describe("PreviewDisplays.openFor", () => {
     await expect(reg.openFor(PANE, { width: 640, height: 480 })).rejects.toThrow(PREVIEW_DISPLAY_NOT_READY);
     expect(killPids().length).toBe(2);
     expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
+  });
+
+  it("names which readiness gate failed when a display is refused", async () => {
+    // The bare "not answering" sentence sent operators to check the wrong
+    // program: a missing X socket, a port that never binds, and a listener
+    // owned by someone else look nothing alike on a slow box. The refusal
+    // must say which of the three gates was still shut when the budget ran
+    // out, so the node's own Xvfb.log / x11vnc.log tail (the next case)
+    // points at the right suspect.
+    const socket = makeDeps({ xSocketReady: false, readyBudgetMs: 200 });
+    const socketReg = new PreviewDisplays(onDir("gate-socket"), socket.deps);
+    await expect(socketReg.openFor(PANE, { width: 640, height: 480 })).rejects.toThrow("Xvfb socket never appeared");
+
+    const bind = makeDeps({ x11vncListens: false, readyBudgetMs: 200 });
+    const bindReg = new PreviewDisplays(onDir("gate-bind"), bind.deps);
+    await expect(bindReg.openFor(PANE, { width: 640, height: 480 })).rejects.toThrow("rfb port answered nothing");
+
+    const owner = makeDeps({ readyBudgetMs: 200 });
+    const ownerReg = new PreviewDisplays(onDir("gate-owner"), { ...owner.deps, ownsRfbListener: () => false });
+    await expect(ownerReg.openFor(PANE, { width: 640, height: 480 })).rejects.toThrow(
+      "listener not owned by the x11vnc pid",
+    );
+  });
+
+  it("logs both children's output when a display is refused, before the dir is reaped", async () => {
+    // The refusal reaps the pane dir, which held Xvfb.log and x11vnc.log -
+    // so without this, a slow or broken box left NO trace of why (the AI PC
+    // failure had nothing to read). The provider must hand both tails to its
+    // `log` dep before teardown so the daemon journal keeps the evidence.
+    const dataDir = onDir("refusal-tails");
+    const { deps, lines } = makeDeps({ x11vncListens: false, readyBudgetMs: 200 });
+    const reg = new PreviewDisplays(dataDir, deps);
+    await expect(reg.openFor(PANE, { width: 640, height: 480 })).rejects.toThrow(PREVIEW_DISPLAY_NOT_READY);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
+    expect(lines.some((line) => line.includes("Xvfb.log tail") && line.includes("# fake Xvfb output"))).toBe(true);
+    expect(lines.some((line) => line.includes("x11vnc.log tail") && line.includes("# fake x11vnc output"))).toBe(true);
+  });
+
+  it("stays silent about tails when the refusal predates both children", async () => {
+    // An xauth mint that fails throws before anything is spawned: the two
+    // logs are empty pre-created files, and dumping "(empty)" twice is noise
+    // in the very journal the evidence is meant to enrich. No children were
+    // started, so no lines about them.
+    const { deps, lines } = makeDeps({ xauthRc: 1 });
+    const reg = new PreviewDisplays(onDir("refusal-early"), deps);
+    await expect(reg.openFor(PANE, { width: 640, height: 480 })).rejects.toThrow(PREVIEW_DISPLAY_NOT_READY);
+    expect(lines.some((line) => line.includes("tail"))).toBe(false);
   });
 
   it.skipIf(process.platform === "linux")(

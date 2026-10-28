@@ -4,7 +4,7 @@
  *
  *   bunx turbo build
  *   cd apps/server/web
- *   bun --preload ./src/test-setup.ts scripts/probe-desync.ts <subshell-id>
+ *   bun --preload ./scripts/probe-preload.ts scripts/probe-desync.ts <subshell-id>
  *
  * Hypothesis under test: the client resizes its OWN xterm (fit.fit() on any
  * ResizeObserver / visualViewport tick) while the tmux pane keeps its size, so
@@ -13,7 +13,7 @@
  */
 import { createHash } from "node:crypto";
 import { Terminal } from "@xterm/xterm";
-import { captureToReplayText } from "../../server/dist/ws/capture-text.js";
+import { captureToReplayText } from "../../api/dist/api/ws/capture-text.js";
 
 const id = process.argv[2];
 if (!id) throw new Error("usage: probe-desync.ts <subshell-id>");

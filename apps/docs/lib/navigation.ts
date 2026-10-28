@@ -4,6 +4,7 @@ export const DOC_SECTIONS = [
   { slug: "get-started", title: "Get started" },
   { slug: "install", title: "Installation" },
   { slug: "guides", title: "Use Subshell" },
+  { slug: "previews", title: "Web previews & screens" },
   { slug: "presets", title: "Presets" },
   { slug: "prompts", title: "Reusable Prompts" },
   { slug: "agents", title: "Agents" },

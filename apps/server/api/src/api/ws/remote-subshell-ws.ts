@@ -2,12 +2,13 @@ import { forensicsEnabled, recordAttachPaint } from "@/api/ws/attach-forensics.j
 import type { AttachParams } from "@/api/ws/attach-params.js";
 import { captureToReplayText } from "@/api/ws/capture-text.js";
 import { captureStable, fitPaneAndRepaint, paneReadsAsBooting, RESIZE_SETTLE_MS } from "@/api/ws/pane-repaint.js";
-import { createRemoteTailSource } from "@/api/ws/pane-sources.js";
+import { createRemoteTailSource, tailCloseReason } from "@/api/ws/pane-sources.js";
 import type { Subscription } from "@/api/ws/pane-stream.js";
 import {
   applySharedGeometry,
   broadcastToViewers,
   broadcastViewers,
+  closeViewersForSubshell,
   paneStreams,
   persistOutputFor,
   readPaneCursor,
@@ -236,6 +237,13 @@ export async function attachRemoteSubshellWs(
           subshellId: row.id,
           fromByte: logStart,
           onOutput: () => persistOutputFor(row.id),
+          // The pump is the pane's ONLY byte source, and the registry hands
+          // it to every later viewer of this row. A dead one therefore has
+          // to take its audience down with it: these sockets are closed with
+          // a sub-4000 code (the client's retry signal), and the re-attach
+          // that follows builds a fresh `tail_start` against the current EOF
+          // instead of inheriting a corpse that only ever paints replays.
+          onDead: (reason) => closeViewersForSubshell(row.id, 1011, tailCloseReason(reason)),
         }),
       (text) => {
         // Spec §3.4: a browser that cannot keep up is cut, not queued into —
@@ -338,7 +346,7 @@ export async function attachRemoteSubshellWs(
 
     const painted = captureToReplayText(replay, cursor ?? undefined);
     sendFrame(ws, { type: "replay", data: painted });
-    recordAttachPaint({ subshellId: row.id, preResize, replay: painted, repainted, nudged });
+    recordAttachPaint({ subshellId: row.id, preResize, replay: painted, repainted, nudged, cursor });
     if (detached) return;
 
     // Deliver: flush what the pump held while the replay was being taken,

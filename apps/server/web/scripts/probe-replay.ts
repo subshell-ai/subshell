@@ -10,7 +10,7 @@
  *
  *   bunx turbo build
  *   cd apps/server/web
- *   bun --preload ./src/test-setup.ts scripts/probe-replay.ts <subshell-id> [capLines]
+ *   bun --preload ./scripts/probe-preload.ts scripts/probe-replay.ts <subshell-id> [capLines]
  *
  * Read-only: it runs `capture-pane` / `display-message` and never writes to
  * the pane. `apps/server/web/src/lib/__tests__/replay-alignment.test.ts` pins
@@ -20,7 +20,7 @@
  */
 import { createHash } from "node:crypto";
 import { Terminal } from "@xterm/xterm";
-import { captureToReplayText } from "../../server/dist/ws/capture-text.js";
+import { captureToReplayText } from "../../api/dist/api/ws/capture-text.js";
 
 const id = process.argv[2];
 if (!id) throw new Error("usage: bun probe-replay.ts <subshell-id> [capLines]");

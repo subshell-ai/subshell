@@ -137,6 +137,25 @@ Whether the viewer may CHANGE the sizing is read off the presence frame's own
 `canInput`, never passed in: a workspace pane has no access field to hand, and
 any caller-side copy can disagree with the server that enforces it.
 
+**When the announced grid settles somewhere other than where the replay was
+painted, the terminal re-attaches** (`needsGridResync` in
+`lib/use-subshell-ws.ts`). Bytes the pane emitted across a resize addressed a
+grid this client never rendered, and a relative-positioned TUI (spinner,
+pinned block) keeps repainting from them: the rows mix and never heal, which
+is the 2026-10-27 "fixed elements overlap the output" report. Only the attach
+can fix an attach-time truth (absolute capture, cursor restore, confirmed
+geometry), so a mismatch with output applied since the base replays through
+the ordinary attach, once per observed change, debounced for drag settle and
+storm-gapped. This is deliberately NOT the reverted `eee3a92` reconciliation
+loop: the client never asks the server for a different size, it asks for a
+fresh truth, and the same grid is never resynced twice.
+
+The settle delay is 300 ms and the minimum gap between resync attaches is
+1,000 ms. A resize inside that gap schedules its check for the later of the
+settle delay and the remaining cooldown. Dropping the check at the cooldown
+gate leaves the final grid stale until another event arrives. The hook test
+covers a second resize during the gap with no later geometry event.
+
 Two traps on this path, both invisible with a single viewer and both hit for
 real (2026-09-04):
 
@@ -174,6 +193,24 @@ real (2026-09-04):
   here?" she was). The strip still must never write `layout_json` and still
   has no drag: on a finger, dockview drags no better, so the phone keeps the
   presentation that matches its input.
+
+### Native selection in copy mode
+
+Copy mode needs all three pieces: the capture-phase gesture shield in
+`terminal-touch-scroll.ts`, selectable text, and hit testing on `.xterm-rows`.
+xterm's DOM renderer sets `pointer-events: none` on the rows for its own
+selection service; override it only inside `.copy-mode` so native selection
+can start on text. `user-select: text` on the screen alone isn't enough.
+
+`SubshellTerminal` also disables the hidden textarea while copy mode is on,
+both when creating a terminal and when toggling the mode. `disableStdin` alone
+still allows focus. Blurring that focused input at the start of a native drag
+redraws xterm's cursor row and removes the selection being started. Restore
+the textarea when copy mode ends; keep read-only input enforcement separate.
+
+`e2e/tests/09-mobile-copy-url.spec.ts` checks disabled input, URL tap handling,
+a trusted native selection drag, and re-enabling input. Chromium coverage
+doesn't prove the iOS long-press callout; that still needs a real-device check.
 
 ### Remote terminal copying
 

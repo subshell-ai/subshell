@@ -100,6 +100,11 @@ uses a compact viewport so the text stays large when embedded in the page;
 higher recording resolution alone does not make text more legible. Use
 `bun e2e/capture-product-demo.ts --subagents` to refresh only the desktop
 clip, its poster, and the README animation.
+The user prefers the deployed mobile recording’s sharpness and pacing. Preserve its video,
+poster, and player sizing unless they explicitly request another replacement; a demo-path
+cleanup alone is not a reason to re-record it.
+Keep the phone player capped at 260px in both stacked and wide layouts; it must not
+grow when the hero switches to columns. Preserve the recording's aspect ratio.
 Use `--mobile-only` to refresh the phone clip without replacing the desktop
 subagent demonstration. The sidebar has one workspace panel with a lower
 Subshells section and a bottom navigation bar; there is no mini rail or desktop panel collapse.
@@ -162,3 +167,12 @@ Preview guide in the same pass. `--security-only` checks embedded and direct
 app browser isolation, modules, JSON POST, and WebSocket traffic without an
 agent or display. Fixed backend/registry/IdP ports honor the normal e2e overrides.
 Never record the developer's private test account, hostnames, or project.
+
+### Virtual-display screenshots
+
+`VirtualDisplayShowcase` follows the website preview demo and links to the Linux
+and macOS setup guides. Keep platform setup instructions in the documentation,
+not a separate marketing subsection. Its lossless WebP image in `public/shots/`
+comes from the docs site's `preview-display.png`. Refresh both sites together,
+keep the image dimensions in sync, and retain the real virtual-display tab. The display capture uses the maximized
+viewer so setup commands do not obscure the app being demonstrated.

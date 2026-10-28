@@ -2,7 +2,8 @@ import { parseClientFrame } from "@internal/subshell-protocol";
 import { forensicsEnabled, recordAttachPaint } from "@/api/ws/attach-forensics.js";
 import { resolveAttach } from "@/api/ws/attach-resolve.js";
 import { captureToReplayText } from "@/api/ws/capture-text.js";
-import { dropInputHolds, hasHeldInput, holdFailedInput } from "@/api/ws/input-hold.js";
+import { takeInputBudget } from "@/api/ws/input-budget.js";
+import { dropInputHolds, hasHeldInput, holdFailedInput, reclaimOneHeldInput } from "@/api/ws/input-hold.js";
 import { inputWindowAdd, inputWindowHas, sanitizeInputSession } from "@/api/ws/input-window.js";
 import type { PaneGeometry } from "@/api/ws/pane-geometry.js";
 import { captureStable, fitPaneAndRepaint, paneReadsAsBooting, RESIZE_SETTLE_MS } from "@/api/ws/pane-repaint.js";
@@ -23,6 +24,8 @@ import {
   sendFrame,
   setSizingPolicy,
   sharedGridFor,
+  trackTerminalSocket,
+  untrackTerminalSocket,
   type WsData,
   type WsSocket,
 } from "@/api/ws/viewers.js";
@@ -76,6 +79,16 @@ const LOG_FILE_WAIT_MS = 1_500;
  * local attach handler for shared machinery.
  */
 export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
+  const paneId = url.searchParams.get("subshell");
+  if (paneId) trackTerminalSocket(ws, paneId, () => cleanupSubshellWs(ws));
+  try {
+    await attachSubshellWs(ws, url);
+  } finally {
+    if (!ws.data.viewerId || ws.data.detachedEarly) untrackTerminalSocket(ws);
+  }
+}
+
+async function attachSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // Who is asking, may they, and about which subshell — one decision, made
   // without touching the socket (see `attach-resolve.ts`). Refusals come back
   // rather than closing there, so every close code is owned here.
@@ -91,6 +104,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     ws.close(resolved.code, resolved.reason);
     return;
   }
+  if (ws.data.accessRevoked || ws.data.detachedEarly) return;
   const { row, access, canInput, params, attendsPush } = resolved;
   // Stash WHO authenticated onto the socket before either path continues —
   // the local `Object.assign` and the remote relay's both build their own
@@ -368,7 +382,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   const replay = text != null ? captureToReplayText(text, cursor ?? undefined) : null;
   if (replay != null) {
     sendFrame(ws, { type: "replay", data: replay });
-    recordAttachPaint({ subshellId: row.id, preResize, replay, repainted, nudged });
+    recordAttachPaint({ subshellId: row.id, preResize, replay, repainted, nudged, cursor });
   }
 
   // The replay is out; release everything the pane produced while it was
@@ -410,7 +424,7 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
  */
 export function handleSubshellMessage(ws: WsSocket, message: string | object): void {
   const data = ws.data;
-  if (!data?.launcher) return;
+  if (!data?.launcher || data.accessRevoked || data.inputClosed) return;
   const frame = parseClientFrame(message);
   if (!frame) {
     logger.warn("ws: dropped unrecognized client frame");
@@ -509,6 +523,8 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
         });
         return;
       }
+      const release = takeInputBudget(ws, frame.data, reclaimOneHeldInput);
+      if (!release) return;
       void data.launcher
         .sendInput(data.socket, data.subshellId, frame.data)
         .then(() => {
@@ -526,6 +542,7 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
           sendToSocket(ws, { type: "ack", id });
         })
         .catch((err) => {
+          release(); // Transfer the charge to the hold before retaining a retry.
           // Wave D: a failed plane→node write is HELD, not dropped — the
           // plane-side hold re-fires it when the node's connection is live
           // again (ws/input-hold.ts), because the browser socket lives on and
@@ -545,7 +562,8 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
             return;
           }
           logFailure(err);
-        });
+        })
+        .finally(release);
       return;
     }
     // No id: nothing to hold, and this dispatches PAST any held ids of the
@@ -554,7 +572,9 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
     // disengage drops its own backlog first — so the only bare frame that
     // can land behind a hold is a client that downgraded mid-session, whose
     // own retry machinery has already given up. Today's drop-and-log.
-    void data.launcher.sendInput(data.socket, data.subshellId, frame.data).catch(logFailure);
+    const release = takeInputBudget(ws, frame.data, reclaimOneHeldInput);
+    if (!release) return;
+    void data.launcher.sendInput(data.socket, data.subshellId, frame.data).catch(logFailure).finally(release);
   }
 }
 
@@ -587,6 +607,8 @@ function sendToSocket(ws: WsSocket, frame: object): void {
 
 /** Stops streaming when the client disconnects. */
 export function cleanupSubshellWs(ws: WsSocket): void {
+  if (ws.data) ws.data.inputClosed = true;
+  untrackTerminalSocket(ws);
   // The attach is fired unawaited from the plugin's `open` and reaches
   // `Object.assign(ws.data, data)` only after an access lookup and a tmux
   // probe. A close inside that window finds NOTHING to undo — no viewerId to

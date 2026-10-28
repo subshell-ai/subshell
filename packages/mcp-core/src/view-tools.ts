@@ -1,4 +1,10 @@
-import { type NodePreviewScreenWire, parsePreviewDisplayReadiness } from "@internal/subshell-protocol";
+import {
+  DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
+  displayProviderRunsOnOs,
+  type NodePreviewScreenWire,
+  parsePreviewDisplayReadiness,
+  VIRTUAL_DISPLAY_PROVIDERS,
+} from "@internal/subshell-protocol";
 import { z } from "zod";
 import { ApiError } from "./api-client.js";
 import { listNodes, resolveNodeId } from "./subshell-tools.js";
@@ -52,16 +58,32 @@ export async function getNode(deps: ToolDeps, args: z.infer<typeof GetNodeSchema
       ),
     );
     if (!readiness) throw new Error("subshell: invalid display readiness response; update the server and retry");
+    // `enabled` is the plane's whole gate, the same four checks
+    // `resolveNodeDisplayRequest` makes, so an agent that trusts it is never
+    // surprised by the create: the switch, the catalog (an id we do not ship is
+    // refused outright, even when the owner's stored list carries it), the stored
+    // enabled list, whose absent answer is `[DEFAULT_VIRTUAL_DISPLAY_PROVIDER]`, and
+    // whether this provider runs on this node's operating system. The fourth one used
+    // to be left to `status` on the theory that it is the machine's answer, and that
+    // theory is only as good as the report: readiness comes from the node, so a build
+    // that failed to gate a provider on its platform would have this tool answer
+    // `enabled: true, status: "ready"` for a launch the plane refuses outright with
+    // `preview-display-unsupported`. So `enabled` is the plane's answer in full,
+    // `status` stays the node's, and where the node cannot answer at all the arm below
+    // emits neither field. `displayProviderRunsOnOs` stays true for an OS the node has
+    // not reported yet, which is what the plane does too.
+    const provider = args.provider ?? node.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER;
+    const allowed = node.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER];
     return {
       ...node,
       virtualDisplay: {
         ...readiness,
-        provider: args.provider ?? node.virtualDisplayProvider ?? "xvfb-x11vnc",
+        provider,
         enabled:
           node.virtualDisplayEnabled === true &&
-          (node.virtualDisplayProviders ?? [node.virtualDisplayProvider ?? "xvfb-x11vnc"]).includes(
-            args.provider ?? node.virtualDisplayProvider ?? "xvfb-x11vnc",
-          ),
+          VIRTUAL_DISPLAY_PROVIDERS.some((entry) => entry.id === provider) &&
+          allowed.includes(provider) &&
+          displayProviderRunsOnOs(provider, node.os),
         status: !readiness.supported ? "unsupported" : readiness.missing.length ? "missing-programs" : "ready",
       },
     };

@@ -25,6 +25,12 @@ validated configuration payload and exposes only public form fields. Older
 archives may omit source locations, with local fallback only for missing values.
 Legacy `.db` is explicitly database-only and refuses all journal sidecars.
 
+When adding an application migration, advance `LATEST_BACKUP_MIGRATION` in
+`modules/backups/database.ts` with the static boot migration map. Otherwise a
+server rejects its own new backups as newer than its supported schema. The
+backup engine test pins the two values, and the older-upgrade subprocess fixture
+removes and reapplies the migration tail, including each new table or column.
+
 Config application preserves a hard link to the original, flushes it, and
 atomically overwrites the target. Config rollback atomically overwrites too;
 config.env must remain present because systemd reads it before starting the

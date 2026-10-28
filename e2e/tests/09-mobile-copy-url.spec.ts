@@ -135,10 +135,9 @@ test("copy mode turns typing off, drag selects a URL, and a clean tap opens it (
   // `input` post is server-side sendInput and would land regardless of the
   // UI gate, so it cannot be the probe). With copy mode the key must not
   // reach the pane.
-  await page
-    .locator(".xterm .xterm-helper-textarea")
-    .click({ force: true })
-    .catch(() => {});
+  const input = page.locator(".xterm .xterm-helper-textarea");
+  await expect(input).toBeDisabled();
+  await input.evaluate((element) => (element as HTMLTextAreaElement).focus());
   await page.keyboard.type(TYPE_TOKEN_OFF);
   const echoed = await Promise.race([
     expect
@@ -224,6 +223,7 @@ test("copy mode turns typing off, drag selects a URL, and a clean tap opens it (
   await actions.click();
   await page.getByRole("menuitem", { name: "Enable text input" }).click();
   await expect(page.locator(".copy-mode")).toHaveCount(0);
+  await expect(input).toBeEnabled();
 
   expect((await page.request.post(`/api/subshells/${id}/terminate`)).ok()).toBe(true);
   expect((await page.request.delete(`/api/subshells/${id}`)).ok()).toBe(true);

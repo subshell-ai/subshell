@@ -216,6 +216,11 @@ description = "Open ONE of three System Settings panes: Notifications, Files and
 commands.allow = ["desktop_open_system_settings"]
 
 [[permission]]
+identifier = "allow-desktop-open-display-helper"
+description = "Open the macOS display helper's own settings panel, which is a separate signed program's window and one of its two consent doors: the panel's Enable/Disable button and the helper's own status-menu toggle write consent, and neither is this app. The command opens a window and nothing else. Grants no permission and changes nothing on this machine: macOS asks for screen recording and accessibility itself, and the answer goes to the helper, not to this app. Takes no argument. Off macOS the command refuses, and the Virtual Displays section never renders there."
+commands.allow = ["desktop_open_display_helper"]
+
+[[permission]]
 identifier = "allow-desktop-backup"
 description = "Bundled assistant backup and restore operation."
 commands.allow = ["desktop_backup"]

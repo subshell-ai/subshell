@@ -408,21 +408,26 @@ describe("prereqState", () => {
  */
 describe("screens entered by request", () => {
   it("names all of them, and none is in the list of a machine that can ask", () => {
-    // Five. "How Your Server Runs" joined them in 2026-09-12, "What macOS Will
-    // Ask" on 2026-09-14 and "Server Addresses" on 2026-09-18 — and they are
-    // different kinds of member, which is the thing this test has to say out
-    // loud.
+    // Eight now. "How Your Server Runs" joined them in 2026-09-12, "What macOS
+    // Will Ask" on 2026-09-14, "Server Addresses" on 2026-09-18 and Virtual
+    // Displays on 2026-10-26, and they are different kinds of member, which is
+    // the thing this test has to say out loud.
     //
     // There were five once before, between 2026-09-15 and 2026-09-18, for a
     // different reason: `update` (the server this app wraps) and `app-update`
     // (the app itself) were two screens. They are ONE act now, under `update`,
     // because the app ships the server. `settings` is not that member coming
     // back — it is the way out of a base URL that signed this app's own window
-    // out (spec 2026-09-18 § 14), and it is the only one of the five no
-    // dashboard names. The sorted comparison is what makes the retired id
-    // returning — or any of these five being dropped — loud.
+    // out (spec 2026-09-18 § 14), and it is the only member no dashboard names.
+    // The sorted comparison is what makes a retired id returning, or any of the
+    // eight being dropped, loud rather than quiet.
+    // `display` is the newest (2026-10-26), and the only member no door outside
+    // this window names yet: the rail's Virtual Displays section asks for it, and
+    // Rust's enum carries the word so a rail section is one kind of thing here
+    // rather than two.
     expect([...REQUESTED_SCREENS].sort()).toEqual([
       "backup",
+      "display",
       "permissions",
       "reset",
       "restore",

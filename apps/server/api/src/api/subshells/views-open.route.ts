@@ -5,6 +5,7 @@ import { apiModels } from "@/api/schemas/index.js";
 import { gatePreview, previewNodeState, recheckPreviewOpen } from "@/api/subshells/preview-gate.js";
 import { NodeRpcError } from "@/modules/nodes/node-rpc.js";
 import { getPreviewBroker, PreviewRefusal } from "@/modules/previews/preview-broker.js";
+import { readPreviewProxySettings, savePreviewProxySettings } from "@/modules/previews/proxy-settings.js";
 import { detailIsNodeOff, PREVIEW_PANE_GONE } from "@/modules/previews/refusals.js";
 import { getService } from "@/modules/subshells/saved-services.js";
 import { HttpError } from "@/shared/errors.js";
@@ -17,21 +18,43 @@ import { HttpError } from "@/shared/errors.js";
  * route ships nothing but `/pv/<ref>/` for the SPA to point a browser at.
  */
 
-const PreviewOpenBodySchema = t.Union([
-  t.Object({
-    port: t.Integer({
-      minimum: 1,
-      maximum: 65_535,
-      description: "Loopback port inside the pane's machine to forward (the node dials loopback only)",
+const PreviewOpenBodySchema = t.Union(
+  [
+    t.Object({
+      port: t.Integer({
+        minimum: 1,
+        maximum: 65_535,
+        description:
+          "Loopback port on the subshell's node to forward. Saved serviceId targets use their stored host instead.",
+      }),
     }),
-  }),
-  t.Object({ serviceId: t.String({ format: "uuid" }) }),
-]);
+    t.Object({
+      serviceId: t.String({ format: "uuid", description: "Saved service whose host and protocol the node will use" }),
+    }),
+  ],
+  { description: "Target to open or configure: a loopback port or a saved service" },
+);
 
 const PreviewOpenResponseSchema = t.Object({
   proxyBase: t.String({
     description: "Path prefix the SPA proxies the forwarded lane through, ending in a slash",
   }),
+});
+
+const PreviewSettingsSchema = t.Object(
+  {
+    rewriteUrls: t.Boolean({ description: "Rewrite app resource URLs through the preview" }),
+    passHost: t.Boolean({ description: "Forward the preview host header to the app" }),
+    rewriteRedirects: t.Boolean({ description: "Rewrite app redirects through the preview" }),
+  },
+  { description: "Personal proxy preferences to apply to this destination" },
+);
+const PreviewSettingsBodySchema = t.Object({
+  target: PreviewOpenBodySchema,
+  action: t.Union([t.Literal("read"), t.Literal("save"), t.Literal("reset")], {
+    description: "Read, save, or reset your target preferences",
+  }),
+  settings: t.Optional(PreviewSettingsSchema),
 });
 
 export const viewsOpenRoute = new Elysia()
@@ -75,6 +98,13 @@ export const viewsOpenRoute = new Elysia()
           port,
           service: service ? { host: service.host, protocol: service.protocol } : undefined,
           serviceId: service?.id,
+          proxySettings: await readPreviewProxySettings({
+            userId: user.id,
+            nodeId: row.nodeId,
+            host: service?.host ?? "localhost",
+            protocol: service?.protocol ?? "http",
+            port,
+          }),
           authorize: async () => {
             if (service) await getService(params.id, service.id);
             await recheckPreviewOpen(user.id, params.id, row.nodeId, "edit", actor, feature);
@@ -126,6 +156,39 @@ export const viewsOpenRoute = new Elysia()
         description:
           "Open a loopback port or saved serviceId and return its private proxy path. Requires edit access. Saved services use their stored host and HTTP/HTTPS protocol.",
       },
+    },
+  )
+  .post(
+    "/:id/views/settings",
+    async ({ params, body, user, actor, apiKeyPermissions }) => {
+      requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
+      const { row } = await gatePreview(user.id, params.id, "edit", actor);
+      await recheckPreviewOpen(user.id, params.id, row.nodeId, "edit", actor, "any");
+      const service = "serviceId" in body.target ? await getService(params.id, body.target.serviceId) : undefined;
+      const target = {
+        userId: user.id,
+        nodeId: row.nodeId,
+        host: service?.host ?? "localhost",
+        protocol: service?.protocol ?? "http",
+        port: service?.port ?? ("port" in body.target ? body.target.port : 0),
+      };
+      if (body.action === "read") return readPreviewProxySettings(target);
+      if (body.action === "reset") return savePreviewProxySettings(target, null);
+      if (!body.settings) throw new HttpError(400, "Choose the preview settings to save.");
+      return savePreviewProxySettings(target, body.settings);
+    },
+    {
+      body: PreviewSettingsBodySchema,
+      response: {
+        200: PreviewSettingsSchema,
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
+      },
+      systemPermission: "subshells:execute",
+      detail: { operationId: "previewProxySettings", tags: ["subshells"] },
     },
   );
 

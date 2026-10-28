@@ -852,6 +852,89 @@ describe("attachRemoteSubshellWs — several viewers share one node pane", () =>
     await until(() => sim.cmdTypes().includes("tail_stop"), "tail stopped with the last viewer");
     expect(sim.cmdTypes().filter((t) => t === "tail_stop")).toHaveLength(1);
   });
+
+  it("a tail the agent refuses takes its viewers down with it, and the next attach builds a fresh pump", async () => {
+    // The stuck-pane regression (2026-10-27): the shared pump is built once
+    // per subshell, for its first viewer, and a source that died quietly
+    // stayed every later attach's terminal for hours. A refused tail_start
+    // is now an event, and recovery must not wait on a socket's close
+    // handler firing.
+    const sim = makeNodeSim();
+    scriptHappy(sim);
+    scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 }, 40);
+    sim.answer("tail_start", fail("relay refused"));
+    const first = fakeBrowser();
+    await attachRemoteSubshellWs(first.ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
+    // The replay paints (it needs no pump)...
+    expect(first.sent.some((f) => f.includes('"type":"replay"'))).toBe(true);
+    // ...but the refused pump drops its audience with the client's retry
+    // code instead of leaving them watching silence forever.
+    await until(() => first.closed.length > 0, "the refused tail to drop its viewer");
+    expect(first.closed[0]?.code).toBe(1011);
+    // The reason is the diagnostic split the reporting exists to create: a
+    // refusal names itself, so an operator is not sent down the stall path.
+    expect(first.closed[0]?.reason).toBe("tail refused");
+    expect(paneStreams.viewerCount(SID)).toBe(0); // the stream died with them
+
+    // The second attach gets a WORKING pump at the current EOF, and its
+    // bytes reach the browser: the corpse was not inherited.
+    sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+    sim.answer("capture", `${BSU}SCREEN${ESU}`);
+    const second = fakeBrowser();
+    await attachRemoteSubshellWs(second.ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
+    const cmds = sim.cmdsOf("tail_start") as Extract<NodeCommandBody, { type: "tail_start" }>[];
+    expect(cmds).toHaveLength(2);
+    expect(cmds[1].fromByte).toBe(7);
+    dispatchOutput(outputFrame(cmds[1].subId, 7, "live\r\n"));
+    await until(() => second.sent.some((f) => f.includes("live")), "the fresh pump's bytes");
+    cleanupSubshellWs(second.ws);
+  });
+
+  it("a pump that dies while TWO viewers share it drops both, none waiting on a close event", async () => {
+    // The invariant the single-viewer case cannot reach: the registry hands
+    // the first viewer's pump to every later joiner, so `onDead` must clear
+    // the WHOLE audience — a phone tab that outlives the death is exactly
+    // what kept the 2026-10-27 corpse inheritable. The refusal lands late
+    // (the script returns a promise the test rejects), by which time both
+    // browsers are painted and streaming from the shared pump.
+    const sim = makeNodeSim();
+    for (let i = 0; i < 3; i++) {
+      sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+      sim.answer("capture", `${BSU}SCREEN${ESU}`);
+    }
+    scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 }, 60);
+    let refuseTail!: () => void;
+    sim.answer(
+      "tail_start",
+      () =>
+        new Promise((_resolve, reject) => {
+          refuseTail = () => reject(new Error("node link died mid-round-trip"));
+        }),
+    );
+    const laptop = fakeBrowser();
+    const phone = fakeBrowser();
+    await attachRemoteSubshellWs(laptop.ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
+    await attachRemoteSubshellWs(phone.ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
+    // One pump for both (the join-point rule, pinned here as the test's premise)...
+    expect(sim.cmdsOf("tail_start")).toHaveLength(1);
+    refuseTail(); // ...and it dies with BOTH watching.
+    await until(() => laptop.closed.length > 0 && phone.closed.length > 0, "both viewers dropped");
+    expect(laptop.closed[0]?.code).toBe(1011);
+    expect(laptop.closed[0]?.reason).toBe("tail refused");
+    expect(phone.closed[0]?.code).toBe(1011);
+    expect(paneStreams.viewerCount(SID)).toBe(0);
+
+    // A third attach is a third viewer of a GONE stream: fresh pump, live bytes.
+    sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+    sim.answer("capture", `${BSU}SCREEN${ESU}`);
+    const third = fakeBrowser();
+    await attachRemoteSubshellWs(third.ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
+    const cmds = sim.cmdsOf("tail_start") as Extract<NodeCommandBody, { type: "tail_start" }>[];
+    expect(cmds).toHaveLength(2);
+    dispatchOutput(outputFrame(cmds[1].subId, 7, "recovered\r\n"));
+    await until(() => third.sent.some((f) => f.includes("recovered")), "the fresh pump's bytes");
+    cleanupSubshellWs(third.ws);
+  });
 });
 
 describe("readSubshellLogTail routes by node", () => {

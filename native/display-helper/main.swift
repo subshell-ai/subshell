@@ -5,10 +5,19 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
     private let consent = HelperConsent()
     private lazy var runtime = HelperRuntime(consent: consent)
     private lazy var settings = HelperSettings(consent: consent,
-        enable: { [weak self] in try self?.runtime.enable() }, disable: { [weak self] in self?.runtime.disable() })
+        enable: { [weak self] in try self?.runtime.enable() }, disable: { [weak self] in self?.runtime.disable() },
+        accessCount: { [weak self] in self?.runtime.viewers ?? 0 })
     private var statusItem: NSStatusItem?
     private var installLock: Int32 = -1
     private var started = false
+    /// macOS naps a background app whose windows are not in front, and a napped
+    /// app's timers are coalesced to minutes. This helper's job includes
+    /// reporting consent and permission state truthfully while the person is
+    /// sitting in System Settings, so it stays awake enough to poll.
+    private let activity = ProcessInfo.processInfo.beginActivity(
+        options: [.userInitiatedAllowingIdleSystemSleep],
+        reason: "Keeping the helper's consent and permission state current"
+    )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hold the install lock even while disabled: another desktop app must
@@ -22,18 +31,56 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
                 NSApp.terminate(nil); return
             }
         } catch { NSApp.terminate(nil); return }
+        // A viewer's pointer is the real cursor, so the screen it was parked on
+        // can go away while this process is not running: the docs promise an
+        // existing virtual screen may outlive the helper, and whoever closes the
+        // last pane over it cannot ask a dead socket to warp the cursor back. Any
+        // start heals that here rather than leaving the person at the Mac without
+        // a pointer, which is why this runs BEFORE the bind. A start whose socket
+        // cannot come up exits on the next line, and `applicationWillTerminate`'s
+        // rescue is gated on `started`, so healing after the bind would mean the
+        // one kind of failed launch leaves the pointer stranded while the docs say
+        // every start fixes it. Warping a cursor that is inside no screen's frame
+        // is harmless, so a launch that does not survive loses nothing.
         // Neither install nor a node request can opt in. Login resumes only
         // the consent the person previously gave in this native panel.
-        do { try runtime.listenForStatus() } catch { NSApp.terminate(nil); return }
+        do {
+            try launchHeal(restore: { restoreStrandedCursor() }, bind: { try runtime.listenForStatus() })
+        } catch {
+            NSApp.terminate(nil); return
+        }
         started = true
         runtime.onStateChange = { [weak self] in self?.updateMenu() }
+        settings.onVisibilityChange = { [weak self] in self?.updateMenu() }
         if consent.enabled {
             do { try runtime.enable() }
-            catch { runtime.disable() }
+            // Two wrong answers, and one right one. `disable()` clears consent
+            // before it closes anything, so a transient failure here would
+            // silently un-consent a Mac whose person never changed their mind.
+            // Staying alive is wrong the other way: with the listener down the
+            // menu and the panel both read "Enabled" over a machine capturing
+            // nothing, and this panel exists to be truthful about capture. Leaving
+            // is the same answer the socket gives two pages up, and it keeps the
+            // agreement. Unreachable today, because `listenForStatus()` has already
+            // bound and `Listener.start()` returns early when a descriptor exists:
+            // it is here so that whoever adds a throwing step to `enable()` finds a
+            // honest failure, not a lying menu.
+            catch { NSApp.terminate(nil); return }
+        }
+        // Who is allowed to open the panel decides whether this run stays.
+        let opensPanel = CommandLine.arguments.contains("--settings")
+        if !opensPanel && !consent.enabled {
+            // The sign-in case the docs describe as exiting at once: a helper left
+            // registered after the person switched it off comes back, finds no
+            // consent, and leaves. Drawing the menu-bar icon first would flash a
+            // display glyph on a Mac that is capturing nothing, which reads as a
+            // watcher that is not there, so the icon is installed only for a run
+            // that stays.
+            NSApp.terminate(nil)
+            return
         }
         updateMenu()
-        if CommandLine.arguments.contains("--settings") { settings.show() }
-        else if !consent.enabled { NSApp.terminate(nil) }
+        if opensPanel { settings.show() }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -45,30 +92,110 @@ final class DisplayHelperApp: NSObject, NSApplicationDelegate {
         // resume it. Closing the listener tears down every capture and key.
         guard started else { return }
         runtime.shutdown()
+        // A viewer may have left the pointer on a virtual display this quit
+        // ends; do not hand the person at the Mac a missing cursor.
+        restoreStrandedCursor()
     }
 
     private func updateMenu() {
         if statusItem == nil {
-            statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+            statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
             statusItem?.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "Subshell virtual display helper")
         }
+        let viewers = runtime.viewers
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let settingsItem = NSMenuItem(title: "Virtual Display Helper Settings…", action: #selector(showSettings), keyEquivalent: "")
-        settingsItem.target = self; menu.addItem(settingsItem)
-        let disable = NSMenuItem(title: "Disable Helper", action: #selector(disableHelper), keyEquivalent: "")
-        disable.target = self; disable.isEnabled = consent.enabled; menu.addItem(disable)
+        // The item in the bar is an icon. Opening the menu without a word about
+        // what it belongs to left people guessing, so the menu says its name.
+        let heading = NSMenuItem(title: AccessReport.heading, action: nil, keyEquivalent: "")
+        heading.isEnabled = false; menu.addItem(heading)
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit Helper", action: #selector(quitHelper), keyEquivalent: "")
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: "")
+        settingsItem.target = self; menu.addItem(settingsItem)
+        let minimize = NSMenuItem(title: "Minimize helper", action: #selector(minimizeSettings), keyEquivalent: "m")
+        minimize.target = self; minimize.isEnabled = settings.isShowing; menu.addItem(minimize)
+        // One item, named for the direction it goes. The menu used to carry
+        // only "Disable helper", greyed once consent was off, which left a
+        // person who had just disabled the helper with a settings window as the
+        // only way back to running.
+        let toggle = NSMenuItem(title: AccessReport.toggleTitle(enabled: consent.enabled), action: #selector(toggleHelper), keyEquivalent: "")
+        toggle.target = self; menu.addItem(toggle)
+        menu.addItem(.separator())
+        let quit = NSMenuItem(title: "Quit helper", action: #selector(quitHelper), keyEquivalent: "")
         quit.target = self; menu.addItem(quit)
         statusItem?.menu = menu
-        statusItem?.button?.toolTip = consent.enabled ? "Subshell display helper enabled" : "Subshell display helper disabled"
+        statusItem?.button?.toolTip = AccessReport.tooltip(enabled: consent.enabled, viewers: viewers)
+        // Someone is watching a screen: the icon takes the warning gold and
+        // gains a dot, so the awareness survives a click elsewhere on the
+        // menu bar and does not depend on reading the tooltip.
+        statusItem?.button?.contentTintColor = viewers > 0 ? Theme.warning : nil
+        statusItem?.button?.attributedTitle = viewers > 0
+            ? NSAttributedString(string: " ●", attributes: [
+                .foregroundColor: Theme.warning,
+                .font: NSFont.systemFont(ofSize: 9),
+            ])
+            : NSAttributedString(string: "")
         settings.refresh()
     }
 
     @objc private func showSettings() { settings.show() }
-    @objc private func disableHelper() { settings.disableHelper(); settings.show() }
-    @objc private func quitHelper() { settings.disableHelper(); NSApp.terminate(nil) }
+    @objc private func minimizeSettings() { settings.minimize() }
+    /// Enable or disable from the menu, then raise the panel: the consent
+    /// sentence and the state belong where the person can read what they just
+    /// agreed to, and a failure has to land on the thing that failed.
+    @objc private func toggleHelper() {
+        if consent.enabled {
+            settings.disableHelper()
+        } else {
+            settings.enableHelper()
+        }
+        settings.show()
+    }
+    /// Whether the quit confirmation is on screen, so a second menu press
+    /// cannot stack a duplicate question.
+    private var quitAlertShown = false
+
+    /// The menu's Quit asks the same question the panel asks, because the
+    /// consequence lives in the act rather than in the control. An accessory
+    /// app has no window to host a sheet while the panel is closed, so this is
+    /// a native alert; Cancel is the button Return presses, the way the panel
+    /// focuses the way out rather than the act. `applicationWillTerminate`
+    /// closes every capture, and leaving consent alone is deliberate: a quit is
+    /// not a revocation.
+    @objc private func quitHelper() {
+        // The status menu stays clickable through an app-modal session, so a
+        // second press would nest another identical alert: the person answers
+        // once, and a second question is still waiting. One at a time.
+        if quitAlertShown {
+            // The proven form, not the no-argument `activate()`. A re-press has
+            // to drag the pending alert over whatever app the person is in now,
+            // which is exactly the insistence the plain call does not make.
+            // test.sh typechecks main.swift with the release flags; the desktop
+            // build also compiles every Swift source through build_support.rs.
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        quitAlertShown = true
+        defer { quitAlertShown = false }
+        let alert = NSAlert()
+        alert.messageText = QuitCopy.title
+        alert.informativeText = QuitCopy.body(loginItem: LoginItem.currentPageState(), consented: consent.enabled)
+        alert.alertStyle = .warning
+        // Added first, so Return and the rightmost position land on the way out.
+        alert.addButton(withTitle: QuitCopy.cancel)
+        let confirm = alert.addButton(withTitle: QuitCopy.confirm)
+        confirm.hasDestructiveAction = true
+        // An accessory app has no key window to hang the alert on, so it comes
+        // forward first, and it has to come forward over whatever app the person
+        // was in: the menu is still clickable through an app-modal session, so an
+        // alert left behind another window reads as a menu that does nothing.
+        //
+        // Keep the activation form exercised by Settings.swift and this file's
+        // whole-app typecheck in test.sh.
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn { return }
+        NSApp.terminate(nil)
+    }
 }
 
 umask(0o077)

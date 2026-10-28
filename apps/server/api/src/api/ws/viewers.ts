@@ -15,13 +15,14 @@
 
 import { DEFAULT_SIZING, resolveSharedGrid, type SizingPolicy, type ViewerPresence } from "@internal/subshell-protocol";
 import { encodeFrame, type WireMode } from "@internal/subshell-protocol/wire";
-import { resetInputHoldsForTests } from "@/api/ws/input-hold.js";
-import { resetInputWindowsForTests } from "@/api/ws/input-window.js";
+import { dropInputHolds, resetInputHoldsForTests } from "@/api/ws/input-hold.js";
+import { resetInputWindowsForTests, sanitizeInputSession } from "@/api/ws/input-window.js";
 import { createGeometryQueue, type PaneGeometry } from "@/api/ws/pane-geometry.js";
 import { createPaneStreamRegistry } from "@/api/ws/pane-stream.js";
 import { getRequestlessContext } from "@/app/context.js";
 import { publishLive } from "@/app/live-bus.js";
 import type { NodeLauncher } from "@/modules/nodes/node-launcher.js";
+import { resetTerminalAccessForTests, trackTerminalAccess } from "@/modules/subshells/terminal-access.js";
 import { logger } from "@/shared/logger.js";
 
 /**
@@ -58,6 +59,12 @@ export interface WsData {
 
   /** True when the caller may send terminal input (`edit`/`owner`); a `view` grantee is read-only. */
   canInput: boolean;
+  /** Revoked sockets cannot send or receive, even before their close callback runs. */
+  accessRevoked?: boolean;
+  /** Disconnect or input overflow: late failures must not recreate retry queues. */
+  inputClosed?: boolean;
+  /** Releases the access lease even when attach has not registered a viewer yet. */
+  releaseTerminalAccess?: () => void;
   /**
    * True when this socket belongs to the human the row's pushes go to (a
    * cookie identity on their own row) — stashed on `ws.data` by the open
@@ -161,6 +168,7 @@ function wsBinaryPayload(bytes: Uint8Array): Buffer {
  * @param frame - The server frame
  */
 export function sendFrame(ws: WsSocket, frame: object): void {
+  if (ws.data?.accessRevoked) return;
   try {
     const payload = encodeForSocket(ws, frame);
     ws.send(typeof payload === "string" ? payload : wsBinaryPayload(payload));
@@ -240,6 +248,37 @@ export function persistOutputFor(subshellId: string): void {
  */
 const liveViewers = new Map<string, Map<string, WsSocket>>();
 
+/** Track pending and established sockets without coupling the share service to WebSockets. */
+export function trackTerminalSocket(ws: WsSocket, paneId: string, cleanup: () => void): void {
+  ws.data.releaseTerminalAccess = trackTerminalAccess(
+    paneId,
+    () => ws.data.attachUserId,
+    () => {
+      // Mark first: a late probe can assign canInput again, and a close event
+      // need not arrive before another input or output callback.
+      ws.data.accessRevoked = true;
+      ws.data.detachedEarly = true;
+      ws.data.canInput = false;
+      untrackTerminalSocket(ws);
+      try {
+        cleanup();
+      } catch {
+        // The guards still deny traffic if a transport disposer fails.
+      }
+      try {
+        ws.close(1012, "subshell sharing changed");
+      } catch {
+        // Already closed; access is revoked independently of the transport.
+      }
+    },
+  );
+}
+
+export function untrackTerminalSocket(ws: WsSocket): void {
+  ws.data?.releaseTerminalAccess?.();
+  if (ws.data) delete ws.data.releaseTerminalAccess;
+}
+
 /**
  * Drops every scrap of per-subshell state this module holds, WITHOUT closing
  * any socket. Only for tests.
@@ -261,6 +300,7 @@ const liveViewers = new Map<string, Map<string, WsSocket>>();
  */
 export function resetLiveViewersForTests(): void {
   liveViewers.clear();
+  resetTerminalAccessForTests();
   sizingPolicies.clear();
   lastOutputWrites.clear();
   paneStreams.resetForTests();
@@ -609,6 +649,58 @@ export function dropTerminalSocketsFor(userId: string, reason = "account disable
       } catch {
         // A socket already gone is the outcome this wanted anyway.
       }
+    }
+  }
+  return closed;
+}
+
+/**
+ * Close every socket watching ONE subshell, with one code.
+ *
+ * The attach path's recovery from a dead output pump: the pane-stream
+ * registry builds one pump per subshell, for its first viewer, so a source
+ * that quietly stopped producing would otherwise be handed to every later
+ * re-attach as long as any viewer lingered. Closing them all is the fix, and
+ * it runs the socket's own teardown first rather than waiting on the close
+ * event: a viewer whose `close` never fires is exactly the leak that keeps a
+ * dead stream alive, so recovery must not depend on it. Sub-4000 codes are
+ * the client's retry signal (see `use-subshell-ws.ts`), so every device
+ * re-attaches and the first of those builds a fresh pump against the current
+ * EOF.
+ *
+ * @param subshellId - the pane whose viewers to drop
+ * @param code - the close code every socket receives
+ * @param reason - the close reason, for the client's diagnostics
+ * @returns how many sockets were asked to close
+ */
+export function closeViewersForSubshell(subshellId: string, code: number, reason: string): number {
+  const viewers = liveViewers.get(subshellId);
+  if (!viewers) return 0;
+  let closed = 0;
+  // Snapshot: detachViewer empties (and deletes) the map we are standing in.
+  for (const ws of [...viewers.values()]) {
+    ws.data.inputClosed = true;
+    untrackTerminalSocket(ws);
+    const query = (ws.data as WsData & { query?: Record<string, string> }).query;
+    dropInputHolds(ws.data.nodeId, ws.data.subshellId, sanitizeInputSession(query?.sid) ?? ws.data.viewerId);
+    // Each step its own try: a disposer that throws must not skip the detach,
+    // or the viewer stays registered, the stream never reaches zero, and the
+    // next attach inherits the corpse this function exists to bury.
+    try {
+      ws.data?.cleanup?.(); // the attach's own disposer: closes the subscription
+    } catch {
+      /* bookkeeping continues without it */
+    }
+    try {
+      detachViewer(ws);
+    } catch {
+      /* ditto */
+    }
+    try {
+      ws.close(code, reason);
+      closed++;
+    } catch {
+      // A socket already gone is the outcome this wanted anyway.
     }
   }
   return closed;

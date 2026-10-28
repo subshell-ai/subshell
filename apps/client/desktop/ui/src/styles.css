@@ -6,6 +6,7 @@
    nothing. */
 @import "tailwindcss" source(none);
 @import "tw-animate-css";
+@import "../../../../../packages/assistant/tokens.css";
 @source "./";
 @source "../index.html";
 @source "../../../../../packages/assistant/src";
@@ -16,73 +17,20 @@
  * Subshell UI theme: dark only by design (no light variants exist).
  * Tokens follow the shadcn/ui convention (oklch values).
  *
- * COPIED VERBATIM from apps/server/web/src/styles.css — this is the product
- * palette ("Dreamframe", the Castorice palette, spec 2026-09-02) and the two
- * surfaces are one product, so the values are not re-derived here. Copied
- * rather than imported for the same reason the primitives under
- * `components/ui/` are: extracting them into a shared package later should be a
- * straight move, and until then a diff between these two blocks is the honest
- * signal that they have drifted. Only the dockview theme import is dropped —
- * this page has no workspace panes.
+ * The product palette is imported from packages/assistant/tokens.css.
+ * Keep local layout tokens here; shared colours belong in that file.
  */
 :root,
 .dark {
-  /* Ground is the operator-approved slate-indigo #1d182a (oklch 0.224); the ramp
-     steps around it, hue 296° — indigo side of the family, calmer than the
-     318° magenta first pass. */
-  --background: oklch(0.224 0.035 296);
-  --foreground: oklch(0.92 0.03 312);
+  /* The palette, and why each value is what it is, lives in packages/assistant/tokens.css. */
 
-  --card: oklch(0.255 0.032 296);
-  --card-foreground: oklch(0.92 0.03 312);
-
-  --popover: oklch(0.255 0.032 296);
-  --popover-foreground: oklch(0.92 0.03 312);
-
-  --primary: oklch(0.75 0.17 322);
-  --primary-foreground: oklch(0.16 0.05 322);
-
-  --secondary: oklch(0.29 0.034 296);
-  --secondary-foreground: oklch(0.9 0.025 312);
-
-  --muted: oklch(0.29 0.034 296);
-  --muted-foreground: oklch(0.74 0.04 310);
-
-  --accent: oklch(0.33 0.04 296);
-  --accent-foreground: oklch(0.95 0.02 315);
-
-  --destructive: oklch(0.65 0.2 25);
-  --destructive-foreground: oklch(0.98 0 0);
-
-  --border: oklch(0.33 0.035 296);
-  --input: oklch(0.33 0.035 296);
-  --ring: oklch(0.62 0.13 322);
-
-  /* Status colors for anything outside Badge (dots, inline confirmations).
-     Seeded from ui/badge.tsx's success/warning variant values (Tailwind
-     emerald-400 / amber-400) so chips and dots finally share one palette. */
-  --success: oklch(0.765 0.177 163.223);
-  --warning: oklch(0.828 0.189 84.429);
-
-  /* The modal scrim, behind a dialog or sheet. Hex with alpha rather than a
-     role colour: it is BLACK at 70%, not a tint of the palette, and every
-     surface draws the same one — mobile's `colors.scrim` is this value, and
-     `lint:design` compares them. It was `bg-black/70` written twice at the
-     callsites, which is the one colour literal Tailwind's own utility made
-     invisible to the scanner (it sees hex and oklch, not colour WORDS). */
-  --scrim: #000000b3;
-
-  /* Emphasis surfaces the role palette has no name for: the sunk-plum
-     primary-button gradient, the sidebar's active-nav gradient and the
-     "view + edit" share chip. Lifted out of component literals 2026-09-14,
-     so every value named here lives in a token. Not the whole product yet:
-     some badges still use named Tailwind palette classes (emerald/amber) —
+  /* Emphasis surfaces the role palette has no name for: the sidebar's
+     active-nav gradient and the "view + edit" share chip. Lifted out of
+     component literals 2026-09-14, so every value named here lives in a
+     token. The primary button's gradient is the shared palette's, declared in
+     packages/assistant/tokens.css. Not the whole product yet: some badges
+     still use named Tailwind palette classes (emerald/amber) —
      a § 8 follow-on, not one home. */
-  --button-primary-from: oklch(0.34 0.1 322);
-  --button-primary-to: oklch(0.4 0.1 340);
-  --button-primary-hover-from: oklch(0.4 0.11 322);
-  --button-primary-hover-to: oklch(0.46 0.11 340);
-  --button-primary-foreground: oklch(0.9 0.05 320);
   --nav-active-from: oklch(0.3 0.1 322);
   --nav-active-to: oklch(0.38 0.11 340);
   /* The rail's flat-grid machine plates, verbatim from the SPA's styles.css

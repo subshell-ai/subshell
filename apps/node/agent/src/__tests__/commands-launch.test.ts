@@ -1,5 +1,14 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TmuxRunner } from "@internal/pane-runtime";
@@ -11,6 +20,8 @@ import { execLaunch } from "../commands/launch.js";
 import {
   buildSubshellsReport,
   EXIT_WATCH_INTERVAL_MS,
+  PIPE_GUARD_CHECK_TICKS,
+  PIPE_GUARD_MISSED_LIMIT,
   runExitWatchTick,
   startExitWatcher,
   stopWatcher,
@@ -75,7 +86,15 @@ type ProbeAnswer = { ok: true; names: string[] } | { ok: false; detail: string }
 
 interface Spec {
   newSubshell?: (socket: string, id: string, cwd: string, cmd: string, exitHook?: string) => void;
-  pipePane?: (socket: string, id: string, out: string) => void;
+  pipePane?: (
+    socket: string,
+    id: string,
+    out: string,
+    child?: { command: string; args: string[] },
+    opts?: { replace?: boolean },
+  ) => void;
+  /** Screen the capture-child guard reads per check tick (report.ts). */
+  capturePane?: (socket: string, id: string) => string | Promise<string>;
   resizeWindow?: (socket: string, id: string, cols: number, rows: number) => void;
   hasSubshell?: (socket: string, id: string) => boolean;
   listSubshellNames?: (socket: string) => string[];
@@ -154,6 +173,7 @@ function makeCtx(
       // SUCCESSFUL probe — pre-threshold tests keep their exact meaning.
       return { ok: true, names: listSubshellNames(socket) as string[] };
     },
+    capturePane: method("capturePane"),
     paneExitCode: method("paneExitCode"),
     killSubshell: method("killSubshell"),
     run: method("run"),
@@ -1037,6 +1057,119 @@ describe("exit watcher (report.ts) — one shared tick", () => {
  * the old swallow-everything probe produced — the RED marker: against the old
  * tick those fixtures fire an exit event on the FIRST blip.
  */
+describe("exit watcher — the capture-child guard", () => {
+  // The child tmux pipes pane bytes to (our `pane-log` verb) can die on its
+  // own — an OOM killer takes it. `#{pane_pipe}` is not consulted (measured
+  // both on and off for a dead writer on the same build), so the guard's
+  // signal is the invariant itself: screen moves, log does not. It re-arms
+  // WITHOUT -o, the form that cannot be no-op'd by tmux believing the pipe is
+  // already on.
+
+  /** Enough checks to reach the strike limit after the first (baseline) check. */
+  const ticksToArm = PIPE_GUARD_CHECK_TICKS * (PIPE_GUARD_MISSED_LIMIT + 1);
+
+  async function aliveCtx(spec: Spec) {
+    const dataDir = await freshDataDir("pipe-guard");
+    const events: NodeEvent[] = [];
+    const built = makeCtx(dataDir, { listSubshellNames: () => [S1], pipePane: () => {}, ...spec }, events);
+    startExitWatcher(built.ctx, S1, "sock-a", 10_000);
+    return { ...built, dataDir };
+  }
+
+  it("retains strikes through quiet intervals between output bursts", async () => {
+    let screen = "baseline";
+    const { ctx, calls } = await aliveCtx({ capturePane: () => screen });
+    const check = async () => {
+      for (let tick = 0; tick < PIPE_GUARD_CHECK_TICKS; tick++) await runExitWatchTick(ctx);
+    };
+    await check();
+    for (let burst = 0; burst < PIPE_GUARD_MISSED_LIMIT; burst++) {
+      screen = `burst-${burst}`;
+      await check();
+      await check();
+    }
+    expect(calls.filter((call) => call.method === "pipePane")).toHaveLength(1);
+    stopWatcher(ctx, S1);
+  });
+
+  it("doesn't report a re-arm when tmux refuses it", async () => {
+    let frame = 0;
+    const { ctx } = await aliveCtx({
+      capturePane: () => `screen-${++frame}`,
+      pipePane: () => {
+        throw new Error("pane gone");
+      },
+    });
+    const { lines, restore } = captureLogs();
+    try {
+      for (let i = 0; i < ticksToArm; i++) await runExitWatchTick(ctx);
+    } finally {
+      restore();
+    }
+    expect(lines.some((line) => line.includes("re-armed the capture child"))).toBe(false);
+    stopWatcher(ctx, S1);
+  });
+
+  it("a pane printing into a dead writer gets the child re-armed, once per drift storm", async () => {
+    let frame = 0;
+    const { ctx, calls, dataDir } = await aliveCtx({ capturePane: () => `screen-${++frame}` });
+    const { lines, restore } = captureLogs();
+    try {
+      for (let i = 0; i < ticksToArm; i++) await runExitWatchTick(ctx);
+    } finally {
+      restore();
+    }
+    const rearms = calls.filter((c) => c.method === "pipePane");
+    expect(rearms).toHaveLength(1); // not once per strike: the counter resets
+    // The agent log is the only field trace of a re-arm (there is no wire
+    // event for it); deleting the log line must not stay green.
+    expect(lines.some((l) => l.includes("re-armed the capture child") && l.includes(S1))).toBe(true);
+    const rearms0 = rearms[0];
+    expect(rearms0).toBeDefined();
+    const [socket, id, out, child, opts] = (rearms0 as { args: unknown[] }).args as [
+      string,
+      string,
+      string,
+      { command: string; args: string[] },
+      { replace?: boolean },
+    ];
+    expect([socket, id]).toEqual(["sock-a", S1]);
+    expect(out).toBe(join(dataDir, "subshells", `${S1}.log`));
+    expect(child.args.at(-1)).toBe("pane-log"); // the same verb the launch armed, not cat
+    expect(opts).toEqual({ replace: true });
+    stopWatcher(ctx, S1);
+  });
+
+  it("a quiet pane (screen unchanged) never spends a re-arm", async () => {
+    const { ctx, calls } = await aliveCtx({ capturePane: () => "same old screen" });
+    for (let i = 0; i < ticksToArm * 2; i++) await runExitWatchTick(ctx);
+    expect(calls.filter((c) => c.method === "pipePane")).toHaveLength(0);
+    stopWatcher(ctx, S1);
+  });
+
+  it("a log that keeps pace with the screen is never a strike", async () => {
+    const frame = { n: 0 };
+    const { ctx, calls, dataDir } = await aliveCtx({
+      capturePane: () => `screen-${++frame.n}`,
+    });
+    const logFile = join(dataDir, "subshells", `${S1}.log`);
+    mkdirSync(join(dataDir, "subshells"), { recursive: true });
+    writeFileSync(logFile, "seed\n");
+    let grown = 1;
+    // Every CHECK tick the screen moves AND the file grows between checks:
+    // a healthy writer, however busy.
+    const origTick = runExitWatchTick;
+    for (let i = 0; i < ticksToArm; i++) {
+      if (i % PIPE_GUARD_CHECK_TICKS === PIPE_GUARD_CHECK_TICKS - 1) {
+        appendFileSync(logFile, `line-${grown++}\n`);
+      }
+      await origTick(ctx);
+    }
+    expect(calls.filter((c) => c.method === "pipePane")).toHaveLength(0);
+    stopWatcher(ctx, S1);
+  });
+});
+
 describe("exit watcher — unreachable threshold (design §1)", () => {
   it("blip: ok:false then ok:true-with-pane ⇒ ZERO exit events, counter reset by the ok tick", async () => {
     const dataDir = await freshDataDir("watcher-blip");

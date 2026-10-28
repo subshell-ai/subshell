@@ -229,6 +229,28 @@ describe("createGeometryQueue — serialize + coalesce per subshell", () => {
     expect(next.applied).toEqual([{ cols: 80, rows: 24 }]);
   });
 
+  it("drains sustained resize traffic and discards the pending size when the viewer leaves", async () => {
+    let applied = 0;
+    let announced = 0;
+    const queue = createGeometryQueue({ onGeometry: () => announced++ });
+    const sizer: PaneSizer = {
+      apply: async (cols) => {
+        applied++;
+        queue.request("storm", cols === 80 ? 81 : 80, 24, sizer);
+        if (applied === 5_000) queue.release("storm");
+      },
+      read: async () => ({ cols: 80, rows: 24 }),
+    };
+    queue.request("storm", 80, 24, sizer);
+    await settle();
+    expect(applied).toBe(5_000);
+    expect(announced).toBe(4_999);
+    const next = recorder();
+    queue.request("storm", 80, 24, next.sizer);
+    await settle();
+    expect(next.applied).toEqual([{ cols: 80, rows: 24 }]);
+  });
+
   it("seed records an out-of-band resize, so the same size is not re-applied", async () => {
     const rec = recorder();
     const queue = createGeometryQueue({ onGeometry: () => {} });

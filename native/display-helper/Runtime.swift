@@ -21,6 +21,12 @@ final class HelperRuntime {
 
     func listenForStatus() throws { try listener.start() }
 
+    /// How many subshell screens are being captured right now. The menu bar
+    /// badge, the tooltip, and the panel's live line all read this, so the
+    /// person sitting at the Mac can see when someone is looking at a virtual
+    /// display rather than having to infer it.
+    var viewers: Int { captures.count }
+
     func shutdown() {
         listener.stop()
         for connection in Array(connections.values) { connection.close() }
@@ -55,13 +61,24 @@ final class HelperRuntime {
 
     private func remove(_ id: UUID) {
         inputs.removeValue(forKey: id)?.release()
-        captures.removeValue(forKey: id)?.stop()
+        if let capture = captures.removeValue(forKey: id) {
+            capture.stop()
+            // The menu bar badge and the panel's live line report who is
+            // being watched, so a capture ending has to announce itself.
+            onStateChange?()
+        }
         connections.removeValue(forKey: id)
         pending.remove(id); reservations.removeValue(forKey: id); rates.removeValue(forKey: id)
     }
 
     private func handle(_ request: [String: Any], _ connection: HelperConnection) {
-        guard let operation = request["op"] as? String, consent.enabled || operation == "status" else { connection.close(); return }
+        // `rescue-cursor` is allowed without consent: by the time the daemon
+        // asks for it the display it stranded the pointer on is already gone,
+        // and the action only puts the cursor back where the person at this
+        // Mac can see it.
+        guard let operation = request["op"] as? String,
+              consent.enabled || operation == "status" || operation == "rescue-cursor"
+        else { connection.close(); return }
         let now = ProcessInfo.processInfo.systemUptime
         let previous = rates[connection.id] ?? (now, 0)
         let rate = now - previous.0 >= 1 ? (now, 1) : (previous.0, previous.1 + 1)
@@ -105,6 +122,9 @@ final class HelperRuntime {
                 catch { input.release(); connection.send(["type": "input_blocked", "message": error.localizedDescription]) }
             case "release": inputs[connection.id]?.release()
             case "stop": connection.close()
+            case "rescue-cursor":
+                restoreStrandedCursor()
+                connection.send(["type": "rescued", "protocol": 1])
             default: throw HelperFailure.message("Unknown helper request.")
             }
         } catch {
@@ -123,12 +143,14 @@ final class HelperRuntime {
                 allowed: allowed, frame: { [weak connection] jpeg in
                     connection?.send(["type": "frame", "jpeg": jpeg.base64EncodedString(), "width": width, "height": height])
                 }, lost: { [weak connection] message in
+                    restoreStrandedCursor()
                     connection?.send(["type": "error", "message": message]); connection?.close()
                 })
             captures[connection.id] = capture
             inputs[connection.id] = DisplayInput(uuid: uuid, width: width, height: height, allowed: allowed)
             try await capture.start()
-            guard allowed() else { capture.stop(); return }
+            guard allowed() else { capture.stop(); onStateChange?(); return }
+            onStateChange?()
             pending.remove(connection.id)
             connection.send(["type": "started", "width": width, "height": height])
         } catch {

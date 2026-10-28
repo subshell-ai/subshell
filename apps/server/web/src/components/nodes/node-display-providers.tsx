@@ -1,8 +1,9 @@
 import { Label, type NodeDetail } from "@internal/node-admin";
-import { DEFAULT_VIRTUAL_DISPLAY_PROVIDER, VIRTUAL_DISPLAY_PROVIDERS } from "@internal/subshell-protocol";
+import { DEFAULT_VIRTUAL_DISPLAY_PROVIDER } from "@internal/subshell-protocol";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { bundledProvidersForMachine } from "@/lib/display-provider-choice";
 import { NodeViewReadiness } from "./node-view-readiness";
 export function NodeDisplayProviders({
   node,
@@ -15,9 +16,13 @@ export function NodeDisplayProviders({
 }) {
   const enabled = node.virtualDisplayProviders ?? [DEFAULT_VIRTUAL_DISPLAY_PROVIDER];
   const current = node.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER;
-  const providers = VIRTUAL_DISPLAY_PROVIDERS.filter((p) =>
-    p.id === "betterdisplay" ? node.os === "darwin" : node.os === "linux",
-  );
+  // The same "can this machine run it" reading the launch form and the preset
+  // editor apply, so the settings page and the launch cannot disagree about
+  // which providers exist here. An OS the node has not reported yet is no
+  // verdict: filtering on it would tell the owner no provider supports an
+  // operating system this machine never named, and strand the only place a
+  // provider can be pre-enabled.
+  const providers = bundledProvidersForMachine(node.os);
   const choices = providers.filter((p) => enabled.includes(p.id));
   return (
     <div className="flex w-full flex-col gap-4">
@@ -68,11 +73,12 @@ export function NodeDisplayProviders({
             <p className="text-detail text-muted-foreground">{p.description}</p>
             {p.id === "betterdisplay" && (
               <p className="text-detail text-warning">
-                On this node's Mac (macOS 14 or later), open Subshell Client or Subshell Server → Virtual Display
-                Helper… to enable the helper and grant macOS permissions. You can disable it from that panel at any
-                time. This node setting cannot activate it. macOS displays share keyboard focus and the pointer.{" "}
+                On this node's Mac (macOS 14 or later), open Subshell Client or Subshell Server, choose Virtual Displays
+                in the assistant window's sidebar, then Open Display Helper settings to enable the helper and grant
+                macOS permissions. You can disable it from that panel at any time. This node setting cannot activate it.
+                macOS displays share keyboard focus and the pointer.{" "}
                 <a
-                  href="https://docs.subshell.sh/nodes/manage#macos-display-helper"
+                  href="https://docs.subshell.sh/previews/macos"
                   target="_blank"
                   rel="noreferrer"
                   className="underline"

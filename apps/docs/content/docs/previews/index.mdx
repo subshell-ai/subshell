@@ -1,0 +1,76 @@
+---
+title: "Web previews & screens"
+description: "Choose a web app preview, browser watch, or virtual display and arrange it beside your subshell."
+---
+
+Web previews & screens lets you check a website or graphical app alongside the agent building it.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-intro.png" alt="Subshell’s website loaded inside a maximized web preview, with the preview tab and toolbar visible at 200% zoom." width="2400" height="1700" loading="eager" decoding="async" unoptimized />
+  <figcaption>A website running on the node, opened in a web preview. You can navigate and interact with it inside your Subshell workspace.</figcaption>
+</figure>
+
+## Prerequisites
+
+<span id="enable-web-previews-and-displays-on-the-machine" />
+
+Follow [Preview prerequisites and setup](/previews/setup) to connect a node and
+enable the views you need. For a virtual screen, complete the
+[Linux](/previews/linux) or [macOS](/previews/macos) setup on that node too.
+The device you view from only needs a browser or Subshell Client.
+
+## Choose a view
+
+<span id="check-a-website" />
+<span id="add-a-service-started-elsewhere" />
+<span id="configure-an-app-preview" />
+<span id="browser-compatibility-and-private-links" />
+<span id="watch-browser-frames" />
+<span id="use-a-virtual-display-on-linux" />
+<span id="use-a-virtual-display-on-macos" />
+<span id="use-web-previews--screens-from-a-mac" />
+
+| View | Use it to |
+| --- | --- |
+| [Web app previews](/previews/apps) | Interact with a website through a private preview connection. |
+| [Browser watching](/previews/browser) | Watch a Chrome or Chromium browser running on a Linux node without controlling it. |
+| [Linux virtual displays](/previews/linux) | Give a subshell its own screen and control graphical apps there. |
+| [macOS virtual displays](/previews/macos) | Control apps on a virtual screen in the Mac's shared login session. |
+
+## Arrange and refresh views
+
+Each app, browser watch, or display opens in its own workspace tab. On desktop,
+a new preview splits to the right of its terminal. Reopening the same view
+focuses its existing tab. Each open preview also appears beneath its subshell
+in the sidebar.
+
+Drag preview tabs to keep several apps or screens visible together. Closing a
+preview leaves its subshell and other previews running. Hidden previews release
+their viewer connections and reopen when you select them again.
+
+The viewer toolbar has refresh and a **More view actions** menu:
+
+- **Maximize pane** enlarges that workspace pane. **Restore pane** appears
+  directly in the toolbar while maximized.
+- **Full screen** uses your browser's fullscreen mode. **Exit full screen**
+  appears directly in the toolbar while active.
+- **Open in browser tab** opens a web preview in a separate browser tab.
+- **Close view** closes the current viewer.
+
+Use the subshell header's Web previews & screens icon to open another view.
+On a phone, previews use the workspace's tab strip without changing your desktop
+split layout. From the standalone subshell page, the header icon takes you into
+the workspace and opens the picker there.
+
+## Agent workflows and security
+
+<span id="launch-a-preview-from-another-subshell" />
+
+Follow [Preview workflows for agents](/previews/agents) to launch a helper
+through MCP and clean it up afterward.
+
+Read [Preview security](/concepts/security#preview-security) before sharing a
+preview link or enabling remote screen control. For the data path and developer
+guidance, see [Architecture](/concepts/architecture#web-previews-and-virtual-displays),
+[Web preview architecture](/developers/web-preview-architecture), and
+[Develop and extend web previews](/developers/web-preview-development).

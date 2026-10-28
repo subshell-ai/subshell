@@ -59,7 +59,7 @@ async function launchSubshell(page: Page, name: string): Promise<{ subshellId: s
   // Not the subshell page any more: the pane is a tab, and the page is its
   // workspace.
   await expect(page).toHaveURL(/\/workspaces\/[0-9a-f-]{36}(?:[?#]|$)/, { timeout: SPAWN_TIMEOUT });
-  const workspaceId = idFromUrl(page);
+  const workspaceId = await idFromUrl(page);
   await renameSubshell(page, name);
   const response = await page.request.get(`/api/workspaces/${workspaceId}`);
   expect(response.ok()).toBe(true);
@@ -103,8 +103,21 @@ async function closeSubshells(page: Page, ids: string[]): Promise<void> {
 }
 
 /** The id in the current `/subshells/<id>` or `/workspaces/<id>` URL. */
-function idFromUrl(page: Page): string {
-  return new URL(page.url()).pathname.split("/").pop() ?? "";
+async function idFromUrl(page: Page): Promise<string> {
+  // The router can reach the workspace before Playwright's cached frame URL
+  // catches up. Read and validate the id in the page, where navigation happens.
+  let id = "";
+  await expect
+    .poll(
+      async () => {
+        const pathname = await page.evaluate(() => location.pathname);
+        id = /^\/(?:subshells|workspaces)\/([0-9a-f-]{36})$/.exec(pathname)?.[1] ?? "";
+        return id;
+      },
+      { timeout: SPAWN_TIMEOUT },
+    )
+    .not.toBe("");
+  return id;
 }
 
 test("split a subshell into a real, named workspace", async ({ page }) => {
@@ -146,7 +159,7 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
   // The workspace is created around the current subshell and the picked one
   // rides the URL. Long leash: the click launches a real tmux pane first.
   await expect(page).toHaveURL(/\/workspaces\/[0-9a-f-]{36}(?:[?#]|$)/, { timeout: SPAWN_TIMEOUT });
-  const workspaceId = idFromUrl(page);
+  const workspaceId = await idFromUrl(page);
 
   // Both panes land, and the params are stripped once the add has been
   // consumed — a URL that keeps `add=` is one a reload would replay.
@@ -250,7 +263,7 @@ test("removing panes keeps the workspace until the last tab goes", async ({ page
   await dialog.getByRole("button", { name: new RegExp(otherName) }).click();
 
   await expect(page).toHaveURL(/\/workspaces\/[0-9a-f-]{36}(?:[?#]|$)/, { timeout: SPAWN_TIMEOUT });
-  const workspaceId = idFromUrl(page);
+  const workspaceId = await idFromUrl(page);
   await expect(page.locator(".dv-default-tab")).toHaveCount(2, { timeout: SPAWN_TIMEOUT });
   // The bar is the focused pane's subshell header (no workspace title bar any
   // more, spec 2026-10-17); the workspace keeps its name in the server's row.

@@ -646,8 +646,9 @@ are an explicit `gh workflow run release.yml -f app=all` (or a single
 component). **Tagging and releasing is owned by the workflow; never cut
 tags by hand.**
 
-**Never write a changeset for an `ignore`d package** (ten workspaces in
-`.changeset/config.json`, `@internal/server-web` among them): it can never
+**Never write a changeset for an `ignore`d package** (fourteen workspaces in
+`.changeset/config.json`, `@internal/server-web` and `@internal/helper-panel`
+among them): it can never
 be consumed and it wedges the version PR with an empty release list on every
 later push. Describe that work in the changeset of the APP THAT SHIPS IT:
 SPA work belongs to `@internal/server`, pane-runtime or subshell-protocol

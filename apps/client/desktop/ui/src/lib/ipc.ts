@@ -567,7 +567,7 @@ export function nodeReset(args: { typed: string }): Promise<ActionResult> {
  * for is a runtime `unknown variant` refusal in the window, which no type
  * check can see.
  */
-export type WebTarget = "website" | "license" | "company" | "homebrew" | "macports";
+export type WebTarget = "website" | "license" | "company" | "homebrew" | "macports" | "display-guide";
 
 /**
  * The event `node_install_tmux` streams the package manager's output on, one
@@ -625,6 +625,20 @@ export function nodeAbout(): Promise<About> {
 /** Open one of three fixed pages in the SYSTEM browser. A member, never a URL. */
 export function nodeOpenWeb(target: WebTarget): Promise<void> {
   return invoke<void>("node_open_web", { target });
+}
+
+/**
+ * Open the native macOS display helper's own settings panel.
+ *
+ * Nothing comes back, because nothing about this machine has changed yet: the
+ * panel is a separate signed program's window, and whether the helper ends up
+ * enabled, and whether macOS grants screen recording and accessibility, are
+ * answers the person gives OUTSIDE this app. A rejection means the panel could
+ * not be opened at all, and Rust already puts that in a native dialog, so the
+ * screen has nothing further to say.
+ */
+export function nodeOpenDisplayHelper(): Promise<void> {
+  return invoke<void>("node_open_display_helper");
 }
 
 /**

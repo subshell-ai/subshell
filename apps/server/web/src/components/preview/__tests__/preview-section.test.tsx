@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PreviewSection } from "@/components/preview/preview-section";
 import type { PreviewInfo, UseSubshellPreview } from "@/hooks/use-subshell-preview";
 import { publishPreviewFrame } from "@/lib/preview-bus";
@@ -62,6 +69,22 @@ function row(over: Partial<SubshellView> = {}): SubshellView {
   } as unknown as SubshellView;
 }
 
+type MountProps = Exclude<Parameters<typeof mount>[0], undefined>;
+
+function sectionProps(over: MountProps, c: UseSubshellPreview) {
+  return (
+    <PreviewSection
+      paneId="pane1"
+      access={over.access ?? "owner"}
+      subshell={over.subshell}
+      preview={c}
+      onClose={over.onClose ?? (() => {})}
+      initialView={over.initialView}
+      bannerVisibleMs={over.bannerVisibleMs}
+    />
+  );
+}
+
 function mount(
   over: {
     access?: SubshellAccess;
@@ -74,17 +97,36 @@ function mount(
   } = {},
 ) {
   const c = controller({ ...(over.info === undefined ? {} : { info: over.info }), ...over.controller });
-  const view = render(
-    <PreviewSection
-      paneId="pane1"
-      access={over.access ?? "owner"}
-      subshell={over.subshell}
-      preview={c}
-      onClose={over.onClose ?? (() => {})}
-      initialView={over.initialView}
-      bannerVisibleMs={over.bannerVisibleMs}
-    />,
-  );
+  const view = render(sectionProps(over, c));
+  return { view, c };
+}
+
+/**
+ * The same mount under a router. The switch's remedy line carries a
+ * "Open node settings" link, and a `Link` with no router above it throws, so
+ * every test here up to now passed no `subshell` at all - which is precisely
+ * why the link's own gating was never exercised. `row()` supplies the pane the
+ * link needs.
+ */
+async function mountRouted(over: MountProps) {
+  const c = controller({ ...(over.info === undefined ? {} : { info: over.info }), ...over.controller });
+  const rootRoute = createRootRoute();
+  // The section rides a route component, not RouterProvider's children: this
+  // version paints children only while loading, so the idiom the launch
+  // harness uses is the one that actually renders.
+  const indexRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/",
+    component: () => sectionProps(over, c),
+  });
+  const nodeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/nodes/$id", component: () => null });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([indexRoute, nodeRoute]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+    defaultPreload: false,
+  });
+  await router.load();
+  const view = render(<RouterProvider router={router} />);
   return { view, c };
 }
 
@@ -120,9 +162,90 @@ describe("gated controls explain themselves", () => {
     expect(showScreen.getAttribute("aria-description")).toBe(SCREEN_VIEW_REASON);
   });
 
+  it.each([
+    { webPreviewsEnabled: false, virtualDisplayEnabled: true, reason: "Web previews are disabled" },
+    { webPreviewsEnabled: true, virtualDisplayEnabled: false, reason: "Virtual displays are disabled" },
+  ])("links the enablement guide for an individually disabled feature even with no discovered views: %j", (state) => {
+    mount({
+      info: info({
+        ports: [],
+        cdpPort: null,
+        screen: null,
+        nodeEnabled: true,
+        webPreviewsEnabled: state.webPreviewsEnabled,
+        virtualDisplayEnabled: state.virtualDisplayEnabled,
+      }),
+    });
+    expect(screen.getByText(new RegExp(state.reason)).matches(".text-warning")).toBe(true);
+    expect(screen.getByRole("link", { name: "How to enable web previews and screens" }).getAttribute("href")).toBe(
+      "https://docs.subshell.sh/previews/setup",
+    );
+  });
+
   it("a node with the switch off answers with the switch's remedy, not a silent empty list", () => {
     mount({ info: info({ ports: [], cdpPort: null, nodeEnabled: false, reason: "preview-disabled" }) });
     expect(screen.getByText(SWITCH_OFF_REASON)).toBeTruthy();
+  });
+
+  /**
+   * The colour of the switch's own sentence (operator ruling 2026-10-26). Gold
+   * marks a control someone can turn on, and the line beside it is the guide
+   * that says who and where; a node that is simply unreachable is not a
+   * setting, so it keeps the muted colour and no link. Colour and link are the
+   * whole assertion here: the sentence itself is tested above.
+   */
+  it("says a switched-off node in gold with the guide beside it, and an unreachable one in muted", () => {
+    mount({ info: info({ ports: [], cdpPort: null, nodeEnabled: false, reason: "preview-disabled" }) });
+    expect(screen.getByText(SWITCH_OFF_REASON).matches(".text-warning")).toBe(true);
+    expect(screen.getByRole("link", { name: /How to enable web previews and screens/ }).getAttribute("href")).toBe(
+      "https://docs.subshell.sh/previews/setup",
+    );
+    cleanup();
+    mount({ info: info({ ports: [], cdpPort: null, nodeEnabled: false, reason: "node-offline" }) });
+    expect(screen.getByText(/This node is offline/).matches(".text-warning")).toBe(false);
+    expect(screen.queryByRole("link", { name: /How to enable web previews and screens/ })).toBeNull();
+  });
+
+  it("colours the node's own switch answer gold, and its silence about the machine muted", () => {
+    // Two producers of one fact. The plane answers the node's master switch with
+    // `preview-disabled`; the node answers it itself with a named word and the
+    // explanation attached, which the prefix rule has to catch or the same
+    // setting reads muted on one path and gold on the other.
+    mount({
+      info: info({
+        ports: [],
+        cdpPort: null,
+        nodeEnabled: false,
+        reason: "preview-node-off: turn on Preview for this node",
+      }),
+    });
+    expect(screen.getByText(/switched off on this node/).matches(".text-warning")).toBe(true);
+    expect(screen.getByRole("link", { name: /How to enable web previews and screens/ })).toBeTruthy();
+  });
+
+  it("offers the jump to the switch on every path that names it", async () => {
+    // The gold sentence and the "Open node settings" link are one answer: the
+    // switch is off, and here is where to turn it. Matching the note by prefix
+    // and the link by whole string left the node's own named word
+    // (`preview-node-off: turn on Preview for this node`) explaining the setting
+    // without offering the way to it, which is the pair disagreeing again.
+    await mountRouted({ info: info({ nodeEnabled: false, reason: "preview-disabled" }), subshell: row() });
+    expect(screen.getByRole("link", { name: "Open node settings" })).toBeTruthy();
+    cleanup();
+    await mountRouted({
+      info: info({ nodeEnabled: false, reason: "preview-node-off: turn on Preview for this node" }),
+      subshell: row(),
+    });
+    expect(screen.getByRole("link", { name: "Open node settings" })).toBeTruthy();
+    cleanup();
+    for (const reason of [undefined, "preview-ports-unsupported"]) {
+      await mountRouted({ info: info({ nodeEnabled: true, reason, webPreviewsEnabled: false }), subshell: row() });
+      expect(screen.getByRole("link", { name: "Open node settings" })).toBeTruthy();
+      cleanup();
+    }
+    // And not for a node that is merely unreachable: there is no switch to find.
+    await mountRouted({ info: info({ nodeEnabled: false, reason: "node-offline" }), subshell: row() });
+    expect(screen.queryByRole("link", { name: "Open node settings" })).toBeNull();
   });
 
   it("the disabled Watch explains itself the way Open and Screen do", () => {
@@ -150,9 +273,15 @@ describe("Open (edit unlocks it)", () => {
         closed += 1;
       },
     });
-    fireEvent.click(screen.getAllByRole("button", { name: /^Open web preview/ })[0]);
+    // Opening resolves asynchronously and mounts the menu trigger. Flush that
+    // render and its effects before interacting with the newly mounted menu.
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: /^Open web preview/ })[0]);
+    });
     await screen.findByTitle("Preview of port 3000");
-    fireEvent.click(screen.getByRole("button", { name: "More view actions" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "More view actions" }));
+    });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Close view" }));
     expect(closed).toBe(1);
   });

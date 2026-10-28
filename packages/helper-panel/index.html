@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      The page is a consent surface hosted by a process that can start a screen
+      capture, so it gets no network at all. `default-src 'none'` refuses every
+      request; the two inline sources are what the build's fold into this file
+      needs (see inline.ts), and nothing else is permitted: no fetch, no XHR, no
+      image, no font, no frame. A future edit that reaches for the network fails
+      here rather than quietly working. What this policy does NOT do is gate
+      where the top-level document may go: CSP can express that (`navigate-to`)
+      and no browser implements it, so leaving the bundle is refused by the
+      helper's own navigation delegate (`PanelBundle.allows` in
+      native/display-helper/Settings.swift), and that check is the one to keep.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"
+    />
+    <title>Subshell virtual display helper</title>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <!-- No live region on the container: render() rebuilds the whole card on
+         every state push, so an aria-live here would reread the entire consent
+         copy each time. The refusal line carries role="alert" on its own. -->
+    <main id="panel" class="panel"></main>
+  </body>
+</html>

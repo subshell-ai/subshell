@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -80,6 +80,33 @@ describe("TmuxRunner", () => {
       new TmuxRunner(stub2).pipePane("sock", "s1", "/tmp/plain.log");
       const argv2 = (await Bun.file(argvFile2).text()).trim().split("\n");
       expect(argv2.at(-1)).toBe("(umask 077; cat >> '/tmp/plain.log')");
+    } finally {
+      rmSync(stubDir, { recursive: true, force: true });
+    }
+  });
+
+  it("pipe-pane with replace:true drops the -o, which is what re-arms a dead child", async () => {
+    // The capture-child guard (apps/node/agent report.ts) re-arms the writer.
+    // -o lets tmux treat a configured pipe as "already on" and no-op the
+    // re-arm (the flag cannot arbitrate: measured both 0 and 1 for a dead
+    // writer on the same build), so the guard re-issues WITHOUT -o. Pin that
+    // the option changes exactly that word, nothing else in the command.
+    const stubDir = mkdtempSync(join(tmpdir(), "subshell-tmux-stub-"));
+    const argvFile = join(stubDir, "argv.txt");
+    const stub = join(stubDir, "tmux-stub");
+    writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvFile}"\n`, { mode: 0o755 });
+    try {
+      const child = { command: "/usr/bin/subshell", args: ["pane-log"] };
+      new TmuxRunner(stub).pipePane("sock", "s1", "/tmp/live.log", child, { replace: true });
+      const argv = (await Bun.file(argvFile).text()).trim().split("\n");
+      expect(argv).toEqual([
+        "-L",
+        "sock",
+        "pipe-pane",
+        "-t",
+        "s1",
+        `(umask 077; exec '/usr/bin/subshell' 'pane-log' --file '/tmp/live.log')`,
+      ]);
     } finally {
       rmSync(stubDir, { recursive: true, force: true });
     }
@@ -517,6 +544,40 @@ echo "server exited unexpectedly" >&2; exit 1
       expect(out).toBe("grid\n");
       expect(elapsed).toBeGreaterThanOrEqual(2_400);
       expect(elapsed).toBeLessThan(4_900);
+    });
+  });
+
+  describe("paneCursor parsing refuses to guess", () => {
+    /** A stub that prints `value` for ANY tmux call. */
+    const cursorStub = (value: string): TmuxRunner => {
+      const { dir, path } = writeStub(`#!/bin/sh\nprintf '%s\\n' '${value}'\n`);
+      stubDirs.push(dir);
+      return new TmuxRunner(path);
+    };
+    const stubDirs: string[] = [];
+    afterAll(() => {
+      for (const dir of stubDirs) rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("an empty field is NO ANSWER, never row/column zero", async () => {
+      // Measured on a live pane mid-redraw (2026-10-27): tmux can print ":"
+      // — both fields blank. `Number("")` is 0, so a lenient parse turns a
+      // format failure into a CONFIDENT top-left cursor, the replay ends
+      // 16-odd rows off the pane, and every later relative-positioned frame
+      // (Ink's pinned-block repaints) lands on the wrong rows for the whole
+      // life of that viewer. The no-restore degrade is the honest answer.
+      expect(await cursorStub(":").paneCursor("sock", "s1")).toBeNull();
+      expect(await cursorStub("3:").paneCursor("sock", "s1")).toBeNull();
+      expect(await cursorStub(":7").paneCursor("sock", "s1")).toBeNull();
+      expect(await cursorStub("").paneCursor("sock", "s1")).toBeNull();
+      expect(await cursorStub("garbage").paneCursor("sock", "s1")).toBeNull();
+      expect(await cursorStub("1:2:3").paneCursor("sock", "s1")).toBeNull();
+    });
+
+    it("accepts the real grid answers, zero included", async () => {
+      expect(await cursorStub("0:0").paneCursor("sock", "s1")).toEqual({ x: 0, y: 0 });
+      expect(await cursorStub("3:2").paneCursor("sock", "s1")).toEqual({ x: 3, y: 2 });
+      expect(await cursorStub(" 16:4 ").paneCursor("sock", "s1")).toEqual({ x: 16, y: 4 });
     });
   });
 });

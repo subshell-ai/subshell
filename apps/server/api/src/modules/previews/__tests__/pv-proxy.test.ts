@@ -199,6 +199,13 @@ beforeAll(async () => {
         ].map((name) => req.headers.get(name)),
         body: req.method === "GET" || req.method === "HEAD" ? "" : await req.text(),
       };
+      if (url.pathname === "/headers") return Response.json(Object.fromEntries(req.headers));
+      if (url.pathname === "/page")
+        return new Response('<head><link href="/style.css"></head><h1>App</h1>', {
+          headers: { "content-type": "text/html" },
+        });
+      if (url.pathname === "/absolute-redirect")
+        return new Response(null, { status: 302, headers: { location: `http://127.0.0.1:${targetPort}/page` } });
       if (url.pathname === "/echo") {
         return Response.json(lastSeen);
       }
@@ -378,6 +385,43 @@ async function probeUpgrade(port: number, path: string, origin?: string): Promis
 /* ------------------------------------------------------------------ */
 
 describe("pv-http: the same-origin rewrite", () => {
+  it("applies snapshotted host/rewrite settings to the real lane", async () => {
+    const broker = getPreviewBroker();
+    const { ref } = await broker.openForward({
+      viewerUserId: USER,
+      paneId: PANE,
+      nodeId: NODE,
+      port: targetPort,
+      proxySettings: { rewriteUrls: false, passHost: true, rewriteRedirects: false },
+    });
+    const headers = (await (
+      await proxyFetch(`/pv/${ref}/headers`, {
+        headers: {
+          origin: "null",
+          referer: `http://localhost:3080/pv/${ref}/`,
+          "sec-fetch-site": "cross-site",
+          "sec-fetch-mode": "no-cors",
+        },
+      })
+    ).json()) as Record<string, string>;
+    expect(headers.host).toBe("localhost:3080");
+    expect(headers.origin).toBeUndefined();
+    expect(headers.referer).toBeUndefined();
+    expect(headers["sec-fetch-site"]).toBeUndefined();
+    expect(await (await proxyFetch(`/pv/${ref}/page`)).text()).toContain('href="/style.css"');
+    expect((await proxyFetch(`/pv/${ref}/redirect`)).headers.get("location")).toBe(`/pv/${ref}/foo?x=1`);
+    const redirect = await proxyFetch(`/pv/${ref}/absolute-redirect`);
+    expect(redirect.headers.get("location")).toBe(`http://127.0.0.1:${targetPort}/page`);
+    const defaultRef = await openSession(targetPort);
+    expect(await (await proxyFetch(`/pv/${defaultRef}/page`)).text()).toContain(`/pv/${defaultRef}/style.css`);
+    expect((await proxyFetch(`/pv/${defaultRef}/absolute-redirect`)).headers.get("location")).toBe(
+      `/pv/${defaultRef}/page`,
+    );
+    const otherOrigin = (await (
+      await proxyFetch(`/pv/${defaultRef}/headers`, { headers: { origin: "https://elsewhere.test" } })
+    ).json()) as Record<string, string>;
+    expect(otherOrigin.origin).toBe("https://elsewhere.test");
+  });
   it("preserves escaped characters in the target request path", async () => {
     const ref = await openSession(targetPort);
     const res = await proxyFetch(`/pv/${ref}/asset%20name%2Fpart?name=a%20b`);

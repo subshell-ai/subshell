@@ -1,5 +1,5 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { buildSshKnownHostsPath, shellQuote } from "@internal/pane-runtime";
+import { buildSshKnownHostsPath } from "@internal/pane-runtime";
 import {
   isSshFingerprints,
   parseSshConnectionSnapshot,
@@ -25,6 +25,7 @@ import {
 import { prepareRelayLeg } from "@/modules/ssh/ssh-relay-launch.service.js";
 import type { SshSetupStage } from "@/modules/ssh/ssh-setup-progress.js";
 import { logger } from "@/shared/logger.js";
+import { renderSshSetupCommand } from "./ssh-setup-command.js";
 
 /**
  * The "Set up Subshell here" act (spec 2026-10-08 §7, Task 14): turn the
@@ -340,16 +341,11 @@ export async function setupHere(args: {
     // host-key PROMPT - auth failure or pin mismatch is a fast refusal, an
     // interactive prompt would sit out the deadline on a terminal no one holds.
     const presetFlags = ["-o", "BatchMode=yes", ...composed.presetFlags];
-    // The installer one-liner, exactly the copy-paste act §7 describes, with
-    // the scripted name (the pane's destination host) because the exec has no
-    // terminal to answer `setup`'s naming question. shellQuote every token;
-    // `bash -c` so pipefail exists and a failed fetch is not hidden by the
-    // empty-stdin pipe.
+    // The executor sends this script on stdin to `bash -s`. Keep the URL in
+    // curl's stdin config too: neither the ssh child, the destination shell,
+    // nor curl may expose the one-use setup key in process arguments.
     const installUrl = `${APP_BASE_URL}/install.sh?setup_key=${keyRow.key}`;
-    const nodeName = snapshot.host;
-    const remoteCommand = `bash -c ${shellQuote(
-      `set -o pipefail; curl -fsSL ${shellQuote(installUrl)} | SUBSHELL_NODE_NAME=${shellQuote(nodeName)} bash`,
-    )}`;
+    const remoteCommand = renderSshSetupCommand(installUrl, snapshot.host);
 
     /** Enrollment is durable even if installation or the connecting link fails afterward. */
     const enrolledResult = async (cause: string): Promise<SshAnswer<SetupHereResult> | null> => {

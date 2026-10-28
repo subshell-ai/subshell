@@ -19,7 +19,7 @@ export function PreviewShowcase() {
           something’s off, give your agent feedback in the same workspace.
         </p>
         <a
-          href="https://docs.subshell.sh/guides/preview"
+          href="https://docs.subshell.sh/previews"
           className="mt-4 inline-block text-[14px] text-[var(--orchid)] underline underline-offset-4 hover:text-[var(--frost)]"
         >
           Preview a website →

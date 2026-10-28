@@ -4,6 +4,7 @@ import type { PaneSource } from "@/api/ws/pane-stream.js";
 import { SyncStreamStripper } from "@/api/ws/sync-stripper.js";
 import type { NodeLauncher } from "@/modules/nodes/node-launcher.js";
 import type { RemoteLauncher } from "@/modules/nodes/remote-launcher.js";
+import { logger } from "@/shared/logger.js";
 
 /**
  * How often the pane log is re-read for new bytes.
@@ -192,6 +193,29 @@ export function createPanePollSource(options: PanePollSourceOptions): PaneSource
   };
 }
 
+/** How often the remote tail's watchdog asks the node for the log's size. */
+export const TAIL_STALL_CHECK_MS = 10_000;
+
+/**
+ * How long a pump may stay silent while the log it tails has moved before
+ * the watchdog calls it dead. Comfortably above every honest delay on the
+ * path (the agent polls every 50 ms, and `tail_start` itself times out at
+ * 10 s), so it fires on a broken relay, never on a slow one.
+ */
+export const TAIL_STALL_AFTER_MS = 25_000;
+
+/**
+ * The two families a dead remote pump reports into, as the client's close
+ * reason. Pure and exported so both arms are pinned by test: a collapse to
+ * any constant (or each other) sends an operator down the wrong path —
+ * "refused" reads as a node-link problem, "stalled" as a relay going quiet.
+ * @param reason - the reason {@link RemoteTailSourceOptions.onDead} reported
+ * @returns the close reason the dropped viewers carry
+ */
+export function tailCloseReason(reason: string): string {
+  return reason.startsWith("stalled") ? "tail stalled" : "tail refused";
+}
+
 /** What a source needs to tail a subshell running on a remote node. */
 export interface RemoteTailSourceOptions {
   /** The node's launcher — the relay to the agent that owns the pane. */
@@ -207,6 +231,21 @@ export interface RemoteTailSourceOptions {
   fromByte: number;
   /** Called once per emitted chunk, for the lastOutputAt heartbeat. */
   onOutput?: () => void;
+  /**
+   * Fires exactly once when this pump can no longer deliver: the agent
+   * refused `tail_start`, or the watchdog caught the pane's log growing
+   * while the pump sat silent. The attach path needs this because the
+   * registry builds ONE pump per subshell, for its first viewer: a source
+   * that dies quietly becomes the permanent view of that pane, handed to
+   * every later re-attach as long as any viewer lingers (a phone tab does
+   * for hours). The honest recovery is to drop the whole stream so the next
+   * attach builds a fresh pump, not to let a corpse stream paint replays.
+   */
+  onDead?: (reason: string) => void;
+  /** Watchdog period; a test seam over {@link TAIL_STALL_CHECK_MS}. */
+  stallCheckMs?: number;
+  /** Silence that reads as a stall; a test seam over {@link TAIL_STALL_AFTER_MS}. */
+  stallAfterMs?: number;
 }
 
 /**
@@ -229,7 +268,16 @@ export interface RemoteTailSourceOptions {
  * twin — a multi-byte character or a DEC 2026 marker split across two reads
  * must be held until its other half arrives.
  *
- * @param options - Launcher, subshell, start offset, and the output heartbeat
+ * Because the pump outlives the attach that built it, it carries its own
+ * liveness: a refused `tail_start` and a watchdog verdict (the log's size
+ * moves while zero bytes arrive for {@link TAIL_STALL_AFTER_MS}) both report
+ * the pump dead through {@link RemoteTailSourceOptions.onDead} rather than
+ * going silent. That silence was the 2026-10-27 stuck-pane incident: one
+ * dead source stayed every viewer's terminal for two hours because nothing
+ * on the plane could notice.
+ *
+ * @param options - Launcher, subshell, start offset, output heartbeat, and
+ *   the dead-pump report
  * @returns A source for {@link import("./pane-stream.js").PaneStreamRegistry}
  */
 export function createRemoteTailSource(options: RemoteTailSourceOptions): PaneSource {
@@ -237,12 +285,69 @@ export function createRemoteTailSource(options: RemoteTailSourceOptions): PaneSo
     start(emit) {
       const decoder = new TextDecoder();
       const stripper = new SyncStreamStripper();
+      const checkMs = options.stallCheckMs ?? TAIL_STALL_CHECK_MS;
+      const afterMs = options.stallAfterMs ?? TAIL_STALL_AFTER_MS;
       let stopped = false;
       let dispose: (() => void) | undefined;
+      let reported = false;
+      // What the launcher's relay has handed this source, and when. Both are
+      // the watchdog's evidence: the cursor is what the pane has not yet
+      // shown us past, and the timestamp is how long the silence has run.
+      let cursor = options.fromByte;
+      let lastDeliveryAt = Date.now();
+      let probeInFlight = false;
+
+      const stop = (): void => {
+        if (stopped) return;
+        stopped = true;
+        clearInterval(watchdog);
+        dispose?.();
+      };
+
+      const reportDead = (reason: string): void => {
+        if (reported || stopped) return;
+        reported = true;
+        logger.warn(`remote tail dead for subshell ${options.subshellId}: ${reason}; dropping its viewers`);
+        stop(); // a source that cannot produce must not stay the pane's stream
+        options.onDead?.(reason);
+      };
+
+      const watchdog = setInterval(() => {
+        if (stopped || reported || probeInFlight) return;
+        // A pump that delivered recently needs no witness; a streaming pane
+        // pays nothing beyond the bookkeeping inside onChunk.
+        if (Date.now() - lastDeliveryAt < afterMs) return;
+        probeInFlight = true;
+        void options.launcher
+          .readLogSized(options.subshellId, 0, 1)
+          .then(({ size }) => {
+            probeInFlight = false;
+            if (stopped || reported) return;
+            // A chunk can land while the probe is in flight, and then two
+            // things are true at once: the pump just proved alive, and this
+            // answer's EOF is already stale below the cursor. Re-ask the
+            // silence question against NOW, not against when the tick armed
+            // the probe; a burst mid-probe reads (size < cursor), which is
+            // otherwise indistinguishable from the rewind this also catches.
+            if (Date.now() - lastDeliveryAt < afterMs) return;
+            if (size === cursor) return; // a quiet pane is not a dead pump
+            reportDead(`stalled: EOF ${size}, delivered ${cursor}, silent ${Date.now() - lastDeliveryAt}ms`);
+          })
+          .catch(() => {
+            // A failing probe is link trouble, not a stalled tail: a lost
+            // node socket is closed out-of-band, its viewers with it, so the
+            // watchdog must never burn a healthy pump over a transient RPC
+            // failure on the way back.
+            probeInFlight = false;
+          });
+      }, checkMs);
+      watchdog.unref?.(); // a tail must never hold the process open on its own
 
       void options.launcher
-        .tailStart(options.subshellId, crypto.randomUUID(), options.fromByte, (bytes) => {
+        .tailStart(options.subshellId, crypto.randomUUID(), options.fromByte, (bytes, next) => {
           if (stopped) return;
+          cursor = next;
+          lastDeliveryAt = Date.now();
           const text = stripper.push(decoder.decode(bytes, { stream: true }));
           if (!text) return; // nothing paintable yet — the whole read is held
           emit(text);
@@ -252,14 +357,19 @@ export function createRemoteTailSource(options: RemoteTailSourceOptions): PaneSo
           dispose = disposer;
           if (stopped) disposer(); // torn down during the tail_start round-trip
         })
-        .catch(() => {
-          // The relay refused. The attach's own error path closes the socket;
-          // a source that never produces is the honest outcome here.
+        .catch((err: unknown) => {
+          // The relay refused. This used to read as "a source that never
+          // produces is the honest outcome"; with one pump per subshell,
+          // inherited by every re-attach, that honesty was a pane frozen
+          // until the server restarted. Report it, and let the viewers
+          // rebuild the stream from a fresh join point.
+          reportDead(`tail_start refused: ${err instanceof Error ? err.message : String(err)}`);
         });
 
       return () => {
         stopped = true;
         stripper.flush(); // held partial-sequence bytes belong to the next stream
+        clearInterval(watchdog);
         dispose?.();
       };
     },

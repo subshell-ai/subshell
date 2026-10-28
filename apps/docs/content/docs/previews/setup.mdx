@@ -1,0 +1,73 @@
+---
+title: "Preview prerequisites and setup"
+description: "Enable web previews and display providers on a node, with the required access and installation steps."
+---
+
+Enable the preview features you want on the machine that runs your subshell.
+
+## Before you start
+
+For a graphical machine, follow [Install Subshell Client](/install/desktop-client)
+and [Desktop node setup](/nodes/desktop). For a headless machine, follow
+[Enroll a node with the CLI](/nodes/enroll), including its installation steps.
+You can also use the server's built-in node.
+
+You must own the node to change its preview settings. An administrator configures
+the server's built-in node. For a virtual display, first install the dependencies
+on that machine by following [Linux virtual displays](/previews/linux#install-and-configure)
+or [macOS virtual displays](/previews/macos#before-you-start).
+
+## Enable node features
+
+Both preview switches are off by default and work independently.
+
+1. In the server dashboard, open **Settings** → **Nodes**, select the machine,
+   and open **Overview**.
+2. Turn on **Allow web previews**, **Allow virtual displays**, or both,
+   depending on the views you need. Each switch has its own effect:
+
+   **Allow web previews** enables [Web app previews](/previews/apps) and
+   [Browser watching](/previews/browser).
+
+   **Allow virtual displays** lets subshells request a screen for graphical
+   apps. Each display uses extra memory and CPU; web app previews don't need one.
+
+3. Under **Allow virtual displays**, enable the providers you want this node to
+   use and choose a **Default display provider**. Choose **Recheck** after
+   resolving missing requirements. Each enabled provider can be selected when
+   starting a subshell.
+
+Choose **Xvfb + VNC** for Linux or **BetterDisplay** for macOS. The card checks
+requirements on the selected node, which may be a different machine from the one
+displaying the dashboard. A pending or failed requirements check blocks a launch
+with a virtual display until you resolve it or turn off the launch's display option.
+
+Each subshell saves its provider and display size for restarts. Changing the
+node's default doesn't change existing subshells. Disabling a provider prevents
+new allocations and restarts that need it, while existing displays keep running. Enabling a provider starts
+no processes until a subshell requests a display.
+
+You can [save a display choice in a preset](/presets/launch-defaults#save-a-virtual-display-choice).
+Review it when changing nodes: if the new node can't provide that display, the
+launch form turns the option off and explains why.
+
+> [!WARNING]
+> Turning either switch off blocks new operations without stopping existing
+> subshells or immediately closing existing connections. Remove access or end the
+> subshell when you need to revoke an existing connection. On a Mac, use
+> [Disable helper](/previews/macos#use-and-stop-the-display) to stop capture and
+> input immediately.
+
+## Access to views
+
+You need edit access to open or configure app previews, manage saved services,
+or control a virtual display. View access lets you discover views, see saved
+services, and watch the browser found for that subshell. Unavailable app and
+screen controls explain the access they need. The header badge counts only
+views you can open. If both features are off, the picker explains this and
+links to this setup guide; the preview tab also offers **Open node settings**.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/node-switch-off.png" alt="Open web preview or screen dialog with a gold line saying web previews and screens is switched off on this node, a link to how to enable it, and an empty Saved services list." width="1072" height="540" loading="lazy" decoding="async" unoptimized />
+  <figcaption>The picker links to setup when the node's preview features are off.</figcaption>
+</figure>

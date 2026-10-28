@@ -35,12 +35,11 @@
  * - **A node that stays down just leaves the frames waiting.** There is no
  *   retry timer: the re-fire triggers are the node's `ready` moment (the
  *   node-ws-handler, which calls {@link refireInputHoldsForNode}) and a
- *   new-write arrival (which appends and kicks the drain). The memory bound
- *   is the client's own: a client never holds more than its 512-frame
- *   pending queue (MAX_PENDING in input-queue.ts — 2026-09-22's window +
- *   INFLIGHT_MAX cap moved WHEN frames ship, not how many can wait), and a
- *   re-arriving id never duplicates a hold, so the hold can never exceed
- *   what the client itself is holding.
+ *   new-write arrival (which appends and kicks the drain). The server bounds
+ *   frames and payload bytes per socket, per node and process-wide in input-budget.ts,
+ *   counting both dispatched writes and retries. A custom client cannot
+ *   bypass those bounds by ignoring the browser's pacing. Duplicate held ids
+ *   don't consume another slot; overflow closes the requesting socket without acknowledging the frame.
  * - **A re-fire failure re-enters the hold.** The drain stops at the first
  *   rejection, leaving that frame at the head and every later one behind it;
  *   the next trigger re-enters. No clock anywhere in this module.
@@ -65,6 +64,7 @@
  * papered over.
  */
 
+import { takeInputBudget } from "@/api/ws/input-budget.js";
 import { inputWindowAdd } from "@/api/ws/input-window.js";
 import type { WsSocket } from "@/api/ws/viewers.js";
 import { logger } from "@/shared/logger.js";
@@ -77,6 +77,8 @@ interface HoldEntry {
   payload: string;
   ws: WsSocket;
   sendAck: () => void;
+  release: () => void;
+  inFlight?: boolean;
 }
 
 /** One session's holds: the FIFO (id order by construction — client ids are
@@ -133,6 +135,7 @@ export interface FailedInput {
  * @param failed - The failed write
  */
 export function holdFailedInput(failed: FailedInput): void {
+  if (failed.ws.data.accessRevoked || failed.ws.data.inputClosed) return;
   let subs = holds.get(failed.nodeId);
   if (!subs) {
     subs = new Map();
@@ -149,7 +152,12 @@ export function holdFailedInput(failed: FailedInput): void {
     sessions.set(failed.sessionId, hold);
   }
   if (!hold.queue.some((entry) => entry.id === failed.id)) {
-    hold.queue.push({ id: failed.id, payload: failed.payload, ws: failed.ws, sendAck: failed.sendAck });
+    const release = takeInputBudget(failed.ws, failed.payload);
+    if (!release) {
+      dropInputHolds(failed.nodeId, failed.subshellId, failed.sessionId);
+      return;
+    }
+    hold.queue.push({ id: failed.id, payload: failed.payload, ws: failed.ws, sendAck: failed.sendAck, release });
   }
   drain(hold, failed.sessionId);
 }
@@ -183,7 +191,21 @@ function drain(hold: SessionHold, sessionId: string): void {
         // a fresh write would make — never a stale copy of the launcher the
         // frame originally failed on.
         const data = entry.ws.data;
-        await data.launcher.sendInput(data.socket, data.subshellId, entry.payload);
+        if (data.accessRevoked || data.inputClosed) {
+          entry.release();
+          hold.queue.shift();
+          continue;
+        }
+        entry.inFlight = true;
+        try {
+          await data.launcher.sendInput(data.socket, data.subshellId, entry.payload);
+        } catch (err) {
+          if (!hold.queue.includes(entry)) entry.release();
+          throw err;
+        } finally {
+          entry.inFlight = false;
+        }
+        entry.release();
         hold.queue.shift();
         inputWindowAdd(data.subshellId, sessionId, entry.id);
         entry.sendAck();
@@ -230,6 +252,7 @@ export function dropInputHolds(nodeId: string, subshellId: string, sessionId: st
   const sessions = subs?.get(subshellId);
   const hold = sessions?.get(sessionId);
   if (!hold || !subs || !sessions) return;
+  for (const entry of hold.queue) if (!entry.inFlight) entry.release();
   hold.queue = [];
   sessions.delete(sessionId);
   if (sessions.size === 0) {
@@ -239,10 +262,53 @@ export function dropInputHolds(nodeId: string, subshellId: string, sessionId: st
 }
 
 /**
+ * Frees the budget one stuck retry is holding, for the benefit of a keystroke
+ * that arrived on a healthy pane. Called only when a node's share or the
+ * fleet-wide queue is full, so the cost of capacity lands on a backlog that is
+ * already waiting to re-fire instead of on whoever types next. The waiting
+ * pane is usually on a node that has not come back, but it can equally be a
+ * slow write, and that is the cost being traded here.
+ *
+ * Sessions are visited in the order they were created, and the oldest entry
+ * that is not mid-write goes. An in-flight entry is left alone: its bytes did
+ * reach the pane, and its charge settles on its own. A dropped entry never
+ * gets its ack, which is the same overflow outcome a session's holds already
+ * meet when it disconnects mid-backlog, and the client's own retry machinery is
+ * what would have carried it.
+ *
+ * @returns whether anything was released, so the caller can retry its charge
+ */
+export function reclaimOneHeldInput(): boolean {
+  for (const [nodeId, subs] of holds) {
+    for (const [subshellId, sessions] of subs) {
+      for (const [sessionId, hold] of sessions) {
+        const index = hold.queue.findIndex((entry) => !entry.inFlight);
+        if (index < 0) continue;
+        const [entry] = hold.queue.splice(index, 1);
+        entry?.release();
+        if (hold.queue.length === 0) {
+          sessions.delete(sessionId);
+          if (sessions.size === 0) subs.delete(subshellId);
+          if (subs.size === 0) holds.delete(nodeId);
+        }
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Drops every hold. Only for tests, which reuse subshell ids and sessions;
  * a surviving hold would re-fire the previous case's keystroke into the next
  * one's pane. @internal
  */
 export function resetInputHoldsForTests(): void {
+  for (const subs of holds.values())
+    for (const sessions of subs.values())
+      for (const hold of sessions.values()) {
+        for (const entry of hold.queue) if (!entry.inFlight) entry.release();
+        hold.queue = [];
+      }
   holds.clear();
 }

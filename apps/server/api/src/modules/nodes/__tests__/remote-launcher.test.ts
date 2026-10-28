@@ -12,6 +12,7 @@ import {
   type NodeEvent,
   parseNodeCommandBody,
 } from "@internal/subshell-protocol";
+import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -1180,7 +1181,8 @@ describe("paneCursor — the pane's confirmed cursor, or nothing", () => {
 
 describe("launch-driven detection kick — default wiring (spec §4/§6.2)", () => {
   beforeAll(async () => {
-    await runMigrations(); // no-op when already applied (server suite idiom)
+    await runMigrations();
+    await runAuthMigrations(); // no-op when already applied (server suite idiom)
   });
 
   it("a `binary missing` launch failure sends the node a detect command and caches the answer", async () => {

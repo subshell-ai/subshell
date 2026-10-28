@@ -1998,6 +1998,10 @@ pub enum WebTarget {
     /// it shut here.
     #[serde(rename = "macports")]
     MacPorts,
+    /// The guide that walks through enabling the macOS display helper, offered
+    /// on the Virtual Displays screen (2026-10-26). Kebab-case spells it
+    /// `display-guide`, which is exactly what the page sends.
+    DisplayGuide,
 }
 
 /// Where the tmux screen sends someone whose Mac has no package manager at
@@ -2007,9 +2011,14 @@ pub enum WebTarget {
 /// installs the manager itself.
 const HOMEBREW_URL: &str = "https://brew.sh";
 const MACPORTS_URL: &str = "https://www.macports.org/install.php";
+/// Where the Virtual Displays screen sends someone who wants the full
+/// enablement walk-through, the two macOS permissions and the restart case
+/// included. The same address `apps/server/desktop` carries for it.
+const DISPLAY_GUIDE_URL: &str = "https://docs.subshell.sh/previews/macos";
 
 /// Open one of a fixed set of pages in the system browser: the three About
-/// links, and the two package managers the tmux screen names.
+/// links, the two package managers the tmux screen names, and the display
+/// helper's enablement guide.
 ///
 /// The bundle's CSP makes an ordinary `<a href>` open inside the webview,
 /// which is the wrong window for a website — and this app's other window is a
@@ -2022,10 +2031,74 @@ pub fn node_open_web(app: AppHandle, target: WebTarget) -> Result<(), String> {
         WebTarget::Company => legal::COMPANY_URL,
         WebTarget::Homebrew => HOMEBREW_URL,
         WebTarget::MacPorts => MACPORTS_URL,
+        WebTarget::DisplayGuide => DISPLAY_GUIDE_URL,
     };
     app.opener()
         .open_url(url, None::<&str>)
         .map_err(|e| format!("could not open {url}: {e}"))
+}
+
+/// Open the macOS display helper's own settings panel, the same panel the
+/// application menu's **Virtual Display Helper…** item opens.
+///
+/// The command lives here, ungated, while `display_helper` is a macOS-only
+/// module: `generate_handler!` takes a plain list, so a command that exists on
+/// one platform only has to exist on all of them or the Linux build fails to
+/// compile. The refusal is the honest answer there rather than a stub, and the
+/// Virtual Displays screen is drawn only on macOS, so nothing on Linux sends
+/// this.
+///
+/// Nothing comes back on success: the panel belongs to a separate signed
+/// program, and enabling the helper and granting macOS its two permissions
+/// both happen outside this app. `open_settings` reports its own failures in a
+/// native dialog, so the page has no message left to render.
+#[tauri::command(async)]
+pub fn node_open_display_helper(app: AppHandle) -> Result<(), String> {
+    if let Some(refusal) = display_helper_refusal() {
+        let _ = app;
+        return Err(refusal);
+    }
+    #[cfg(target_os = "macos")]
+    crate::display_helper::open_settings(&app);
+    Ok(())
+}
+
+/// Why this machine cannot open the helper, or `None` where it can.
+///
+/// The words sit in their own function so the arm that answers off macOS is
+/// testable: the command needs an `AppHandle`, and the suite runs with no
+/// running app. Nothing on this platform's page sends the command (the Virtual
+/// Displays section is dropped off macOS by the rail), so an older page or a
+/// hand-written invoke is all that gets here, and a success would report a
+/// panel that does not exist.
+fn display_helper_refusal() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        None
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Some("Virtual displays need the macOS display helper, and this is not macOS.".to_string())
+    }
+}
+
+#[cfg(test)]
+mod display_helper_tests {
+    use super::display_helper_refusal;
+
+    #[test]
+    fn a_machine_with_no_helper_refuses_instead_of_reporting_a_panel_it_opened() {
+        // Each host tests its own arm; the other one is what CI's macOS lane
+        // and the Linux builder image cover. What must not drift is the shape:
+        // a Mac answers None and opens the panel, anywhere else answers words.
+        #[cfg(target_os = "macos")]
+        assert!(display_helper_refusal().is_none(), "macOS refused its own helper");
+        #[cfg(not(target_os = "macos"))]
+        {
+            let reason = display_helper_refusal().expect("a machine with no helper answered nothing");
+            assert!(reason.contains("macOS"), "{reason}");
+        }
+    }
 }
 
 /// The screen this window was opened for, taken exactly once.

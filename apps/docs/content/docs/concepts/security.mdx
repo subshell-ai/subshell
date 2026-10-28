@@ -67,6 +67,12 @@ Owners can share sessions with named users or **Everyone**, meaning all signed-i
 
 A view grant can expose credentials printed in terminal output. An edit grant lets the recipient send input to a real shell or agent, except in an SSH subshell. SSH input requires its owner’s browser session; edit grantees and bearer credentials cannot type into it. Sharing also exposes attached viewer information, such as device labels and whether a viewer can type. These permissions don't create an isolated copy of the process.
 
+Changing a subshell's shares closes its non-owner terminal connections, including
+connections still attaching. Reconnecting checks the current effective grant:
+users who no longer have access can't view the terminal, and users with only
+**View** access can't send input.
+This doesn't stop the running shell or undo commands already accepted.
+
 Sharing a node is a separate decision: even a view grant on a node permits the recipient to launch their own sessions there. The execution account and machine can access those processes and their files. Sharing a node doesn't automatically share every session on it. See [Access model](/concepts/access), [Share a subshell](/guides/sharing), and [Share a node](/nodes/sharing).
 
 ### Preview security
@@ -88,17 +94,34 @@ server-side jar rather than being installed on the dashboard origin. Browser
 storage, service workers, and some website login flows need the node's normal
 browser context; use **Virtual display** for those checks.
 
+The preview proxy can rewrite app HTML, styles, and module imports, and inject a
+compatibility script to keep common app requests under the private preview URL.
+This changes the responses your browser receives. Integrity hashes on rewritten
+local script and stylesheet references no longer apply and are removed; unrelated
+external resources keep their integrity checks. The server remains a trusted
+intermediary. A target's Content Security Policy stays effective apart from its
+framing restrictions and can still block the compatibility script.
+
+[Personal preview settings](/previews/apps#configure-an-app-preview) control URL
+rewriting, redirects, and which Host header the app receives. They're saved for
+you by node, host, protocol, and port, and apply when a fresh preview opens.
+They don't relax the sandbox, grant access to another target, disable HTTPS
+certificate checks, or make every app compatible. Text rewriting and
+decompression have size and concurrency limits; these aren't general
+protection against denial-of-service attacks.
+
 #### Link lifetime and revocation
 
 The preview URL is a bearer access link. Anyone who obtains it can use it while
 it remains valid. Keep it out of public issues, shared browser history, and
 reverse-proxy access logs. Closing the tab releases its connections but doesn't
 immediately revoke a copied link. Forward sessions expire after 15 minutes
-without traffic; grant removal, account disable, subshell death, and node loss
-also cut off affected access. Turning off **Allow web previews** or **Allow
-virtual displays** blocks new operations for that feature without immediately
-closing existing connections. To revoke access, remove the sharing grant or
-end the subshell.
+without traffic; losing the required sharing permission, account disable,
+subshell death, and node loss also cut off affected access. Losing edit access
+closes app forwarding and virtual-display access. Turning off **Allow web
+previews** or **Allow virtual displays** blocks new operations for that feature
+without immediately closing existing connections. To revoke access, remove the
+grants that provide it or end the subshell.
 
 #### Transport and network reach
 
@@ -117,7 +140,7 @@ refuses main, built-in, and mirrored screens, but this isn't isolation from
 the rest of the account. Notifications or other windows on that virtual
 screen may be visible. Its native **Disable helper** control stops all capture
 and input; the dashboard and MCP cannot turn it back on. See
-[helper setup and disable instructions](/nodes/manage#macos-display-helper).
+[helper setup and disable instructions](/previews/macos).
 
 #### VNC and local users
 
@@ -131,7 +154,7 @@ execution-account permissions. Don't expose the VNC port through a network
 port forward. A copied preview link also grants control until it expires or
 is revoked; view-only sharing doesn't offer a read-only VNC viewer.
 
-Follow [Web previews & screens](/guides/preview) for setup and the
+Follow [Web previews & screens](/previews) for setup and the
 [preview architecture](/concepts/architecture#web-previews-and-virtual-displays) for the data path.
 
 ### Machine credentials
@@ -160,7 +183,9 @@ Use HTTPS for browser access across a network. The browser-to-server HTTP and We
 
 WebSocket attachment tokens expire after 30 seconds and can be redeemed once. Bearer-minted tokens are bound to one session; a pane token can mint one only for its own session. The dashboard feed refuses these session-bound tokens. Same-host attachment can also authenticate with the browser session cookie, so not every WebSocket connection uses an attachment token.
 
-Already-connected WebSockets aren't continuously re-authenticated. Account disabling explicitly disconnects them; password resets don't. Don't assume changing a credential disconnects every live connection.
+Already-connected WebSockets aren't continuously re-authenticated. Account disabling explicitly disconnects them, and subshell sharing changes close non-owner terminal connections so their grants are checked again. Password resets don't close already-connected WebSockets. Don't assume changing a credential disconnects every live connection.
+
+Terminal WebSocket input has per-message, per-connection, and instance-wide limits. Oversized or excessive input closes the affected connection. Pending input is discarded when the viewer disconnects; already-dispatched work remains counted until it settles. These bounds limit retained input work, not the commands an authorized user can run or the resources those commands can consume.
 
 For a public Cloudflare Tunnel, Subshell requires a Cloudflare Access gate and verifies signed Access assertions with the configured issuer and audience. The gate doesn't replace Subshell sign-in. Follow [Cloudflare Tunnel](/networking/cloudflare); publishing a hostname without the verified gate doesn't satisfy the trusted-network deployment model.
 
@@ -228,6 +253,13 @@ Stopped server-host session logs age out after 30 days by default; remote nodes 
 
 Pane bearer tokens and typed input can also appear in process arguments or tmux metadata. A local process with sufficient access can read them. Curated launch environments avoid forwarding server application secrets automatically, but they don't prevent agents from reading files available to their OS account.
 
+Generated node-enrollment installers keep setup keys out of child-process
+arguments, including during **Set up Subshell here** over SSH. This doesn't
+protect them from root or the same OS account. Copied commands can remain in
+shell history, and manually passing `--key` still exposes that argument to
+process inspection. Treat setup commands as credentials; see
+[Make the destination a node](/guides/ssh#make-the-destination-a-node).
+
 Browser push notifications pass through the browser's push service and can display a session name on a lock screen. Notifications are owner-targeted; sharing a session doesn't notify every grantee. Agent-provider traffic is separate from Subshell: an agent may send project content to its configured provider. Self-hosting Subshell doesn't make that provider interaction local.
 
 ## Backup and restore protection
@@ -249,6 +281,11 @@ Plugins run in the server process with its privileges and aren't sandboxed. Inst
 Administrator-requested agent installers run vendor installation commands under the server's OS account. Subshell also launches agent binaries found on execution hosts without independently verifying those binaries. Evaluate the agent and plugin supply chains as well as Subshell itself.
 
 Subshell's update paths verify a publisher-signed release manifest and the downloaded artifact's SHA-256 digest. Nodes verify updates independently rather than accepting the server's assurance alone. This protects against an update host replacing an artifact with unsigned code; it doesn't protect against compromise of the publisher's signing key or replay of an older signed release.
+
+The desktop apps also verify Display Helper's bundle identity and, in release
+builds, its publisher signature before using an installed helper, not only when
+installing a new copy. Signature verification doesn't replace the local consent
+and macOS permissions described above.
 
 First-install shell scripts have a different trust boundary: their integrity checks use digests served by the same release source, so initial installation still relies on HTTPS and repository trust. Don't assume update verification makes every installation method identical. See [Update the server](/administration/updates).
 

@@ -330,8 +330,7 @@ export interface SshRelayCloseCommand {
  * the snapshot's own agent socket rides as `agentSocketPath` (the same scoped
  * env the direct pane launch carries) or nothing does.
  */
-export interface SshExecCommand {
-  type: "ssh_exec";
+export type SshExecCommand = {
   /** The ephemeral act id (path-composition shape): names `<dataDir>/ssh/<execId>/`. */
   execId: string;
   /** The rendered-config path the plane derived; the node byte-checks its own. */
@@ -348,7 +347,7 @@ export interface SshExecCommand {
   agentSocketPath: string | null;
   /** The node-side hard deadline for the run; the plane's RPC deadline rides past it. */
   timeoutMs: number;
-}
+} & ({ type: "ssh_exec" } | { type: "ssh_exec_stdin" });
 
 /** Ask one machine for the state of a kicked `ssh_exec` (running, or done with its captured answer). */
 export interface SshExecStatusCommand {
@@ -382,6 +381,7 @@ export const SSH_COMMAND_TYPES = [
   "ssh_relay_open",
   "ssh_relay_close",
   "ssh_exec",
+  "ssh_exec_stdin",
   "ssh_exec_status",
   "ssh_machine_pin_repair",
 ] as const;
@@ -619,7 +619,8 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       if (!(SSH_RELAY_CLOSE_REASONS as readonly string[]).includes(value.reason)) return null;
       return { type: "ssh_relay_close", ref: value.ref, reason: value.reason as SshRelayCloseReason };
     }
-    case "ssh_exec": {
+    case "ssh_exec":
+    case "ssh_exec_stdin": {
       // Every field is required (the §7 redaction rule has no omitted half
       // to paper over): the exec id takes the SAME path-composition shape
       // the relay's paneId takes, the config member takes the launch frame's
@@ -653,7 +654,7 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       if (!isInt(value.timeoutMs) || (value.timeoutMs as number) < 1) return null;
       if ((value.timeoutMs as number) > SSH_EXEC_TIMEOUT_MAX_MS) return null;
       return {
-        type: "ssh_exec",
+        type: value.type,
         execId: value.execId,
         configPath: value.configPath,
         fileContent: value.fileContent,

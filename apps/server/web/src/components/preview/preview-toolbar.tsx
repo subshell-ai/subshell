@@ -23,6 +23,7 @@ export interface PreviewToolbarProps {
   fullscreen: boolean;
   fullscreenSupported: boolean;
   appUrl?: string;
+  onConfigure?: () => void;
   busy: boolean;
   connection: PreviewConnection;
 }
@@ -37,6 +38,7 @@ export function PreviewToolbar({
   fullscreen,
   fullscreenSupported,
   appUrl,
+  onConfigure,
   busy,
   connection,
 }: PreviewToolbarProps) {
@@ -129,6 +131,7 @@ export function PreviewToolbar({
             }
           >
             <DropdownMenuGroup>
+              {onConfigure && <DropdownMenuItem onSelect={onConfigure}>Configure preview</DropdownMenuItem>}
               {workspace && !workspace.maximized && (
                 <DropdownMenuItem onSelect={workspace.onToggleMaximize}>
                   <Maximize2 />

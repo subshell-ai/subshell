@@ -11,6 +11,8 @@ import {
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { PaneFocusHeader } from "@/components/pane-focus-header";
 import { usePublishPaneDevices } from "@/hooks/use-pane-devices";
+import { usePaneDiagnostics } from "@/hooks/use-pane-diagnostics";
+import { paneDiagnosticsIds, resetPaneDiagnosticsPrefForTests } from "@/lib/pane-diagnostics-pref";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { resetWorkspaceFocusForTests, setWorkspaceFocusedId } from "@/lib/workspace-focus";
 import type { SubshellView } from "@/types/subshell";
@@ -23,10 +25,13 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-function row(id: string, access: SubshellView["access"] = "owner"): SubshellView {
+function row(id: string, access: SubshellView["access"] = "owner", name = id): SubshellView {
   return {
     id,
-    name: id,
+    // `name` defaults to the id, and the Diagnostics case below overrides it: a
+    // fixture where the two are the same string cannot tell an id-keyed
+    // preference from a name-keyed one.
+    name,
     nameLocked: false,
     presetId: null,
     harnessId: "terminal",
@@ -87,6 +92,80 @@ it("offers Insert prompt for the focused pane and retires its dialog when focus 
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(await screen.findByRole("button", { name: "Actions for second" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Actions for first" })).toBeNull();
+});
+
+it("offers the Diagnostics HUD toggle for the focused pane, keyed by id", async () => {
+  // The workspace header stands over the focused pane's dock terminal, so
+  // the Wave C toggle belongs here too, reading and writing the same
+  // per-device preference the terminal opens its HUD from.
+  //
+  // The pane is called something other than its id on purpose. The menu's own
+  // label is the NAME ("Actions for Dev pane") while the preference it writes is
+  // keyed by id, so with both halves of the fixture sharing one string a
+  // name-keyed implementation would pass this test; a rename would then close
+  // the HUD the person just opened, which is the thing the preference's
+  // id-keying exists to prevent.
+  localStorage.removeItem("subshell.paneDiagnostics");
+  setWorkspaceFocusedId("sub-9");
+  await header([row("sub-9", "owner", "Dev pane")]);
+  fireEvent.click(await screen.findByRole("button", { name: "Actions for Dev pane" }));
+  const item = await screen.findByRole("menuitem", { name: "Diagnostics" });
+  expect(paneDiagnosticsIds()).toEqual([]);
+  fireEvent.click(item);
+  expect(paneDiagnosticsIds()).toEqual(["sub-9"]);
+});
+
+it("still switches the Diagnostics HUD on when the device refuses to store it", () => {
+  // Private browsing and a full quota both make the write throw, and the
+  // preference keeps the choice for this page load on purpose. The hook used to
+  // read the preference back after writing it, so a refused write meant the
+  // menu item never checked, the HUD never appeared, and the click was lost
+  // with nothing on screen to say why.
+  //
+  // `localStorage.setItem = ...` would not simulate that here: happy-dom's
+  // Storage is a proxy, so the assignment lands as a stored key and the real
+  // write still happens. Swapping the global does block it, and the descriptor
+  // goes back in `finally`: happy-dom's localStorage is process-wide, and a
+  // leaking thrower would poison every later test in this worker.
+  localStorage.removeItem("subshell.paneDiagnostics");
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const real = globalThis.localStorage;
+  Object.defineProperty(globalThis, "localStorage", {
+    value: {
+      getItem: (key: string) => real.getItem(key),
+      removeItem: (key: string) => real.removeItem(key),
+      setItem: () => {
+        throw new Error("quota");
+      },
+    } satisfies Pick<Storage, "getItem" | "removeItem" | "setItem">,
+    configurable: true,
+    writable: true,
+  });
+  try {
+    // Two instances, the way the workspace really has them: the header's menu
+    // and the dock terminal below it each hold their own hook. One binding to
+    // the attempted set while the other re-reads an unwritable store is the
+    // divergence this pins shut, so the assertion covers the pair, not the
+    // toggle that made it.
+    const { result: header } = renderHook(() => usePaneDiagnostics("first"));
+    const { result: terminal } = renderHook(() => usePaneDiagnostics("first"));
+    act(() => header.current[1]());
+    expect(header.current[0]).toBe(true);
+    expect(terminal.current[0]).toBe(true);
+    // The second press has to turn it off, from both components. Before the
+    // preference kept a page-load memory every press read the unwritable store,
+    // saw nothing, and turned the HUD on again: a person could open the overlay
+    // and never close it without reloading. Asserting the pair also proves the
+    // memory is what feeds reads, not just what the pressing instance holds.
+    act(() => header.current[1]());
+    expect(header.current[0]).toBe(false);
+    expect(terminal.current[0]).toBe(false);
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    // Same module, shared worker: the refused write left a page-load memory
+    // behind that the next file would otherwise read as its own truth.
+    resetPaneDiagnosticsPrefForTests();
+  }
 });
 
 it("preserves read-only gates in a saved workspace", async () => {

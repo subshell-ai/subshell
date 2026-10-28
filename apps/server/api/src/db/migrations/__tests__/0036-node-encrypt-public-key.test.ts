@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { CamelCasePlugin, Kysely, sql } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
+import { runAuthMigrations } from "@/db/auth-migrations.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js"; // no-op when already applied
 import * as initMigration from "@/db/migrations/0001-init.js";
@@ -75,6 +76,7 @@ describe("migration 0036-node-encrypt-public-key", () => {
     // disk but missing from the map never applies to a shared/production DB,
     // so ask the migrated database directly what it actually ran.
     await runMigrations();
+    await runAuthMigrations();
     const applied = (await sql<{ name: string }>`select name from kysely_migration`.execute(db)).rows;
     expect(applied.map((r) => r.name)).toContain("0036-node-encrypt-public-key");
 

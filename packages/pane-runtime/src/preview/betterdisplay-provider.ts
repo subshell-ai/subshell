@@ -25,7 +25,7 @@ import {
   type PreviewScreenHandle,
   type VirtualDisplayProvider,
 } from "./display-provider.js";
-import { type HelperStatus, helperStatus } from "./macos-helper.js";
+import { type HelperStatus, helperStatus, rescueStrandedCursor } from "./macos-helper.js";
 import { MacOSRfb } from "./macos-rfb.js";
 
 type Journal = {
@@ -45,6 +45,12 @@ export interface BetterDisplayDeps {
   bridge?: (size: VirtualDisplayRequest, display: OwnedDisplay) => Bridge;
   alive?: (pid: number) => boolean;
   log?: (line: string) => void;
+  /**
+   * Put the local pointer back on a visible screen after a display is
+   * discarded. Defaults to {@link rescueStrandedCursor}; a host without a
+   * helper (tests, and any non-macOS caller) can pass a no-op.
+   */
+  rescue?: () => Promise<void>;
 }
 
 /** macOS shares one login desktop. This provider is not an isolated X session. */
@@ -82,7 +88,17 @@ export class BetterDisplayProvider implements VirtualDisplayProvider {
     );
   }
   async readiness(): Promise<PreviewDisplayReadiness> {
-    return this.checkReadiness((this.supported() && (await this.status())) || null);
+    // `supported()` first, and it decides whether the helper is asked at all:
+    // a Linux host has no helper to query (pinned by test).
+    const status = this.supported() ? await this.status() : null;
+    const result = await this.checkReadiness(status);
+    if (result.missing.length) {
+      // Same reason as the allocation log: the missing list alone cannot say
+      // whether the helper answered nothing, or answered with BetterDisplay
+      // absent from LaunchServices.
+      this.deps.log?.(`betterdisplay readiness refused: ${JSON.stringify({ status, missing: result.missing })}`);
+    }
+    return result;
   }
   private async checkReadiness(status: HelperStatus | null): Promise<PreviewDisplayReadiness> {
     if (!this.supported()) return { supported: false, missing: [] };
@@ -191,8 +207,16 @@ export class BetterDisplayProvider implements VirtualDisplayProvider {
       if (!this.supported()) throw new Error("preview-display-unsupported");
       const status = await this.status();
       const readiness = await this.checkReadiness(status);
-      if (readiness.missing.length)
+      if (readiness.missing.length) {
+        // The missing list alone could not tell us whether the helper answered
+        // nothing or answered `{enabled:true,…,betterDisplayExecutable:null}`;
+        // that distinction cost a long debugging session, so the raw answer
+        // rides the refusal.
+        this.deps.log?.(
+          `betterdisplay refused pane ${id}: missing [${readiness.missing.join("; ")}] status ${JSON.stringify(status)}`,
+        );
         throw new Error(`preview-display-missing-requirements: ${readiness.missing.join(", ")}`);
+      }
       if (![size.width, size.height].every((n) => Number.isInteger(n) && n >= 320 && n <= 4096))
         throw new Error("Invalid display dimensions");
       if (!status?.betterDisplayExecutable) throw new Error(PREVIEW_DISPLAY_NOT_READY);
@@ -267,7 +291,13 @@ export class BetterDisplayProvider implements VirtualDisplayProvider {
       }
       return;
     }
-    if (display) await removeDisplay(run, display);
+    if (display) {
+      await removeDisplay(run, display);
+      // A viewer's pointer lives on the screen being discarded; without this
+      // the person at the Mac is left chasing a cursor that is off any
+      // display they can see.
+      await (this.deps.rescue ?? rescueStrandedCursor)();
+    }
     rmSync(this.directory(id, root), { recursive: true });
   }
   closeFor(id: string) {

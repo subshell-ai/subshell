@@ -31,6 +31,7 @@ import { useEffect, useRef, useState } from "react";
 import { AboutScreen } from "@/components/assistant/about-screen";
 import { ChoiceScreen } from "@/components/assistant/choice-screen";
 import { ConnectScreen } from "@/components/assistant/connect-screen";
+import { DisplayScreen } from "@/components/assistant/display-screen";
 import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { PlaneScreen } from "@/components/assistant/plane-screen";
 import { ProgressScreen } from "@/components/assistant/progress-screen";
@@ -602,6 +603,12 @@ export function App() {
         );
       case "about":
         return <AboutScreen shell={shell} probe={probe} rail={rail} onClose={() => setOverride(null)} />;
+      case "display":
+        // macOS only: the rail's Virtual Displays section is the only thing
+        // that sets this override, and `railFor` drops that section on every
+        // other platform. The screen's one press opens a native panel, so it
+        // needs no runner and reports no output.
+        return <DisplayScreen shell={shell} rail={rail} />;
       case "update":
         return (
           <UpdateScreen

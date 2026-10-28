@@ -906,9 +906,31 @@ policy. They execute with the same privileges as the harness itself.
 
 **Typed input also transits argv.** Input reaches the pane as
 `tmux send-keys -t <id> -l -- <input>`, one process per client frame, and a
-paste arrives as a single frame, so the whole pasted value is one argv element.
+browser splits large pastes into frames. Each frame's text is one argv element.
 On Linux `/proc/<pid>/cmdline` is world-readable. Accepted (§11), same class as
 the bearer token above.
+
+**WebSocket input queues are bounded by the server.** A custom client can ignore
+browser pacing, so the server limits each input payload to 64 KiB of UTF-8,
+each connection to 512 outstanding frames or 16 MiB of payload, each node across
+its connections to 1,024 frames or 16 MiB, and all terminal WebSockets together
+to 4,096 frames or 64 MiB. Both dispatched writes and held
+retries count. An oversized frame closes its socket with 1009, and a connection
+that breaches its own per-frame or per-socket bound closes with 1013 without
+acknowledging the refused input, so a reliable client resends it on reconnect.
+When only the shared node or fleet queue is full, the server first gives up one
+retry that is still waiting to re-fire and admits the arrival instead.
+The requesting socket is closed only when there is nothing left to reclaim, so a
+node that is simply down can neither retain the fleet's budget nor punish
+whoever types next. These are payload budgets,
+not a bound on the server's entire heap or on other API traffic.
+
+Disconnecting drops undispatched retries and prevents late failures from
+recreating them. Already dispatched writes stay charged until they settle, so
+reconnecting can't bypass the process-wide budget. Existing at-least-once retry
+semantics remain: a write that reached the node before its acknowledgement was
+lost may be repeated. The browser's eight-frame, 32 KiB pipeline fits within
+these limits; this isn't a rate limit on ordinary typing.
 
 **REST input rides the same pipe (2026-09-25).** `POST /api/subshells/:id/input`
 types into a running pane over HTTP, the door the MCP `send_to_subshell` tool
@@ -980,6 +1002,14 @@ re-normalized server-side (`normalizeDeviceLabel`), so a name cannot carry
 control characters into another user's screen or a log line.
 
 Revoke by clearing the grant: the sharing dialog, or an empty `PUT`.
+Every successful share update cuts existing grantee terminal connections and
+pending attaches before the request returns. The owner's resolved connections
+stay open. Reconnecting resolves the current grants, so a removed grantee can't
+read more output and an editor downgraded to view can't keep typing through an
+old socket. The cutoff blocks input and output immediately, disposes streams,
+and drops queued input without waiting for a browser close event. A command
+already dispatched to the node may finish; changing shares doesn't undo it.
+Preview access is recomputed separately for each holder.
 
 ### Notifications do not follow shares
 
@@ -1488,10 +1518,50 @@ Implementation entry points: `apps/server/api/src/api/ssh/`,
 `packages/pane-runtime/src/ssh/`. Operator instructions live in
 [Connect over SSH](../apps/docs/content/docs/guides/ssh.mdx).
 
+### SSH bulletin review (2026-10-27)
+
+The [Tailscale security bulletins](https://tailscale.com/security-bulletins)
+prompted a comparison against our outgoing OpenSSH client, key bridges and
+terminal lifecycle. Subshell doesn't implement an SSH server or switch a login
+to another OS user. The destination's SSH server still owns that boundary.
+
+| Bulletin | Subshell assessment |
+| --- | --- |
+| TS-2026-010 (secrets in child arguments) | Confirmed analogous exposure in **Set up Subshell here** and generated install commands; fixed as described below. |
+| TS-2026-015 (retained window/environment state) | No incoming SSH environment-request handler. Found an analogous retained promise chain in terminal geometry updates; replaced recursive draining with an iterative loop. |
+| TS-2026-014 / TS-2026-004 (privileged Unix forwards) | Explicit forwards accept TCP hosts and ports, not filesystem socket paths. SSH-config forwarding is refused. No privileged SSH server performs filesystem operations for another user. |
+| TS-2026-009 / TS-2026-006 and TS-2023-003 (login identity/group confusion) | No `getent` lookup, non-root login ACL or group switching. OpenSSH receives the destination identity as an argument value; the destination authenticates it. |
+| TS-2026-017 / TS-2026-012 (context/descriptor identity confusion) | Local-key approvals bind viewer, login session, node, destination and pane; relay routing checks sender membership. Bridge sockets use framed bytes, not transferred file descriptors. No shared HTTP/2 request context supplies SSH identity. |
+| TS-2024-013 / TS-2024-003 (mandatory recording / check-mode bypass) | Neither an enforced SSH recorder nor Tailscale check-mode reauthentication is implemented or promised. Terminal history isn't an access-control prerequisite. |
+
+The setup script now reaches `ssh` on stdin with a fixed `bash -s` remote
+command. `ssh_exec_stdin` explicitly requires that transport, and node protocol
+25's exact-version handshake prevents dispatch to older connecting nodes whose
+executor would put the script in argv. Upgrade the server and nodes together.
+The installer and dashboard-generated commands pass credential-bearing URLs
+through curl's stdin configuration. The installed CLI accepts its one-time key
+through `SUBSHELL_SETUP_KEY`, removes that variable before spawning children,
+and retains explicit `--key` compatibility. The installer checks the CLI's
+`--help` capability marker before supplying the environment key and refuses an
+older downloaded or reused binary without falling back to argv.
+
+These changes protect against unrelated local users reading process arguments;
+they don't hide the key from root or the same OS account. A copied command can
+remain in shell history, an explicit `--key` argument remains visible in argv,
+and a user-written curl URL can expose its query there too. Setup output is
+still redacted before retention; audits record ids and stages, not the script.
+
+The geometry loop retains one active update and the latest pending size rather
+than a promise per completed resize. Existing release, error and coalescing
+semantics remain: releasing a pane doesn't recreate its queue when an in-flight
+resize finishes. A sustained alternating-resize regression covers the drain and
+cleanup behavior, including reusing the released pane id.
+
 ### What the node discloses to the plane
 
 Connecting a node discloses execution-machine information to the trusted server.
-The current protocol is 20. The encrypted handshake protects this information
+The [node protocol reference](../apps/docs/content/docs/reference/node-protocol.mdx)
+tracks the current version. The encrypted handshake protects this information
 in transit; it does not hide it from the control plane.
 
 - **`ready` discloses machine facts**: `agentVersion`, protocol/os/arch,
@@ -4140,7 +4210,35 @@ The sandbox deliberately prevents same-origin storage and service-worker use.
 Sites requiring those browser capabilities, JavaScript-managed cookies, or a
 full browser login should run in the node's browser and be checked through a
 virtual display. Target CSP remains effective apart from its framing directive;
-a strict target policy can still prevent an embedded app from working.
+a strict target policy can still prevent an embedded app from working, including
+blocking the injected URL compatibility script.
+
+URL rewriting is enabled by default for supported HTML attributes, CSS URLs and
+imports, import-map addresses, and module imports. Computed imports use the
+document shim while bare specifiers retain import-map resolution. The injected script rewrites
+common fetch, XMLHttpRequest, WebSocket, EventSource, and DOM URL assignments
+under the capability path. Redirect rewriting is independently enabled by
+default, and preview-host forwarding is off by default. Rewriting does not relax
+CSP, sandbox, credential stripping, destination authorization, or TLS checks;
+it does not promise compatibility with arbitrary applications.
+
+Personal proxy settings persist by authenticated user, node, normalized host,
+protocol, and port, capped at 256 saved targets per user. Read/save/reset use the
+preview execute/edit and enabled-node gates; stored preferences cannot grant
+target access. The table contains no capability paths or references. New forward
+sessions snapshot their settings so a preference change does not alter another
+active capability. Supported text rewrites buffer at most 16 MiB after decoding;
+other response bodies retain streaming behavior. Each rewrite also caps URL
+expansion at 16 MiB, with a process-wide 128 MiB decoded-input budget across in-flight rewrites. Compressed-stream
+errors and cancellation tear down both the decoder and the source. Module edits
+are assembled once rather than repeatedly copying attacker-controlled source.
+
+Browser fetch metadata, referrers, and opaque/current-proxy Origin headers belong
+to the browser-to-proxy hop and are removed before the capability-authorized
+backend request. Unrelated Origin values are not converted into trusted ones.
+Integrity attributes on rewritten local script/style references are removed
+because transformed bytes no longer match the original digest; unrelated
+external resource integrity checks remain intact.
 
 ### Transport and network reach
 
@@ -4150,7 +4248,7 @@ is not end-to-end encryption between the viewer and the website. Each dial uses
 loopback literals and a bounded port by default. Saved services deliberately extend
 this to a hostname or IP and HTTP/HTTPS, chosen by an edit-authorized user and
 stored under the subshell. This grants network reach from that node, including
-private networks, at the same shell-equivalent authority as terminal input. Hosts
+private and link-local networks, at the same shell-equivalent authority as terminal input. Hosts
 cannot contain credentials, paths, or header text. TLS remains certificate-verified;
 the proxy never follows redirects server-side. Deleting a saved entry cancels
 pending opens and revokes its capabilities without stopping the service. Saves
@@ -4205,10 +4303,22 @@ against a hostile OS account rebinding a port after a check.
 **macOS helper consent is local and independent of node policy.** The
 BetterDisplay provider uses a signed native helper bundled with both desktop
 apps. Neither first-run setup, a remote page, node configuration, nor MCP can
-enable it or request OS privacy prompts. The native settings panel owns consent
-and login registration. Disable clears consent before closing captures and
-releasing held input; it unregisters startup without revoking existing TCC
-grants. A disabled running helper exposes status only. Same-UID Unix socket
+enable it or request OS privacy prompts. Consent belongs to the helper's own
+panel (a bundled local page in a `WKWebView`, whose bridge accepts messages
+only from the bundled main frame): only an enable act
+turns consent on, and it has two doors, the panel's
+**Enable helper** button and the helper's own status-menu toggle; the matching
+disable act is the only thing that turns it off. A sign-in start resumes the
+stored agreement and, if the runtime cannot come up, stops it without clearing
+consent. The remote control-plane page and node RPCs cannot change that
+agreement. Both desktop apps verify the helper's signature before opening it,
+including when a busy install lock prevents replacement. Starting at sign-in is a separate act
+with its own control, so enabling never registers a login item and disabling
+never removes one; a helper that returns at the next sign-in is found disabled
+and exits. Disable clears consent before closing captures and releasing held
+input, and leaves existing TCC grants alone. A disabled running helper exposes
+status, and accepts the pointer rescue, which acts only when the cursor sits
+inside no screen's frame. Same-UID Unix socket
 peers are trusted, with a 0700 directory and 0600 socket; the node's localhost
 RFB adapter retains the local-user limitation above. Both protocols bound
 buffers, concurrency, and startup waits.

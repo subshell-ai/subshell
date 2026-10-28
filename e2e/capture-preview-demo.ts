@@ -11,8 +11,16 @@ import { startStack, stopStack } from "./stack";
 
 if (PORTS.backend === 3080) throw new Error("Never capture against the live server");
 const securityOnly = process.argv.includes("--security-only");
-const root = mkdtempSync(path.join(tmpdir(), "preview-demo-"));
+// A fixed root, not a mkdtemp one. The project directory is what the pane header
+// and the workspace figure show, so a random `preview-demo-XXXX` suffix baked a
+// run artifact of this host into published docs and changed the image on every
+// re-shoot. Everything inside it is still written fresh and removed at the end.
+// This is a single-run tool: two captures at once would share the directory, and
+// a pre-existing one owned by someone else is refused by the writes below rather
+// than silently reused.
+const root = path.join(tmpdir(), "preview-demo");
 const project = path.join(root, "northstar");
+mkdirSync(root, { recursive: true });
 const out = path.resolve(import.meta.dirname, "../apps/website/public/demos");
 const shots = path.resolve(import.meta.dirname, "../apps/docs/public/screenshots");
 const cleanup: (() => void | Promise<void>)[] = [stopStack, () => rmSync(root, { recursive: true, force: true })];
@@ -47,6 +55,11 @@ try {
   expect((await api.patch("/api/setup/progress", { data: { step: null } })).ok()).toBe(true);
   expect((await api.patch("/api/settings", { data: { instanceName: "Northstar Studio" } })).ok()).toBe(true);
   expect((await api.put("/api/nodes/local/views-enabled", { data: { on: true } })).ok()).toBe(true);
+  if (!securityOnly) {
+    expect((await api.put("/api/nodes/local/views-enabled", { data: { on: true, feature: "display" } })).ok()).toBe(
+      true,
+    );
+  }
   const shellPreset = await post("/api/presets", {
     harnessId: "terminal",
     name: "Website development",
@@ -99,12 +112,14 @@ try {
   const page = await context.newPage();
   page.setDefaultTimeout(20000);
   await page.goto(`/workspaces/${workspace.id}`);
-  await page.getByRole("button", { name: "Open web preview or screen", exact: true }).click();
+  await page.getByRole("button", { name: /^Open web preview or screen/ }).click();
   await page.getByRole("button", { name: "Open web preview on port 3000" }).click();
   await expect(page.locator("iframe")).toBeVisible();
+  await expect(
+    page.frameLocator("iframe").getByRole("heading", { name: "Small teams. Considered websites." }),
+  ).toBeVisible();
   const appFrame = page.frames().find((f) => f.url().includes("/pv/"));
   if (!appFrame) throw new Error("App preview did not mount");
-  await expect(appFrame.getByRole("heading", { name: "Small teams. Considered websites." })).toBeVisible();
   await verifyPreviewBrowser(appFrame, BASE_URL, true);
   const proxy = appFrame.url();
   const direct = await context.newPage();
@@ -216,7 +231,7 @@ try {
     await api.patch(`/api/subshells/${agent.id}/name`, { data: { name: "Build website" } });
     await tab("Dev server").click();
     await hold(1);
-    await page.getByRole("button", { name: "Open web preview or screen", exact: true }).click();
+    await page.getByRole("button", { name: /^Open web preview or screen/ }).click();
     await hold(2);
     mkdirSync(shots, { recursive: true });
     const dimensions: Record<string, { width: number; height: number }> = {};
@@ -239,7 +254,7 @@ try {
     const poster = frame - 1;
     dimensions["preview-workspace"] = await captureScreenshot(
       page,
-      path.join(shots, "preview-workspace.png"),
+      path.join("/tmp", "subshell-preview-workspace.png"),
       page.locator("main"),
       page.locator("main"),
     );
@@ -252,11 +267,14 @@ try {
     await page.getByRole("button", { name: "More view actions" }).click();
     await page.getByRole("menuitem", { name: "Close view" }).click();
     await tab("Dev server").click();
-    await page.getByRole("button", { name: "Open web preview or screen", exact: true }).click();
+    await page.getByRole("button", { name: /^Open web preview or screen/ }).click();
     await hold(1);
     await page.getByRole("button", { name: "View screen" }).click();
     await expect(page.getByRole("button", { name: "Connected", exact: true })).toBeVisible();
     await hold(3);
+    await page.getByRole("button", { name: "More view actions" }).click();
+    await page.getByRole("menuitem", { name: "Maximize pane" }).click();
+    await hold(1);
     dimensions["preview-display"] = await captureScreenshot(
       page,
       path.join(shots, "preview-display.png"),

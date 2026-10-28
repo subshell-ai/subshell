@@ -61,6 +61,179 @@ describe("MCP preview discovery and launch", () => {
     expect(calls.every((call) => call.method === "GET")).toBe(true);
     expect(calls.at(-1)?.path).toBe(`/api/nodes/${node.id}/display-readiness?provider=betterdisplay`);
   });
+  it("calls a provider outside the catalog disabled, the way create refuses it", async () => {
+    // The route that writes this list checks it against the catalog, so a row
+    // reaching an id this build does not ship arrives by some other door: a
+    // hand-edit, a restore, or a later release shrinking the catalog out from
+    // under a stored value. `resolveNodeDisplayRequest` refuses it at create
+    // with `preview-display-unsupported` whatever its source, so this mirrors
+    // that check rather than the writer's, and an agent is never told a thing is
+    // ready by the same tool that would recommend the launch which 400s.
+    const stored = ["xvfb-x11vnc", "my-x11-thing"];
+    const { deps } = fixture((path) =>
+      path === "/api/nodes"
+        ? {
+            nodes: [
+              {
+                ...node,
+                os: "linux",
+                virtualDisplayEnabled: true,
+                virtualDisplayProvider: "my-x11-thing",
+                virtualDisplayProviders: stored,
+              },
+            ],
+          }
+        : { supported: false, missing: [] },
+    );
+    const asDefault = await getNode(deps, { node: node.id });
+    expect(asDefault.virtualDisplay).toMatchObject({ provider: "my-x11-thing", enabled: false });
+    // Asked for explicitly, same answer; and a catalog provider on the same node
+    // is still enabled, so this is the id being refused, not the node.
+    const asAsk = await getNode(deps, { node: node.id, provider: "my-x11-thing" });
+    expect(asAsk.virtualDisplay).toMatchObject({ provider: "my-x11-thing", enabled: false });
+    const bundled = await getNode(deps, { node: node.id, provider: "xvfb-x11vnc" });
+    expect(bundled.virtualDisplay).toMatchObject({ provider: "xvfb-x11vnc", enabled: true });
+  });
+
+  it("answers an absent enabled list with the protocol's default, as the plane does", async () => {
+    // `storedDisplayProviderIds` reads an absent row as `[DEFAULT_VIRTUAL_DISPLAY_PROVIDER]`,
+    // and the gate above claims to mirror it. No other fixture left the field out
+    // with the switch on, so the claim was untested: swapping the default for `[]`
+    // left every test green while an older plane's node reported each provider
+    // disabled here and launched fine.
+    const { deps } = fixture((path) =>
+      path === "/api/nodes"
+        ? { nodes: [{ ...node, os: "linux", virtualDisplayEnabled: true }] }
+        : { supported: true, missing: [] },
+    );
+    expect((await getNode(deps, { node: node.id })).virtualDisplay).toMatchObject({
+      provider: "xvfb-x11vnc",
+      enabled: true,
+    });
+  });
+
+  it("refuses a catalog provider the owner's enabled list leaves out", async () => {
+    // The membership clause had no fixture of its own: every stored list here
+    // contained the provider being asked about, and the case that did not
+    // (`native-example`) is refused by the catalog clause first. Replacing
+    // `allowed.includes(provider)` with `true` left the whole suite green while
+    // get_node promised a provider the owner had switched off and create answered
+    // `preview-display-provider-disabled`. The OS is left unanswered on purpose, so
+    // membership is the only clause that can say no to this one.
+    const { deps } = fixture((path) =>
+      path === "/api/nodes"
+        ? {
+            nodes: [
+              {
+                ...node,
+                os: "unknown",
+                virtualDisplayEnabled: true,
+                virtualDisplayProvider: "xvfb-x11vnc",
+                virtualDisplayProviders: ["xvfb-x11vnc"],
+              },
+            ],
+          }
+        : { supported: true, missing: [] },
+    );
+    expect((await getNode(deps, { node: node.id, provider: "betterdisplay" })).virtualDisplay).toMatchObject({
+      provider: "betterdisplay",
+      enabled: false,
+    });
+  });
+
+  it("reports a provider that cannot run on this node's OS as disabled, the way create refuses it", async () => {
+    // BetterDisplay is macOS-only, and the plane refuses it on a Linux node outright
+    // with `preview-display-unsupported`. This gate used to be left to `status`, which
+    // is the NODE's answer and goes silent whenever the probe cannot run at all: a
+    // 409 or 502 gave the agent `enabled: true, status: "unavailable"` for a provider
+    // that could never launch. The probe is answered as a Linux node really answers
+    // it, unsupported, to show the gate holds regardless of what readiness says.
+    const { deps } = fixture((path) =>
+      path === "/api/nodes"
+        ? {
+            nodes: [
+              {
+                ...node,
+                os: "linux",
+                virtualDisplayEnabled: true,
+                virtualDisplayProvider: "betterdisplay",
+                virtualDisplayProviders: ["betterdisplay"],
+              },
+            ],
+          }
+        : { supported: false, missing: [] },
+    );
+    expect((await getNode(deps, { node: node.id })).virtualDisplay).toMatchObject({
+      provider: "betterdisplay",
+      enabled: false,
+      status: "unsupported",
+    });
+  });
+
+  it("promises nothing at all when the probe cannot answer", async () => {
+    // The honest shape, pinned because it is the one an agent reads as a go-ahead:
+    // with no probe answer the tool reports the state of the question and stops.
+    // Neither `enabled` nor `provider` may appear here, because either would be a
+    // promise about a launch the plane was never asked about. Add `enabled: true` to
+    // that arm and this is the test that says so.
+    const { deps } = fixture((path) => {
+      if (path === "/api/nodes")
+        return {
+          nodes: [
+            {
+              ...node,
+              os: "linux",
+              virtualDisplayEnabled: true,
+              virtualDisplayProvider: "betterdisplay",
+              virtualDisplayProviders: ["betterdisplay"],
+            },
+          ],
+        };
+      throw new ApiError(502, "display probe unavailable");
+    });
+    expect((await getNode(deps, { node: node.id })).virtualDisplay).toEqual({
+      status: "unavailable",
+      reason: "display probe unavailable",
+    });
+  });
+
+  it("treats a held node as no answer at all, never as a display that is ready", async () => {
+    // `held` is the plane's connection-hold flag, and an online-but-held node gets
+    // no probe. Dropping `|| node.held` from the guard kept every test green and
+    // sent the tool on to a readiness read that cannot succeed there.
+    const { deps, calls } = fixture((path) =>
+      path === "/api/nodes"
+        ? {
+            nodes: [
+              {
+                ...node,
+                virtualDisplayEnabled: true,
+                held: true,
+                virtualDisplayProvider: "xvfb-x11vnc",
+                virtualDisplayProviders: ["xvfb-x11vnc"],
+              },
+            ],
+          }
+        : { supported: true, missing: [] },
+    );
+    expect((await getNode(deps, { node: node.id })).virtualDisplay.status).toBe("unavailable");
+    expect(calls.every((call) => call.path === "/api/nodes")).toBe(true);
+  });
+
+  it("reads a 502 from the readiness probe as no answer, like the 409", async () => {
+    // The plane answers 502 when its own probe cannot run. Both codes share one
+    // arm, and a suite that only ever threw 409 would let the 502 fall through to
+    // a tool failure, which reads to an agent as "broken" rather than "not now".
+    const { deps } = fixture((path) => {
+      if (path === "/api/nodes") return { nodes: [node] };
+      throw new ApiError(502, "display probe unavailable");
+    });
+    expect((await getNode(deps, { node: node.id })).virtualDisplay).toMatchObject({
+      status: "unavailable",
+      reason: "display probe unavailable",
+    });
+  });
+
   it("preserves capability settings and honest harness health", async () => {
     const facts = {
       webPreviewsEnabled: false,

@@ -225,8 +225,12 @@ import {
  * **23 -> 24:** forward lanes may carry an explicit saved HTTP(S) destination.
  * Older nodes would silently discard it and dial plaintext loopback, so the
  * exact-match handshake must reject them before any service is opened.
+ *
+ * **24 -> 25:** ssh_exec_stdin requires setup scripts to travel on stdin to
+ * a fixed shell command. Older executors put the setup key in process argv;
+ * the exact-match handshake rejects them before a setup key is sent.
  */
-export const NODE_PROTOCOL_VERSION = 24;
+export const NODE_PROTOCOL_VERSION = 25;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -2332,6 +2336,7 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     case "ssh_relay_open":
     case "ssh_relay_close":
     case "ssh_exec":
+    case "ssh_exec_stdin":
     case "ssh_exec_status":
     case "ssh_machine_pin_repair":
       // Delegation, not a second parser: the SSH grammar (all arms, one

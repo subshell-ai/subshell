@@ -4,7 +4,10 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type { Terminal } from "@xterm/xterm";
 import {
   attachRetryDelayMs,
+  attachTimingsForTests,
   isRetryableAttachClose,
+  resetAttachTimingsForTests,
+  setAttachResyncTimingsForTests,
   setAttachRetryDelaysForTests,
   useSubshellWs,
 } from "@/lib/use-subshell-ws";
@@ -114,6 +117,10 @@ beforeEach(() => {
 afterEach(() => {
   globalThis.fetch = originalFetch;
   globalThis.WebSocket = originalWs;
+  // The 1 ms/4 ms backoff above is module state. Left set, the next file in this
+  // worker's process sees a reconnect at 1 ms where the product waits 1500, so
+  // any suite that counts attempts is wrong by timing rather than by logic.
+  resetAttachTimingsForTests();
 });
 
 /** The server frame that both engages input acks and proves the attach is
@@ -180,5 +187,54 @@ describe("useSubshellWs close handling (Wave D)", () => {
     ws2.onmessage?.({ data: JSON.stringify({ type: "ack", id: 1 }) });
     ws2.onmessage?.({ data: JSON.stringify({ type: "ack", id: 2 }) });
     expect(queue?.stats.depth).toBe(0);
+  });
+
+  it("starts a fresh backoff after a connection that actually served a frame", async () => {
+    // `refusals = 0` the first time a socket serves a frame is what stops a node that
+    // came back once from being punished with the whole earlier streak's delay when it
+    // drops again. The suite's delays are 1 ms and 2 ms apart, too close to tell apart
+    // by the clock, so this reads what the scheduler was handed instead. Delete the
+    // reset and the second refusal is scheduled at 2.
+    const scheduled: number[] = [];
+    const realSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void, ms?: number, ...rest: unknown[]) => {
+      // Only the reconnect timer: its callback is the one that calls `connect`.
+      if (String(fn).includes("connect")) scheduled.push(ms ?? 0);
+      return realSetTimeout(fn, ms, ...rest);
+    }) as unknown as typeof setTimeout;
+    try {
+      const term = fakeTerminal();
+      renderHook(() => useSubshellWs({ current: term as unknown as Terminal }, "s-backoff-reset", {}));
+      await waitFor(() => expect(instances.length).toBe(1));
+      instances[0].onclose?.({ code: 4004, reason: "node offline" });
+      await waitFor(() => expect(instances.length).toBe(2));
+      // The retry attaches for real and the server serves a frame: the streak ends.
+      instances[1].onopen?.();
+      instances[1].onmessage?.({ data: viewersFrame });
+      instances[1].onclose?.({ code: 4004, reason: "node offline" });
+      await waitFor(() => expect(instances.length).toBe(3));
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+    expect(scheduled).toEqual([1, 1]);
+  });
+
+  it("leaves a hostile resync pair behind, unrestored", () => {
+    // This file sets the retry pair itself, so the reset that needs pinning is of
+    // the OTHER pair: put the resync timings where a suite would leak them and
+    // assert nothing but the module state, so the test after it can show what
+    // returns them.
+    setAttachResyncTimingsForTests(2, 0);
+    expect(attachTimingsForTests()).toMatchObject({ debounceMs: 2, minGapMs: 0 });
+  });
+
+  it("is the afterEach's reset that returns the shipped resync cadence", () => {
+    // The `beforeEach` above touches only the retry pair, so shipped values here
+    // can only have come from `resetAttachTimingsForTests()` running after the
+    // previous test. Delete that call and every retry test in this file stays
+    // green while the next file in the same process inherits a 2 ms settle check
+    // and no storm gap, which is the leak the reset exists to stop. The numbers
+    // are the shipped pair, so changing one quietly also fails here.
+    expect(attachTimingsForTests()).toMatchObject({ debounceMs: 300, minGapMs: 1000 });
   });
 });

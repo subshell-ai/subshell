@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   agreementProblems,
+  allAgreement,
   COLOR_ROLES,
+  CSS_SURFACES,
   contrastProblems,
   contrastRatio,
   cssColorAgreement,
@@ -12,6 +16,12 @@ import {
   oklchToSrgb,
   parseCssTokens,
   parseOklch,
+  REPO_ROOT,
+  SCAN_ROOTS,
+  SHARED_TOKENS,
+  SURFACE_GLOBS,
+  sharedImportProblems,
+  sharedRedeclarationProblems,
   TYPE_ROLES,
   WEB_SCALE,
 } from "../design-tokens";
@@ -388,4 +398,131 @@ describe("contrastProblems", () => {
     expect(problems.length).toBeGreaterThan(0);
     expect(problems[0]).toContain("4.5");
   });
+});
+
+describe("the shared token file", () => {
+  const shared = readFileSync(join(REPO_ROOT, SHARED_TOKENS), "utf8");
+
+  test("every colour role the system requires is declared once, in the shared file", () => {
+    const t = parseCssTokens(shared);
+    for (const role of COLOR_ROLES) expect(t.colors[role]).toBeDefined();
+    // scrim is optional per surface but must have one value to be optional against.
+    expect(t.colors.scrim).toBe("#000000b3");
+  });
+
+  test("names a surface that re-declares a shared colour with a near-miss value", () => {
+    // The assistant once carried six "near-Dreamframe" values under Dreamframe's
+    // names; comparing names only called that agreement. Same guard, now that
+    // the colours live in one file.
+    const tuned = ":root {\n  --warning: oklch(0.828 0.189 90);\n}";
+    expect(sharedRedeclarationProblems("assistant", shared, tuned)).toEqual([
+      expect.stringContaining("assistant: --warning is oklch(0.828 0.189 90)"),
+    ]);
+  });
+
+  test("tolerates a surface restating a shared value identically", () => {
+    // Tailwind's @theme block re-states the type roles literally in several
+    // files; that is a build convention, and var() indirection does not work
+    // there. Only a different value is drift.
+    const t = parseCssTokens(shared);
+    const same = `:root {\n  --warning: ${t.colors.warning};\n  --text-label: 15px;\n}`;
+    expect(sharedRedeclarationProblems("client", shared, same)).toEqual([]);
+  });
+
+  test("names a type role or weight a surface restates at a different value", () => {
+    expect(sharedRedeclarationProblems("spa", shared, ":root {\n  --text-detail: 12px;\n}")).toEqual([
+      expect.stringContaining("--text-detail is 12px"),
+    ]);
+    expect(sharedRedeclarationProblems("spa", shared, ":root {\n  --font-weight-strong: 700;\n}")).toEqual([
+      expect.stringContaining("--font-weight-strong is 700"),
+    ]);
+  });
+
+  test("the three real surfaces still resolve a complete palette through the import", () => {
+    // The refactor's risk is a role that existed only in a surface file and now
+    // exists nowhere: each surface read as shared-plus-own must still satisfy
+    // every required role and clear contrast.
+    for (const surface of ["spa", "client", "assistant"] as const) {
+      const merged = `${shared}\n${readFileSync(join(REPO_ROOT, CSS_SURFACES[surface]), "utf8")}`;
+      expect(agreementProblems(surface, parseCssTokens(merged), WEB_SCALE)).toEqual([]);
+    }
+    expect(contrastProblems(`${shared}\n${readFileSync(join(REPO_ROOT, CSS_SURFACES.spa), "utf8")}`)).toEqual([]);
+  });
+});
+
+describe("the shared palette as a build input", () => {
+  test("turbo treats it as a global dependency", () => {
+    // Every CSS surface imports `packages/assistant/tokens.css`, and the macOS
+    // helper panel ships the built result inside a signed bundle. Without this,
+    // a commit that edits only the palette hits a warm cache, serves the old
+    // inlined stylesheet, and `bun run lint:design` still passes: the checker
+    // reads sources, and the shipped bytes are whatever the cache held.
+    const turbo = JSON.parse(readFileSync(join(REPO_ROOT, "turbo.json"), "utf8")) as {
+      globalDependencies?: string[];
+    };
+    expect(turbo.globalDependencies).toContain(SHARED_TOKENS);
+  });
+});
+
+describe("a package page that joins a surface", () => {
+  test("the helper panel is walked under the assistant rules, by name", () => {
+    // Nothing else checks the registration itself. A scan root pointing at a
+    // moved directory, or a stylesheet whose name the surface's include glob
+    // never matches, leaves that page unswept while `lint:design` still prints
+    // its green tick, which is how "extracted into a package" has historically
+    // meant "escaped the role system".
+    expect(SCAN_ROOTS.assistant).toContain("packages/helper-panel/src");
+    expect(existsSync(join(REPO_ROOT, "packages/helper-panel/src/styles.css"))).toBe(true);
+    expect(SURFACE_GLOBS.assistant.include.test("styles.css")).toBe(true);
+  });
+});
+
+test("every shipped CSS surface imports the shared palette and the agreement pipeline checks it", async () => {
+  for (const surface of Object.keys(CSS_SURFACES) as (keyof typeof CSS_SURFACES)[]) {
+    const css = readFileSync(join(REPO_ROOT, CSS_SURFACES[surface]), "utf8");
+    expect(sharedImportProblems(surface, css)).toEqual([]);
+    expect(sharedImportProblems(surface, css.replace(/^@import[^;]*tokens\.css[^;]*;/m, ""))).toHaveLength(1);
+  }
+  const panel = readFileSync(join(REPO_ROOT, "packages/helper-panel/src/styles.css"), "utf8");
+  expect(panel).toContain('@import "../../assistant/tokens.css";');
+  expect(await allAgreement()).toEqual([]);
+});
+
+test("the agreement pipeline rejects missing imports and local palette overrides", async () => {
+  const fixture = mkdtempSync("/tmp/subshell-tokens-");
+  const files = [...Object.values(CSS_SURFACES), SHARED_TOKENS, "packages/helper-panel/src/styles.css"];
+  try {
+    for (const file of files) {
+      const destination = join(fixture, file);
+      mkdirSync(destination.slice(0, destination.lastIndexOf("/")), { recursive: true });
+      writeFileSync(destination, readFileSync(join(REPO_ROOT, file), "utf8"));
+    }
+    const assistant = join(fixture, CSS_SURFACES.assistant);
+    const original = readFileSync(assistant, "utf8");
+    writeFileSync(assistant, original.replace(/^@import[^;]*tokens\.css[^;]*;/m, ""));
+    expect(await allAgreement("assistant", fixture)).toContain(
+      `assistant: import ${SHARED_TOKENS} before declaring local tokens`,
+    );
+    writeFileSync(assistant, `${original}\n:root {\n  --primary: red;\n}\n`);
+    expect(
+      (await allAgreement("assistant", fixture)).some((line) =>
+        line.includes("--primary is red, but packages/assistant/tokens.css sets"),
+      ),
+    ).toBe(true);
+    writeFileSync(assistant, original);
+    const panel = join(fixture, "packages/helper-panel/src/styles.css");
+    const originalPanel = readFileSync(panel, "utf8");
+    writeFileSync(panel, originalPanel.replace(/^@import[^;]*tokens\.css[^;]*;/m, ""));
+    expect(await allAgreement("assistant", fixture)).toContain(
+      `helper-panel: import ${SHARED_TOKENS} before declaring local tokens`,
+    );
+    writeFileSync(panel, `${originalPanel}\n:root {\n  --primary: red;\n}\n`);
+    expect(
+      (await allAgreement("assistant", fixture)).some((line) =>
+        line.includes("helper-panel: --primary is red, but packages/assistant/tokens.css sets"),
+      ),
+    ).toBe(true);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
 });

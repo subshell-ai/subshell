@@ -64,8 +64,13 @@ attach, both under `journalctl --user -u subshell-server.service | grep "ws atta
   server bug; static requests are not logged, so this is the only signal.
   `build=MISSING` is a bundle older than the field; `build=dev` is a dev
   server.
-- `painted repainted=<bool> nudged=<bool> replay=<n>B dump=<dir|off>`: what
-  the pane did before the capture.
+- `painted repainted=<bool> nudged=<bool> cursor=<x>,<y>|none replay=<n>B dump=<dir|off>`: what
+  the pane did before the capture. `cursor=none` means the replay shipped
+  WITHOUT its absolute cursor restore (the read answered nothing): the
+  client's base cursor is then wherever the capture left it, and every later
+  relative-positioned frame (a TUI repainting its pinned spinner block) lands
+  a constant offset off. On a "fixed elements overlap the transcript" report,
+  read this field before blaming the stream.
   `repainted=false nudged=true` means the geometry CHANGED and the pane
   refused to repaint even for a forced SIGWINCH, so a bad replay is the
   pane's own state; `repainted=true` means a freshly painted frame was

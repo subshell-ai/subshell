@@ -256,12 +256,19 @@ describe("the assistant frame", () => {
     expect(buttonOrNull("Re-enroll…")).toBeNull();
     expect(screen.queryByText("More…")).toBeNull();
     const rail = screen.getByRole("navigation", { name: "Main" });
+    // Virtual Displays rides the rail on macOS only: the helper it opens is a
+    // BetterDisplay thing, so a Linux node would get a section that opens
+    // nothing. The regex is read here rather than imported from `lib/copy`
+    // because this assertion is the evidence that the gate works, and reading
+    // the app's own memo would just repeat its answer.
+    const onMac = /Macintosh|Mac OS X/.test(navigator.userAgent);
     expect([...rail.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
       "Control Plane",
       "Status",
       "Service",
       "Update",
       "About",
+      ...(onMac ? ["Virtual Displays"] : []),
       "Reset",
     ]);
     // Over to Service, where the node's own acts live (plane-list ruling):

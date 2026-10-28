@@ -20,7 +20,7 @@
  * Spec: docs/superpowers/specs/2026-09-14-design-system-design.md § 6.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export const TYPE_ROLES = ["display", "heading", "label", "body", "detail"] as const;
 export type TypeRole = (typeof TYPE_ROLES)[number];
@@ -215,7 +215,7 @@ export function contrastRatio(a: [number, number, number], b: [number, number, n
 }
 
 /** Mobile's camelCase keys → the CSS roles they must equal. The terminal trio is not compared (mobile's termFg has no CSS token). */
-export const MOBILE_COLOR_MAP: Record<string, ColorRole> = {
+export const MOBILE_COLOR_MAP: Record<string, ColorRole | (typeof OPTIONAL_COLOR_ROLES)[number]> = {
   bg: "background",
   card: "card",
   border: "border",
@@ -437,9 +437,17 @@ export const SURFACE_GLOBS: Record<Surface, { root: string; include: RegExp; exc
  * identical surface. It is not a fifth `CSS_SURFACES` entry (nothing compares
  * its values cross-surface; it simply must not escape the role system either),
  * which is why it joins `spa` as a scan root rather than as a new surface.
+ *
+ * `packages/helper-panel` is the macOS display helper's settings page. It is
+ * bundled into the helper's own `.app`, so it sits under no `apps/` directory,
+ * and a page nobody scans is a page that drifts. It answers to the assistant
+ * rules because it imports that surface's tokens and renders on the same
+ * plain-CSS roles, which is the point of moving the palette to
+ * `packages/assistant/tokens.css` in the first place.
  */
-const SCAN_ROOTS: Partial<Record<Surface, string[]>> = {
+export const SCAN_ROOTS: Partial<Record<Surface, string[]>> = {
   spa: ["packages/node-admin/src", "apps/node/web/src"],
+  assistant: ["packages/helper-panel/src"],
 };
 
 // ---------------------------------------------------------------------------
@@ -489,6 +497,76 @@ export const CSS_SURFACES: Record<Exclude<Surface, "mobile">, string> = {
 
 export const MOBILE_TOKENS = "apps/client/mobile/src/lib/tokens.ts";
 
+/**
+ * The palette and type scale, one file, imported by every CSS surface.
+ *
+ * It lives in `packages/` (Apache-2.0) so the surfaces that may import it are
+ * not limited by the `apps/server/` licence line — the macOS display helper's
+ * panel is Apache and renders the same design system. The surfaces read it
+ * with a CSS `@import`; the checker reads it here and merges, so a role can
+ * be declared exactly once and a surface that re-declares it differently is
+ * reported rather than silently winning on cascade order.
+ */
+export const SHARED_TOKENS = "packages/assistant/tokens.css";
+
+/** Refuse a missing shared import before crediting that file's tokens. */
+export function sharedImportProblems(
+  surface: string,
+  ownCss: string,
+  repoRoot = REPO_ROOT,
+  sourcePath = CSS_SURFACES[surface as Exclude<Surface, "mobile">],
+): string[] {
+  const surfacePath = join(repoRoot, sourcePath);
+  const imports = [...ownCss.matchAll(/^\s*@import\s+["']([^"']+)["']\s*;/gm)];
+  return imports.some((match) => resolve(dirname(surfacePath), match[1]) === join(repoRoot, SHARED_TOKENS))
+    ? []
+    : [`${surface}: import ${SHARED_TOKENS} before declaring local tokens`];
+}
+
+/**
+ * A surface re-declaring something the shared file already sets, with a
+ * different value.
+ *
+ * Identical duplicates are not reported: Tailwind's `@theme` block re-states
+ * the type roles in several files, and that is a build convention, not drift.
+ * A different value is the thing that must never happen — it means one screen
+ * renders the brand and the next renders a near-miss of it, which is the
+ * failure the whole token system exists to end.
+ */
+export function sharedRedeclarationProblems(surface: string, sharedCss: string, ownCss: string): string[] {
+  const norm = (v: string) => v.replace(/\s+/g, " ").replace(/\(\s/g, "(").replace(/\s\)/g, ")").trim();
+  const shared = parseCssTokens(sharedCss);
+  const own = parseCssTokens(ownCss);
+  const problems: string[] = [];
+  for (const [role, value] of Object.entries(own.colors)) {
+    const baseline = shared.colors[role];
+    if (baseline !== undefined && norm(baseline) !== norm(value)) {
+      problems.push(`${surface}: --${role} is ${norm(value)}, but ${SHARED_TOKENS} sets ${norm(baseline)}`);
+    }
+  }
+  for (const role of TYPE_ROLES) {
+    const want = shared.text[role];
+    const have = own.text[role];
+    if (!want || !have) continue;
+    if (Number.isFinite(want.size) && Number.isFinite(have.size) && have.size !== want.size) {
+      problems.push(`${surface}: --text-${role} is ${have.size}px, but ${SHARED_TOKENS} sets ${want.size}px`);
+    }
+    if (want.lineHeight !== undefined && have.lineHeight !== undefined && have.lineHeight !== want.lineHeight) {
+      problems.push(
+        `${surface}: --text-${role}--line-height is ${have.lineHeight}, but ${SHARED_TOKENS} sets ${want.lineHeight}`,
+      );
+    }
+  }
+  for (const key of ["strong", "regular"] as const) {
+    const want = shared.weights[key];
+    const have = own.weights[key];
+    if (want !== undefined && have !== undefined && have !== want) {
+      problems.push(`${surface}: --font-weight-${key} is ${have}, but ${SHARED_TOKENS} sets ${want}`);
+    }
+  }
+  return problems;
+}
+
 /** The agreement half of the check, all four surfaces. */
 /**
  * The three CSS surfaces must agree on colour VALUES, not only names.
@@ -518,17 +596,34 @@ export function cssColorAgreement(spaCss: string, others: Record<string, string>
   return problems;
 }
 
-export async function allAgreement(only?: Surface): Promise<string[]> {
+export async function allAgreement(only?: Surface, repoRoot = REPO_ROOT): Promise<string[]> {
   const problems: string[] = [];
-  const css = Object.fromEntries(
-    (Object.entries(CSS_SURFACES) as [Exclude<Surface, "mobile">, string][]).map(([surface, rel]) => [
+  const sharedCss = readFileSync(join(repoRoot, SHARED_TOKENS), "utf8");
+  const own = Object.fromEntries(
+    (Object.keys(CSS_SURFACES) as Exclude<Surface, "mobile">[]).map((surface) => [
       surface,
-      readFileSync(join(REPO_ROOT, rel), "utf8"),
+      readFileSync(join(repoRoot, CSS_SURFACES[surface]), "utf8"),
     ]),
+  ) as Record<Exclude<Surface, "mobile">, string>;
+  // Every surface is read as the shared file plus its own: a role declared
+  // once in the palette counts as declared by all three.
+  const css = Object.fromEntries(
+    (Object.keys(own) as Exclude<Surface, "mobile">[]).map((surface) => [surface, `${sharedCss}\n${own[surface]}`]),
   ) as Record<Exclude<Surface, "mobile">, string>;
   for (const surface of Object.keys(css) as Exclude<Surface, "mobile">[]) {
     if (only && only !== surface) continue;
+    problems.push(...sharedImportProblems(surface, own[surface], repoRoot));
     problems.push(...agreementProblems(surface, parseCssTokens(css[surface]), WEB_SCALE));
+    // A surface that re-declares a shared role with a different value wins on
+    // cascade order and quietly changes what that screen looks like; that must
+    // be a red run, not a design review finding.
+    problems.push(...sharedRedeclarationProblems(surface, sharedCss, own[surface]));
+  }
+  if (!only || only === "assistant") {
+    const panelPath = "packages/helper-panel/src/styles.css";
+    const panel = readFileSync(join(repoRoot, panelPath), "utf8");
+    problems.push(...sharedImportProblems("helper-panel", panel, repoRoot, panelPath));
+    problems.push(...sharedRedeclarationProblems("helper-panel", sharedCss, panel));
   }
   // Values, not just names: the SPA is the source and the other two must
   // match it. Scoped by --only so a single-surface run reports only its own.
@@ -541,11 +636,11 @@ export async function allAgreement(only?: Surface): Promise<string[]> {
     // The repo's no-dynamic-imports rule does not bind here: this is a dev
     // tool under scripts/, never compiled into a binary, and the path is a
     // fixed constant rather than a runtime-discovered module.
-    const mod = (await import(join(REPO_ROOT, MOBILE_TOKENS))) as {
+    const mod = (await import(join(repoRoot, MOBILE_TOKENS))) as {
       colors: Record<string, string>;
       type: Record<string, { size: number; weight: string }>;
     };
-    problems.push(...mobileAgreement(readFileSync(join(REPO_ROOT, CSS_SURFACES.spa), "utf8"), mod));
+    problems.push(...mobileAgreement(css.spa, mod));
   }
   return problems;
 }
@@ -594,7 +689,11 @@ if (import.meta.main) {
   const agreement = await allAgreement(only);
   const escapes = allEscapes(only);
   const contrast =
-    only && only !== "spa" ? [] : contrastProblems(readFileSync(join(REPO_ROOT, CSS_SURFACES.spa), "utf8"));
+    only && only !== "spa"
+      ? []
+      : contrastProblems(
+          `${readFileSync(join(REPO_ROOT, SHARED_TOKENS), "utf8")}\n${readFileSync(join(REPO_ROOT, CSS_SURFACES.spa), "utf8")}`,
+        );
   const total = agreement.length + escapes.length + contrast.length;
   if (total === 0) {
     console.log("✓ design system: tokens agree, no escapes, contrast clears AA");

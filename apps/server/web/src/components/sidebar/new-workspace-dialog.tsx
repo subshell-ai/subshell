@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
 import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
+import { LaunchRefusal } from "@/components/launch-error-line";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
 import {
   canSubmit,
@@ -27,6 +28,7 @@ import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { useInvalidateWorkspaces, useWorkspaces } from "@/hooks/use-workspaces";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
+import { displayFieldOwnsRefusal, splitLaunchError } from "@/lib/display-refusal-routing";
 import { makeForm, useSubmitDisabled } from "@/lib/form";
 import { defaultWorkspaceName, uniqueWorkspaceName } from "@/lib/workspace-name";
 
@@ -92,6 +94,8 @@ export function NewWorkspaceDialog({
   /** Ordered ids to attach; checkbox toggles and successful launches append here. */
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // A display refusal reads as the checkbox's own result, so the field
+  // renders it; everything else keeps the form-level line.
   const [launching, setLaunching] = useState(false);
   const [creating, setCreating] = useState(false);
   const submitDisabled = useSubmitDisabled(draft, creating || launching);
@@ -190,6 +194,17 @@ export function NewWorkspaceDialog({
     enter(id);
   }
 
+  // ONE variable decides "the agent branch is on screen": the split below and the
+  // JSX that mounts `NewSubshellForm` both read it, because written twice the two
+  // can drift, and the drift silences the refusal (a display refusal handed to a
+  // field that was never rendered, with the form line empty too). The field owns
+  // it while that control is on screen and switched on; otherwise the form line
+  // takes it back, so it is never both invisible and orphaned.
+  const agentBranch = !createdId && mode !== "existing" && !(kind === "ssh" && open);
+  const { field: displayLaunchError, form: formLaunchError } = splitLaunchError(
+    error,
+    displayFieldOwnsRefusal({ mounted: agentBranch, virtualDisplay: form.virtualDisplay }),
+  );
   return (
     <Dialog
       open={open}
@@ -220,43 +235,54 @@ export function NewWorkspaceDialog({
             }}
           />
         </fieldset>
-        {createdId ? (
-          // The workspace exists; the error line above says which adds failed.
-          <p className="text-muted-foreground text-sm">The workspace is created. Enter it to add the rest.</p>
-        ) : mode === "existing" ? (
-          <ExistingSubshellList
-            subshells={subshells ?? []}
-            // Nothing is a member yet (the workspace does not exist), so the
-            // eligible roster is the candidate list; 0 means none to add.
-            totalCount={subshells?.length}
-            query={query}
-            onQueryChange={setQuery}
-            loadFailed={loadFailed}
-            loading={loading}
-            selected={new Set(selected)}
-            onToggle={toggle}
-          />
-        ) : (
-          <div className="flex flex-col gap-4">
-            <SubshellKindPicker value={kind} onChange={setKind} disabled={launching || creating} />
-            {kind === "ssh" && open ? (
-              <ConnectPanel
-                draft={sshDraft}
-                onDraftChange={setSshDraft}
-                onPendingChange={setLaunching}
-                onLeave={() => onOpenChange(false)}
-                onCreated={(id) => {
-                  setSelected((prev) => [...prev, id]);
-                  setMode("existing");
-                }}
-              />
-            ) : (
-              <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
-            )}
-          </div>
-        )}
-
-        {error && <p className="text-destructive text-detail">{error}</p>}
+        <LaunchRefusal error={formLaunchError}>
+          {createdId ? (
+            // The workspace exists; the error line above says which adds failed.
+            <p className="text-muted-foreground text-sm">The workspace is created. Enter it to add the rest.</p>
+          ) : mode === "existing" ? (
+            <ExistingSubshellList
+              subshells={subshells ?? []}
+              // Nothing is a member yet (the workspace does not exist), so the
+              // eligible roster is the candidate list; 0 means none to add.
+              totalCount={subshells?.length}
+              query={query}
+              onQueryChange={setQuery}
+              loadFailed={loadFailed}
+              loading={loading}
+              selected={new Set(selected)}
+              onToggle={toggle}
+            />
+          ) : (
+            <div className="flex flex-col gap-4">
+              <SubshellKindPicker value={kind} onChange={setKind} disabled={launching || creating} />
+              {!agentBranch ? (
+                <ConnectPanel
+                  draft={sshDraft}
+                  onDraftChange={setSshDraft}
+                  onPendingChange={setLaunching}
+                  onLeave={() => {
+                    reset();
+                    onOpenChange(false);
+                  }}
+                  onCreated={(id) => {
+                    setSelected((prev) => [...prev, id]);
+                    setMode("existing");
+                  }}
+                />
+              ) : (
+                <NewSubshellForm
+                  value={form}
+                  onChange={setForm}
+                  onLeave={() => {
+                    reset();
+                    onOpenChange(false);
+                  }}
+                  launchError={displayLaunchError}
+                />
+              )}
+            </div>
+          )}
+        </LaunchRefusal>
         {!createdId && selected.length > 0 && (
           <p className="text-detail text-muted-foreground">
             {selected.length === 1 ? "1 subshell" : `${selected.length} subshells`} to add
@@ -270,7 +296,10 @@ export function NewWorkspaceDialog({
             <>
               <Button
                 variant="outline"
-                onClick={() => onOpenChange(false)}
+                onClick={() => {
+                  reset();
+                  onOpenChange(false);
+                }}
                 disabled={creating || launching}
                 disabledReason={"Wait for the workspace action to finish."}
               >

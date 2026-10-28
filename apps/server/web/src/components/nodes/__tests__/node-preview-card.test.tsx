@@ -131,6 +131,34 @@ describe("the Preview switch", () => {
   });
 });
 
+describe("the display provider rows and an unanswered OS", () => {
+  // The same "can this machine run it" reading the launch form applies, and the
+  // card is the only place a provider can be pre-enabled. An enrolled node that
+  // never came ready reports no OS, which is not a verdict: filtering on it
+  // made the card say no provider supports an operating system the machine
+  // never named, and left the owner nothing to switch on.
+  it("offers the whole catalog while the node has not reported an OS", () => {
+    const { restore } = mount(node({ os: null, virtualDisplayEnabled: true }));
+    try {
+      expect(screen.getByRole("checkbox", { name: "Allow Xvfb + VNC" })).toBeTruthy();
+      expect(screen.getByRole("checkbox", { name: "Allow BetterDisplay" })).toBeTruthy();
+      expect(screen.queryByText(/supports this node's operating system/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("still filters by the OS once the node answers it", () => {
+    const { restore } = mount(node({ os: "linux", virtualDisplayEnabled: true }));
+    try {
+      expect(screen.getByRole("checkbox", { name: "Allow Xvfb + VNC" })).toBeTruthy();
+      expect(screen.queryByRole("checkbox", { name: "Allow BetterDisplay" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe("node view prerequisites", () => {
   it("explains disabled features without probing the node", () => {
     const h = mount(node());
@@ -150,7 +178,7 @@ describe("node view prerequisites", () => {
         "link",
         { name: "Set up virtual display" },
       );
-      expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/guides/preview#use-a-virtual-display-on-linux");
+      expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/previews/linux");
       expect(
         within(screen.getByRole("group", { name: "Xvfb + VNC display provider" })).getByText(
           "Virtual display requirements are missing on the selected node.",
@@ -280,9 +308,7 @@ it("enabling BetterDisplay chooses a supported default on a Mac with legacy Linu
       providers: ["xvfb-x11vnc", "betterdisplay"],
       provider: "betterdisplay",
     });
-    expect(screen.getByRole("link", { name: "Setup instructions" }).getAttribute("href")).toContain(
-      "#macos-display-helper",
-    );
+    expect(screen.getByRole("link", { name: "Setup instructions" }).getAttribute("href")).toContain("/previews/macos");
   } finally {
     h.restore();
   }

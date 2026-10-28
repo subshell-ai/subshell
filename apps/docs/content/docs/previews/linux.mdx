@@ -1,0 +1,51 @@
+---
+title: "Linux virtual displays"
+description: "Install Xvfb, x11vnc, and xauth, configure the node, and launch a controllable screen for graphical apps."
+---
+
+A Linux virtual display gives graphical programs in a subshell their own screen without a physical monitor.
+
+## Before you start
+
+You'll need permission to install packages on the Linux node. Follow
+[Preview prerequisites and setup](/previews/setup) for node ownership and view
+access requirements.
+
+## Install and configure
+
+Install the dependencies on the Linux machine that runs the subshell, even
+when you're viewing it from another device.
+
+1. Use the Linux distribution's package manager to install **Xvfb**, **x11vnc**,
+   and **xauth**. Package names vary by distribution; the node needs the
+   `Xvfb`, `x11vnc`, and `xauth` commands available on its execution account's
+   `PATH`. Install the browser or GUI app you want to use separately.
+2. Follow [Enable node features](/previews/setup#enable-node-features) to allow
+   virtual displays with **Xvfb + VNC** on this node. Once its requirements are
+   ready, launch a subshell as described below.
+
+> [!WARNING]
+> The display runs with the subshell's execution account permissions. It isn't a
+> sandbox for applications, and its local VNC listener has no separate password.
+> Don't enable virtual displays on a host shared with untrusted local OS users,
+> and don't publish the listener through a port forward. See
+> [Preview security](/concepts/security#preview-security).
+
+## Launch and open a display
+
+1. [Launch a subshell](/guides/launch) on that node with **Virtual display** enabled. Choose
+   **Xvfb + VNC** under **Display provider**, or keep **Node default** if it
+   selects that provider.
+2. Launch your browser or GUI app from that subshell so it inherits the display
+   settings.
+3. Use the window icon in the subshell header, then choose **Virtual display**.
+   You can see and control the screen in its own workspace tab.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preview-display.png" alt="A maximized Virtual display tab showing the Northstar website in a browser running on the node." width="1560" height="1520" loading="lazy" decoding="async" unoptimized />
+  <figcaption>The virtual display shows the browser running on the node. Keyboard and pointer input require edit access.</figcaption>
+</figure>
+
+See [Preview prerequisites and setup](/previews/setup#enable-node-features) to
+save the display choice in a preset or understand how provider changes affect
+restarts.

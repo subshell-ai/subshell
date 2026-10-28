@@ -75,8 +75,55 @@ test("sharing: view is read-only, edit manages, private subshells are invisible"
       timeout: SPAWN_TIMEOUT,
     });
 
+    // Keep a socket outside the app's state so UI navigation cannot hide a
+    // missing server-side revocation. Wait for replay, not just HTTP upgrade.
+    const openIndependentTerminal = () =>
+      page.evaluate(async (id) => {
+        const tokenResponse = await fetch("/api/auth/ws-token", { method: "POST" });
+        const { token } = (await tokenResponse.json()) as { token: string };
+        const url = new URL("/ws", location.href);
+        url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        url.searchParams.set("subshell", id);
+        url.searchParams.set("token", token);
+        const socket = new WebSocket(url);
+        const closed = new Promise<number>((resolve) =>
+          socket.addEventListener("close", (event) => resolve(event.code), { once: true }),
+        );
+        (window as unknown as { terminalClosed: Promise<number> }).terminalClosed = closed;
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            socket.close();
+            reject(new Error("terminal replay timed out"));
+          }, 15_000);
+          socket.addEventListener("message", (event) => {
+            if (JSON.parse(String(event.data)).type === "replay") {
+              clearTimeout(timer);
+              resolve();
+            }
+          });
+          socket.addEventListener(
+            "close",
+            () => {
+              clearTimeout(timer);
+              reject(new Error("terminal closed before replay"));
+            },
+            { once: true },
+          );
+        });
+      }, sharedId);
+    const waitForServerClose = () =>
+      page.evaluate(() => (window as unknown as { terminalClosed: Promise<number> }).terminalClosed);
+    await openIndependentTerminal();
+    await admin.request.put(`/api/subshells/${sharedId}/shares`, {
+      data: { shares: [{ granteeUserId: null, permission: "view" }] },
+    });
+    expect(await waitForServerClose()).toBe(1012);
+    expect((await (await memberBrowser.request.get(`/api/subshells/${sharedId}`)).json()).access).toBe("view");
+    await openIndependentTerminal();
+
     // Revoke entirely: the subshell vanishes from the member again (404).
     await admin.request.put(`/api/subshells/${sharedId}/shares`, { data: { shares: [] } });
+    expect(await waitForServerClose()).toBe(1012);
     expect((await memberBrowser.request.get(`/api/subshells/${sharedId}`)).status()).toBe(404);
   } finally {
     for (const id of [sharedId, privateId]) await admin.request.delete(`/api/subshells/${id}`);

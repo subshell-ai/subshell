@@ -1,0 +1,54 @@
+---
+title: "Preview workflows for agents"
+description: "Use MCP to launch a helper subshell with a virtual display, start a browser, discover views, and clean up afterward."
+---
+
+Agents can use MCP to prepare a preview in a helper subshell.
+
+## Before you start
+
+An agent can use MCP to start a helper on another enrolled node owned by the
+same account. Complete [Preview prerequisites and setup](/previews/setup) before
+asking an agent to launch one. The example below assumes you've completed
+[Linux virtual displays](/previews/linux). A Mac configured through
+[macOS virtual displays](/previews/macos) can use `betterdisplay` instead; MCP
+can check its requirements but can't enable its helper or grant macOS permissions.
+
+Subshell tokens can discover only enrolled nodes owned by the same account.
+Shared nodes and the server's built-in node aren't available through these tools,
+and the tools don't grant access to another user's shared subshell.
+
+## Launch and inspect a helper
+
+1. Call `list_nodes` to choose an online node with `canLaunch: true`, virtual displays
+   enabled, and an installed, working terminal harness. Call `get_node` with
+   its ID to check the default display provider, or include `provider` to check
+   another enabled choice. Confirm `virtualDisplay.enabled` is true and its
+   status is `ready`.
+2. Call `create_subshell` with the node ID and a display:
+
+   ```json
+   { "harness": "terminal", "node": "NODE_ID", "name": "Website check", "screen": { "width": 1280, "height": 800, "provider": "xvfb-x11vnc" } }
+   ```
+
+3. Use `exec_in_terminal` with the returned subshell ID to start your development
+   server and browser. Programs started there inherit `DISPLAY` and
+   `XAUTHORITY`. Keep long-running programs in the background so the command
+   can finish. For example, if Chromium is installed and your site is already
+   serving port 3000 on that node:
+
+   ```json
+   { "subshell_id": "SUBSHELL_ID", "command": "chromium http://127.0.0.1:3000 > browser.log 2>&1 &" }
+   ```
+
+4. Call `list_subshell_views` with `subshell_id` to discover its views. In the dashboard,
+   select the helper's Web previews & screens action and open its app or virtual display.
+   `open_subshell_view` can create a private
+   connection path for a client, but it doesn't open a dashboard tab or return
+   a screenshot.
+5. Collect the results, then call `delete_subshell` to remove the temporary
+   helper and its history. Stop any `watch_subshell_browser` interest with `on: false`
+   when you finish watching.
+
+See the [MCP tool reference](/mcp/tools#get_node) for arguments and readiness
+fields, including harness health and SSH settings.

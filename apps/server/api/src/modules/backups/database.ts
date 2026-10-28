@@ -11,7 +11,7 @@ import { assertSafeHostPath } from "./paths.js";
 import type { BackupAdmin } from "./types.js";
 
 /** Latest supported application migration; its registration is pinned by the engine tests. */
-export const LATEST_BACKUP_MIGRATION = "0069-auth-account-provider-key";
+export const LATEST_BACKUP_MIGRATION = "0070-preview-proxy-settings";
 
 /** Snapshot a live SQLite database using VACUUM INTO, including committed WAL state. */
 export async function snapshotDatabase(sourcePath: string, destinationPath: string): Promise<void> {

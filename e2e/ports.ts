@@ -58,6 +58,8 @@ export const PORTS = {
   onboarding: envPort("E2E_PORT_ONBOARDING", 3200),
   ssh: envPort("E2E_PORT_SSH", 3201),
   connect: envPort("E2E_PORT_CONNECT", 3202),
+  previewHttp: envPort("E2E_PORT_PREVIEW_HTTP", 4123),
+  previewCdp: envPort("E2E_PORT_PREVIEW_CDP", 9423),
   /*
    * `relay` belongs to spec 23-ssh-relay (milestone 2's crown jewel): a THIRD
    * standalone backend, because the relay story spans two REAL enrolled agent

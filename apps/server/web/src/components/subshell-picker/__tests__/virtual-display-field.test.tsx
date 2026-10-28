@@ -51,7 +51,7 @@ describe("virtual display prerequisites", () => {
       },
     );
     const guide = await screen.findByRole("link", { name: "Set up virtual display" });
-    expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/nodes/manage#apps-browsers-and-virtual-displays");
+    expect(guide.getAttribute("href")).toBe("https://docs.subshell.sh/previews/setup");
     expect(guide.getAttribute("target")).toBe("_blank");
     expect(guide.closest(".text-warning")).not.toBeNull();
     expect(screen.queryByText(/install Xvfb/)).toBeNull();
@@ -100,6 +100,96 @@ describe("virtual display prerequisites", () => {
     expect(changes).toEqual(["xvfb-x11vnc"]);
     expect(virtualDisplayReason({ ...linux, virtualDisplayProviders: [] }, ready, "xvfb-x11vnc")).toContain("disabled");
   });
+  it("offers only the providers this machine's OS can run", async () => {
+    // The stored policy is the owner's and can hold both, so the row filters by
+    // the node's reported OS: Xvfb is Linux's display server, and offering it on
+    // a Mac sends the person to a launch the machine refuses.
+    const paths: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      paths.push(String(input));
+      return new Response(JSON.stringify(ready));
+    }) as typeof fetch;
+    render(
+      <VirtualDisplayField
+        node={{
+          ...linux,
+          os: "darwin",
+          virtualDisplayProviders: ["xvfb-x11vnc", "betterdisplay"],
+          virtualDisplayProvider: "betterdisplay",
+        }}
+        provider="betterdisplay"
+        onProviderChange={() => {}}
+        id="display"
+        checked
+        onChange={() => {}}
+      />,
+      { wrapper },
+    );
+    await waitFor(() => expect(paths.some((p) => p.endsWith("?provider=betterdisplay"))).toBe(true));
+    fireEvent.click(screen.getByRole("combobox", { name: "Display provider" }));
+    expect(await screen.findByRole("option", { name: "BetterDisplay" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Xvfb + VNC" }) === null).toBe(true);
+  });
+  it("does not echo a provider the machine cannot run back into the list", async () => {
+    // The other direction of the same gate, and the one that used to leak: the
+    // picker keeps the current pick listed even when the caller's filtered
+    // array dropped it, so switching machines left BetterDisplay selected and
+    // offered on a Linux node. A bundled id that is NOT in the OS list is the
+    // gate speaking, not an unknown provider of the node's own, and it must not
+    // come back as a choice the launch will be refused for.
+    const paths: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      paths.push(String(input));
+      return new Response(JSON.stringify(ready));
+    }) as typeof fetch;
+    render(
+      <VirtualDisplayField
+        node={{ ...linux, virtualDisplayProviders: ["xvfb-x11vnc", "betterdisplay"] }}
+        provider="betterdisplay"
+        onProviderChange={() => {}}
+        id="display"
+        checked
+        onChange={() => {}}
+      />,
+      { wrapper },
+    );
+    await waitFor(() => expect(paths.length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("combobox", { name: "Display provider" }));
+    expect(await screen.findByRole("option", { name: "Xvfb + VNC" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "BetterDisplay" }) === null).toBe(true);
+  });
+  it("keeps naming a saved pick while the machine has not answered its OS", async () => {
+    // The list and the value are one decision. An enrolled node that never
+    // came ready reports no OS, which keeps a saved provider (clearing it
+    // would cost the pick to a read that says nothing) - so the row has to
+    // keep SHOWING it too. Filtering the list while keeping the value is how
+    // the trigger came to read "Node default" over a BetterDisplay pin the
+    // launch would honour, and the person approved a provider they never saw.
+    respond(ready);
+    render(
+      <VirtualDisplayField
+        node={{
+          ...linux,
+          os: null,
+          virtualDisplayProviders: ["xvfb-x11vnc", "betterdisplay"],
+          virtualDisplayProvider: "xvfb-x11vnc",
+        }}
+        provider="betterdisplay"
+        onProviderChange={() => {}}
+        id="display"
+        checked
+        onChange={() => {}}
+      />,
+      { wrapper },
+    );
+    const trigger = await screen.findByRole("combobox", { name: "Display provider" });
+    expect(trigger.textContent).toContain("BetterDisplay");
+    expect(trigger.textContent?.includes("Node default")).toBe(false);
+    fireEvent.click(trigger);
+    expect(await screen.findByRole("option", { name: "BetterDisplay" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Xvfb + VNC" })).toBeTruthy();
+  });
+
   it("fails closed when a check fails and recovers on recheck", async () => {
     respond({ message: "Bring this node online, then recheck." }, 409);
     render(<VirtualDisplayField node={linux} id="display" checked={false} onChange={() => {}} />, { wrapper });
@@ -153,4 +243,26 @@ it("preserves a selected display while revalidating the same machine", async () 
   await act(async () => resolve(new Response(JSON.stringify(ready))));
   await waitFor(() => expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).not.toBe("true"));
   expect(changes).toEqual([]);
+});
+
+describe("launch refusals at the control", () => {
+  const refusal =
+    "That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or launch without a screen. (preview-display-not-ready: display :90 / rfb 5910 not answering within 10000ms (Xvfb socket never appeared))";
+  it("renders the refusal beside the checkbox and names it to assistive tech", async () => {
+    respond(ready);
+    render(<VirtualDisplayField node={linux} id="display" checked onChange={() => {}} launchError={refusal} />, {
+      wrapper,
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("preview-display-not-ready");
+    expect(alert.getAttribute("id")).toBe("display-launch-error");
+    expect(screen.getByRole("checkbox").getAttribute("aria-describedby")).toContain("display-launch-error");
+  });
+  it("says nothing when no launch was refused", async () => {
+    respond(ready);
+    render(<VirtualDisplayField node={linux} id="display" checked onChange={() => {}} />, { wrapper });
+    await waitFor(() => expect(screen.getByRole("checkbox").getAttribute("aria-disabled")).not.toBe("true"));
+    expect(screen.queryByRole("alert") === null).toBe(true);
+    expect((screen.getByRole("checkbox").getAttribute("aria-describedby") ?? "").includes("launch-error")).toBe(false);
+  });
 });

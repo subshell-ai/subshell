@@ -1,0 +1,338 @@
+/* The macOS display helper's panel. Colours and type come from the one shared
+   palette; the shapes are the control plane's, taken from the components a
+   person already meets in the dashboard:
+   - `Card` (packages/node-admin/src/ui/card.tsx): bg-card, a --border hairline,
+     radius 8, 16px content padding.
+   - `Fact` (packages/node-admin/src/components/fact-list.tsx): a strong
+     `detail` label in muted-foreground above a regular `body` value in
+     foreground.
+   - `FormSectionTitle` (packages/assistant/src/form-section-title.tsx): a label
+     role heading with a trailing rule.
+   Flat-on-the-void with inline "label: value" text was the defect that made
+   this read as another product's dialog. Spacing stays on the 4px grid and the
+   one motion is 150ms micro-feedback, both per docs/design-system.md. */
+@import "../../assistant/tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  /* The window's ground is the page void; the card is the plate on it, the way
+     a card sits on the dashboard's background. */
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--default-font-family);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The document owns its width and the Swift window sizes to it, which is why
+   the number appears once. 520 fits the card's longest row without wrapping. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: 520px;
+  padding: 16px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--foreground);
+}
+
+/* CardHeader: a heading title over a detail description, 4px apart. */
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: var(--font-weight-strong);
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
+/* The refusal reads under the header, the way a dialog's problem line is read
+   before the control that failed. role=alert announces it; it is the only live
+   region, because the card is rebuilt on every state push. */
+.error {
+  margin: 0;
+  padding: 0 16px 12px;
+  color: var(--destructive);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+  padding: 0 16px 16px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-size: var(--text-label);
+  line-height: var(--text-label--line-height);
+  font-weight: var(--font-weight-strong);
+}
+
+.section-rule {
+  flex: 1;
+  min-width: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.state,
+.viewers,
+.warning,
+.note {
+  margin: 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+
+/* An explanation a control gives about itself is `detail` at one size: the
+   hint, the reason a control is off. `body` is running text, not help. */
+.viewers,
+.note {
+  color: var(--muted-foreground);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
+/* Gold is "the person who owns this can act on it", the role the dashboard
+   gives text-warning: what enabling exposes, and who is watching right now. */
+.warning,
+.viewers.is-live {
+  color: var(--warning);
+}
+
+/* A row is a Fact and the one control that changes it: the label and value
+   stacked on the leading edge, the control at the trailing one. The button
+   never wraps its own label, so a long value and a short control share the row
+   honestly instead of fighting for the same pixels. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+}
+
+.fact-label {
+  color: var(--muted-foreground);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-weight: var(--font-weight-strong);
+}
+
+.fact-value {
+  margin: 0;
+  color: var(--foreground);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+
+.fact-value.is-blocked {
+  color: var(--warning);
+}
+
+/* A disabled control explains itself to someone who cannot hover it, so the
+   reason is drawn inline in gold and named by aria-describedby rather than
+   hidden in a native title attribute. */
+.blocked-reason {
+  margin: 0;
+  color: var(--warning);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
+.btn {
+  /* The assistant's `Button`: h-9 at px-4 py-2, rounded-md, strong at body
+     size, content-sized rather than stretched across the card. */
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 16px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: var(--text-body);
+  font-weight: var(--font-weight-strong);
+  white-space: nowrap;
+  transition:
+    background-color 150ms,
+    color 150ms;
+}
+
+.btn:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  background: none;
+  color: var(--foreground);
+}
+
+/* Placed after `.btn` so the more specific selector wins by order as well as by
+   weight: only the control goes to the trailing edge, while the label and its
+   value stay stacked together on the leading one. */
+.row .btn {
+  margin-left: auto;
+}
+
+/* Dreamframe: the primary is a sunk plum gradient with frost text, quieter
+   than --primary, which stays bright for links and glows. */
+.btn-primary {
+  background-image: linear-gradient(135deg, var(--button-primary-from), var(--button-primary-to));
+  color: var(--button-primary-foreground);
+}
+
+.btn-primary:hover {
+  background-image: linear-gradient(135deg, var(--button-primary-hover-from), var(--button-primary-hover-to));
+  color: var(--button-primary-foreground);
+}
+
+/* The look the assistant gives a control that really does something. Every
+   control in this card wears it except the one primary. */
+.btn-outline {
+  border-color: var(--input);
+  background: var(--card);
+}
+
+/* The assistant's destructive variant: the act that cannot be undone from
+   here wears red, and it is the last control in the row. */
+.btn-destructive {
+  background: var(--destructive);
+  color: var(--destructive-foreground);
+}
+
+.btn-destructive:hover {
+  background: var(--destructive);
+  color: var(--destructive-foreground);
+  filter: brightness(0.94);
+}
+
+/* The confirmation, drawn the way the dashboard draws a dialog: the shared
+   scrim, a popover plate on the radius, a question that names the action, and
+   the consequences under it. Cancel is the outline control and Quit the
+   destructive one, because the reversible answer should be the cheaper one. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--scrim);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 380px;
+  padding: 16px;
+  background: var(--popover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--popover-foreground);
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: var(--font-weight-strong);
+}
+
+.dialog-body {
+  margin: 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  color: var(--muted-foreground);
+}
+
+.dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* CardFooter: the hairline above it, help at the leading edge, the exits at the
+   trailing one. The bottom corners follow the plate, inset by its 1px border. */
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 64px;
+  padding: 16px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 7px 7px;
+}
+
+.bar-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bar-exits {
+  margin-left: auto;
+}

@@ -128,7 +128,7 @@ Most commands execute in arrival order on a shared queue, so a long archive oper
 | Machine information | `inventory`, `detect`, `ping`. |
 | Node management | `service`, `agent_log_read`, `set_server_url`, `set_log_level`, `set_maintenance`, `set_ssh_enabled`, `update`. |
 | SSH discovery and trust | `ssh_discover_aliases`, `ssh_resolve_config`, `ssh_register_identity`, `ssh_agent_identities`, `ssh_host_key`, `ssh_machine_pin_repair`. |
-| SSH relay and remote setup | `ssh_relay_open`, `ssh_relay_close`, `ssh_exec`, `ssh_exec_status`. |
+| SSH relay and remote setup | `ssh_relay_open`, `ssh_relay_close`, `ssh_exec_stdin` (setup scripts on stdin), legacy `ssh_exec`, `ssh_exec_status`. |
 
 A command existing on the wire doesn't grant every user access to it. Server routes enforce ownership, grants, and administrator requirements before dispatch. The daemon also applies local checks, including directory rules, maintenance refusals, and service-manager safety checks.
 
@@ -173,7 +173,7 @@ The server applies two distinct gates to readiness:
 1. The node release must meet the server's minimum supported release version.
 2. Its protocol version must match the server's protocol exactly.
 
-The implemented protocol is **24**. Its number is independent of the package release version. Additive wire changes also require a protocol bump and coordinated rollout; there is no per-feature compatibility window.
+The implemented protocol is **25**. Its number is independent of the package release version. Additive wire changes also require a protocol bump and coordinated rollout; there is no per-feature compatibility window.
 
 A refused node can remain connected in a **held** state for updates while staying unavailable for launches and ordinary management commands. Only `update` can use that held connection. Older nodes on the legacy path receive that update command in its frozen plaintext recovery format; they aren't admitted for normal plaintext operation. Invalid credentials and disabled owners are authentication failures, not update holds.
 

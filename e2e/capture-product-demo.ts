@@ -69,8 +69,14 @@ try {
     : process.argv.includes("--desktop-only") || subagents
       ? [false]
       : [false, true]) {
-    const workingDir = path.join(root, mobile ? "phone" : "desktop", "task-board");
+    const workingDir = path.join("/tmp/subshell-demo", mobile ? "phone" : "desktop", "task-board");
     mkdirSync(workingDir, { recursive: true });
+    // This root is shared between runs, and the completion gate below treats an
+    // existing tasks.test.js as proof the agent wrote tests. Leave the previous
+    // run's file in place and a run where the agent skips that step ends early,
+    // on a green bun test of work nobody did. The scratch root is cleaned at
+    // exit, so nothing else removes it.
+    rmSync(path.join(workingDir, "tasks.test.js"), { force: true });
     writeFileSync(
       path.join(workingDir, "package.json"),
       JSON.stringify({ name: "task-board", type: "module", scripts: { test: "bun test" } }),
@@ -199,13 +205,13 @@ export function summarize(tasks) {
       if (
         subagents &&
         !demonstrated &&
-        (await page.getByRole("button", { name: "Collapse subagents", exact: true }).count())
+        (await page.getByRole("button", { name: "Collapse subshell details", exact: true }).count())
       ) {
         await hold(2);
         posterFrame = frame - 1;
-        await page.getByRole("button", { name: "Collapse subagents", exact: true }).click();
+        await page.getByRole("button", { name: "Collapse subshell details", exact: true }).click();
         await hold(1);
-        await page.getByRole("button", { name: "Expand subagents", exact: true }).click();
+        await page.getByRole("button", { name: "Expand subshell details", exact: true }).click();
         await hold(2);
         await page.getByRole("link", { name: /Build feature/ }).click();
         await hold(1);

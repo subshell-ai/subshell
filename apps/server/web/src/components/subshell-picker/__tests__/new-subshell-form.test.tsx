@@ -78,13 +78,18 @@ async function settle(): Promise<void> {
   });
 }
 
+/** The value the controlled parent last held, so a test can read what the form
+ *  wrote back rather than only what it drew. */
+let lastValue: NewSubshellFormValue | null = null;
+
 /** A controlled parent like /new and the dialog. */
-async function renderForm(initial: NewSubshellFormValue) {
+async function renderForm(initial: NewSubshellFormValue, launchError?: string | null) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   function Harness() {
     const [value, setValue] = useState(initial);
     setter = setValue;
-    return <NewSubshellForm value={value} onChange={setValue} />;
+    lastValue = value;
+    return <NewSubshellForm value={value} onChange={setValue} launchError={launchError} />;
   }
   const rootRoute = createRootRoute();
   const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: Harness });
@@ -141,6 +146,75 @@ describe("NewSubshellForm working-dir pre-fill", () => {
       fireEvent.change(dir(), { target: { value: "" } }); // deliberate clear
       await settle();
       expect(dir().value).toBe("");
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("NewSubshellForm launch-error placement", () => {
+  afterEach(cleanup);
+
+  /** The AI PC's own answer, kept verbatim: the tail word is what routes it. */
+  const REFUSAL =
+    "API 400: That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or launch without a screen. (preview-display-not-ready: display :90 / rfb 5910 not answering within 10000ms (Xvfb socket never appeared))";
+
+  it("moves a display refusal off a checkbox that has been turned off", async () => {
+    // The refusal explains the display the person chose, so it belongs under
+    // that checkbox while it is on and nowhere once it is off. Rendering it
+    // under an unchecked box is the stale-warning half of the bug; discarding
+    // it would be worse, which is why the split hands it to the form instead.
+    const restore = mockEndpoints([]);
+    try {
+      await renderForm({ ...emptyNewSubshellForm(), virtualDisplay: false }, REFUSAL);
+      await screen.findByRole("checkbox", { name: "Virtual display" });
+      expect(screen.queryByRole("alert", { name: REFUSAL })).toBeNull();
+      expect(document.getElementById("picker-virtual-display-launch-error")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the refusal readable when the form has fallen to its empty state", async () => {
+    // The dialogs ask the field to host a display refusal, and this branch
+    // replaces the whole form, field included: without the line here the
+    // message vanishes exactly when a node goes unlaunchable behind an open
+    // dialog, which is the "never invisible" half of the routing contract.
+    const original = globalThis.fetch;
+    globalThis.fetch = ((input: unknown) => {
+      const url = String(input);
+      if (url.includes("/api/nodes")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ nodes: [{ ...BOX, canLaunch: false, maintenance: true }] })),
+        );
+      }
+      if (url.includes("/api/plugins")) return Promise.resolve(new Response(JSON.stringify({ plugins: [] })));
+      if (url.includes("/api/files/recent"))
+        return Promise.resolve(new Response(JSON.stringify({ paths: [], home: null })));
+      return Promise.resolve(new Response(JSON.stringify([]))); // /api/presets, /api/subshells
+    }) as typeof fetch;
+    try {
+      await renderForm({ ...emptyNewSubshellForm(), virtualDisplay: true }, REFUSAL);
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("preview-display-not-ready");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("hands a display refusal to the Virtual display field", async () => {
+    // The dialog's split (`isDisplayLaunchRefusal` at the call sites) picks
+    // which line is the field's; this pins the form actually threading it
+    // down, so a refusal like the AI PC's lands beside its checkbox.
+    const restore = mockEndpoints([]);
+    try {
+      await renderForm({ ...emptyNewSubshellForm(), virtualDisplay: true }, REFUSAL);
+      const alert = await screen.findByRole("alert");
+      expect(alert.getAttribute("id")).toBe("picker-virtual-display-launch-error");
+      expect(alert.textContent).toContain("preview-display-not-ready");
+      expect(screen.getByRole("checkbox", { name: "Virtual display" }).getAttribute("aria-describedby")).toContain(
+        "picker-virtual-display-launch-error",
+      );
     } finally {
       restore();
     }
@@ -229,6 +303,52 @@ function mockTwoNodes() {
     release: (body: unknown) => releaseNode9?.(body),
   };
 }
+
+describe("NewSubshellForm provider and machine", () => {
+  afterEach(cleanup);
+
+  it("drops a saved provider the chosen machine cannot run", async () => {
+    // Box reports Linux, so a form still holding BetterDisplay for it would
+    // launch with a provider that machine refuses - the flow the OS gate exists
+    // to remove. The picker's filtered list hid the stale value, so nothing
+    // else in the UI would have caught it: this pins the write-back itself.
+    const { restore, release } = mockTwoNodes();
+    try {
+      await renderForm({
+        ...emptyNewSubshellForm(),
+        nodeId: "node-9",
+        virtualDisplay: true,
+        displayProvider: "betterdisplay",
+      });
+      release({ paths: [], home: null });
+      await settle();
+      expect(lastValue?.displayProvider).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the provider while the machine has not reported an OS", async () => {
+    // The control plane's own row answers no OS at all, which is not a verdict
+    // that BetterDisplay cannot run. Clearing on it would cost a deliberate
+    // pick on every mount, and the list stops filtering in the same breath, so
+    // the two readings have to agree in both directions.
+    const { restore, release } = mockTwoNodes();
+    try {
+      await renderForm({
+        ...emptyNewSubshellForm(),
+        nodeId: "local",
+        virtualDisplay: true,
+        displayProvider: "betterdisplay",
+      });
+      release({ paths: [], home: null });
+      await settle();
+      expect(lastValue?.displayProvider).toBe("betterdisplay");
+    } finally {
+      restore();
+    }
+  });
+});
 
 describe("NewSubshellForm machine switch", () => {
   afterEach(cleanup);

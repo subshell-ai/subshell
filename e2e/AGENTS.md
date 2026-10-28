@@ -55,7 +55,8 @@ runs discovery against this fake), and no spec ever dials a real IdP.
 
 Every fixed port in `ports.ts` takes an env override (`E2E_PORT_BACKEND`,
 `E2E_PORT_FAKE_REGISTRY`, `E2E_PORT_FAKE_IDP`, `E2E_PORT_ONBOARDING`,
-`E2E_PORT_SSH`, `E2E_PORT_CONNECT`, `E2E_PORT_RELAY`, `E2E_PORT_FORWARDS`) with the committed
+`E2E_PORT_SSH`, `E2E_PORT_CONNECT`, `E2E_PORT_RELAY`, `E2E_PORT_FORWARDS`,
+`E2E_PORT_PREVIEW_HTTP`, `E2E_PORT_PREVIEW_CDP`) with the committed
 defaults unchanged, the escape hatch for two suites running side by side on one
 machine, which the defaults collide on.
 
@@ -182,6 +183,11 @@ destination trust was saved, then cleans up its processes and temporary state.
 Review the image and update its intrinsic dimensions in `guides/ssh.mdx` if the
 layout changes. Never point it at the live server.
 
+`bun e2e/capture-terminal-copy.ts` captures the touch actions menu and a native
+text selection against the isolated stack. Build the SPA first. It uses a real
+shell with sample output and verifies selection and disabled input before
+saving the images; it doesn't simulate an iOS copy callout.
+
 For the other documentation screenshots, run `bun e2e/capture-docs.ts` after
 building the SPA. It uses the same isolated stack with sample presets, prompts,
 a workspace, and real terminal sessions running a small temporary project.
@@ -205,6 +211,43 @@ pixel density. The helper hides unrelated UI and modal backdrops only during
 capture; the photographed controls and their content remain unchanged. Keep
 PNG dimensions at native resolution.
 The sites supply the same single border around each image, without extra padding.
+
+`bun e2e/capture-preview-intro.ts` captures the loaded marketing site inside a
+real, maximized web preview for the documentation overview. Start the website on
+port 3401 first. The script uses an isolated test stack and waits for the site's
+heading, styles, and image before capturing; it cleans up its subshell and stack.
+
+Two more capture scripts feed the same folder, and both avoid the live server:
+
+`bun e2e/capture-helper-panel.ts` photographs the macOS display helper's consent
+panel. It needs the panel built (`bun run --cwd packages/helper-panel build`) and
+nothing else: it opens the shipped single-file page over `file://`, the way
+`loadFileURL` does, and hands it a state through `window.subshellSetState`, the
+same call Swift makes. It draws no control of its own, so the image is the page a
+person meets, in the two states that matter (asking for consent, and running with
+both required macOS permissions granted).
+
+`bun e2e/capture-assistant-ui.ts` photographs the assistant's **Virtual Displays**
+screen. It starts the client UI's own Vite server (port 5177 must be free),
+arrives with a Mac user agent because the rail's macOS gate reads it, and answers
+the three reads the window makes at that screen (`node_settings` and `node_probe`
+from the app's node-state feed, `node_pending_screen` from its mount) with the
+facts a configured Mac reports. It teaches one more, `node_about`, which belongs
+to the About screen this capture does not open, so the script's stub set is wider
+than the photographed page's reads: the stubs are what the window CAN ask, not a
+claim about what this screen did. Any command the script has not been taught
+answers `null` and is named in the output, so a new read shows up as a gap rather
+than a blank corner of a published image. It never presses **Open Display Helper settings**, which would
+open a window on the capture host.
+
+`bun e2e/capture-docs.ts` also proves its own preview captures: the header badge
+needs a pane that really owns two loopback servers, so the script types the dev
+server and the fake CDP endpoint into a terminal pane
+(ports 4123 and 9423, the same pair spec 47 uses, deliberately off 9222 where a
+developer's real Chromium answers) and waits on `GET /views` until the node
+reports them. Both ports are probed before the stack boots, because a leftover
+listener from an interrupted run makes the pane's `Bun.serve` die with EADDRINUSE
+and the wait would otherwise spend its whole budget on a state it cannot reach.
 
 For the website-preview video and guide images, run
 `bun e2e/capture-preview-demo.ts` after building the SPA. It uses a disposable

@@ -1,4 +1,13 @@
-//! This entry point is reachable only from the native application menu.
+//! Open the bundled display helper's settings panel.
+//!
+//! Two doors reach it, and they are the same act: the native application menu's
+//! **Virtual Display Helper…** item (`menu.rs`) and the assistant window's
+//! Virtual Displays screen (`control::node_open_display_helper`). The second
+//! exists because the first is easy to miss, and the control plane's node
+//! settings point here by name.
+//!
+//! The panel itself belongs to the helper, a separate signed program, so
+//! enabling it and granting macOS its permissions both happen outside this app.
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 

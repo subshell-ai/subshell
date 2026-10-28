@@ -97,6 +97,15 @@ pub enum Screen {
     Settings,
     Backup,
     Restore,
+    /// **Virtual Displays**: the macOS display helper's instructions and the one
+    /// press that opens its panel (2026-10-26).
+    ///
+    /// The rail is its only door today, and the word is here so the page's rail
+    /// can hold one kind of section rather than two. It asks for nothing, so a
+    /// deep link costs nothing: the screen opens a window in a separate signed
+    /// program and reports nothing back, which is why `desktop_open_display_helper`
+    /// stays the assistant's own command and this word grants no new reach.
+    Display,
 }
 
 impl Screen {
@@ -111,11 +120,12 @@ impl Screen {
             Screen::Settings => "settings",
             Screen::Backup => "backup",
             Screen::Restore => "restore",
+            Screen::Display => "display",
         }
     }
 }
 
-/// Parse the (untrusted, optional) `screen` argument. Six accepted words;
+/// Parse the (untrusted, optional) `screen` argument. Nine accepted words;
 /// anything else — including `home` — is the probe's own answer.
 pub fn parse_screen(raw: Option<String>) -> Screen {
     match raw.as_deref() {
@@ -127,6 +137,7 @@ pub fn parse_screen(raw: Option<String>) -> Screen {
         Some("settings") => Screen::Settings,
         Some("backup") => Screen::Backup,
         Some("restore") => Screen::Restore,
+        Some("display") => Screen::Display,
         _ => Screen::Home,
     }
 }
@@ -1038,6 +1049,7 @@ mod tests {
             Screen::Settings,
             Screen::Backup,
             Screen::Restore,
+            Screen::Display,
         ] {
             assert_eq!(parse_screen(Some(screen.as_str().to_string())), screen);
         }

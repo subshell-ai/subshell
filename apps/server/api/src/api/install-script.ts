@@ -19,8 +19,7 @@ function usageScript(): string {
 # subshell installer: a valid one-time setup key is required (spec 2026-08-31 §5.1/§8).
 set -euo pipefail
 
-echo "usage: curl -fsSL \\"${APP_BASE_URL}/install.sh?setup_key=SETUP_KEY\\" | bash" >&2
-echo "       mint a key first: the Nodes page → Add node, in the subshell web UI." >&2
+echo "Open Nodes in the dashboard and copy the generated setup command for this node." >&2
 exit 2
 `;
 }
@@ -134,6 +133,16 @@ set -euo pipefail
 
 SERVER="${server}"
 KEY="${key}"
+
+# Use curl's stdin config so setup keys never appear in curl's process argv.
+# Escaping is for curl's config syntax, independently of shell quoting.
+fetch_private() {
+  local url="$1"
+  shift
+  url="\${url//\\\\/\\\\\\\\}"
+  url="\${url//\\"/\\\\\\"}"
+  printf 'url = "%s"\\n' "$url" | curl --config - "$@"
+}
 ${
   reRegisterName === null
     ? ""
@@ -232,8 +241,7 @@ fi
 SKIP_DOWNLOAD=""
 EXPECTED_SHA=""
 if [ -f "$DEST" ] && [ -n "$SHA_TOOL" ]; then
-  EXPECTED_SHA="$(curl --fail --silent --location \\
-    "$SERVER/api/downloads/node/$TARGET.sha256?setup_key=$KEY" 2>/dev/null | tr -d '[:space:]')" || EXPECTED_SHA=""
+  EXPECTED_SHA="$(fetch_private "$SERVER/api/downloads/node/$TARGET.sha256?setup_key=$KEY" --fail --silent --location 2>/dev/null | tr -d '[:space:]')" || EXPECTED_SHA=""
   case "$EXPECTED_SHA" in
     '' | *[!0-9a-fA-F]*) EXPECTED_SHA="" ;;
     *) [ "\${#EXPECTED_SHA}" = "64" ] || EXPECTED_SHA="" ;;
@@ -332,8 +340,7 @@ else
   # every network failure too). The progress bar is on the wire because this
   # fetch is ~100 MB and --silent made minutes of healthy transfer indistinguishable from a hang.
   TMP="$DEST.part"
-  if ! HTTP="$(curl --show-error --location --progress-bar \\
-    "$SERVER/api/downloads/node/$TARGET?setup_key=$KEY" \\
+  if ! HTTP="$(fetch_private "$SERVER/api/downloads/node/$TARGET?setup_key=$KEY" --show-error --location --progress-bar \\
     --output "$TMP" --write-out '%{http_code}')"; then
     rm -f "$TMP" 2>/dev/null || true
     echo "subshell: could not reach $SERVER; nothing was installed ($DEST untouched)." >&2
@@ -378,8 +385,7 @@ else
   # shasum -a 256 -c both take the "<hash>  <file>" spelling. A mismatch is a
   # corrupt download or a server serving a stale sidecar — either way the old
   # $DEST survives.
-  if ! EXPECTED="$(curl --fail --silent --show-error --location \\
-    "$SERVER/api/downloads/node/$TARGET.sha256?setup_key=$KEY" | tr -d '[:space:]')"; then
+  if ! EXPECTED="$(fetch_private "$SERVER/api/downloads/node/$TARGET.sha256?setup_key=$KEY" --fail --silent --show-error --location | tr -d '[:space:]')"; then
     rm -f "$TMP" 2>/dev/null || true
     echo "subshell: could not fetch the checksum; nothing was installed ($DEST untouched)." >&2
     exit 1
@@ -491,8 +497,17 @@ echo "==> re-registering the existing node \\"$REREG_NAME\\": this machine takes
 # expansions a single source; the ONLY difference is who answers setup's
 # questions. set -e still aborts on a failed setup: it sits in an if-BRANCH,
 # not in a condition (measured posture the old \`exec\` comment pinned).
+# Older downloaded or reused binaries must fail closed, not fall back to a
+# setup key in argv. The help text advertises this input without exposing it.
+case "$("$DEST" --help 2>&1)" in
+  *SUBSHELL_SETUP_KEY*) ;;
+  *)
+    echo "subshell: this node binary can't accept a setup key privately. Update the server's node download and run setup again." >&2
+    exit 1
+    ;;
+esac
 run_setup() {
-  "$DEST" setup --server "$SERVER" --key "$KEY" \${SETUP_DATA_DIR_ARGS[@]+"\${SETUP_DATA_DIR_ARGS[@]}"} \${SETUP_SERVICE_ARGS[@]+"\${SETUP_SERVICE_ARGS[@]}"} \${SETUP_NAME_ARGS[@]+"\${SETUP_NAME_ARGS[@]}"}
+  SUBSHELL_SETUP_KEY="$KEY" "$DEST" setup --server "$SERVER" \${SETUP_DATA_DIR_ARGS[@]+"\${SETUP_DATA_DIR_ARGS[@]}"} \${SETUP_SERVICE_ARGS[@]+"\${SETUP_SERVICE_ARGS[@]}"} \${SETUP_NAME_ARGS[@]+"\${SETUP_NAME_ARGS[@]}"}
 }
 if [ -n "$CAN_PROMPT" ]; then
   run_setup < /dev/tty

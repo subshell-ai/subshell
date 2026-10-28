@@ -99,12 +99,19 @@ the target directly. The proxy:
 
 - Strips dashboard cookies, HTTP authorization, API keys, and recognized
   reverse-proxy identity headers before forwarding.
-- Sets the target Host header, streams request and response bodies, and
-  doesn't retry a partially written request.
+- Uses the target Host header by default; **Pass the preview host** opts into
+  forwarding the browser's host. It doesn't retry a partially written request.
+- Streams request bodies and untransformed responses. URL rewriting buffers
+  supported HTML, CSS, and JavaScript responses within a 16 MiB decoded limit.
 - Retains target cookies in a bounded server-side session jar rather than
   installing them on the dashboard origin.
-- Prefixes root-relative redirects with the capability path. It doesn't
-  rewrite HTML, JavaScript, or asset URLs.
+- With **Rewrite app URLs** on, rewrites supported HTML URL attributes, CSS URLs
+  and imports, and static or literal dynamic module imports into the capability
+  path. An injected browser script handles common fetch, XMLHttpRequest,
+  WebSocket, EventSource, and DOM URL assignments. External destinations stay
+  external.
+- With **Rewrite redirects** on, maps redirects to the target app into the
+  capability path without following them server-side.
 - Applies a Content Security Policy (CSP) sandbox without `allow-same-origin`, plus `no-store` and
   `no-referrer`. Embedded previews also have an iframe sandbox.
 - Removes target headers that could change dashboard-origin state or policy,
@@ -114,6 +121,18 @@ The preview document has an opaque origin, separate from the dashboard's origin.
 authenticated API responses. Preview-specific CORS allows module loading and
 fetches under the capability path, including opaque `Origin: null` requests.
 That exception doesn't apply to dashboard API or WebSocket origin checks.
+
+Proxy settings are personal and persist by authenticated user, node, normalized
+host, protocol, and port, with a cap of 256 saved targets per user. Defaults are
+URL rewriting on, preview-host forwarding off, and redirect rewriting on. A new
+session snapshots them; changing settings doesn't mutate an existing session.
+The settings endpoint uses the same execute/edit and enabled-node gates as an
+app open, and it cannot authorize a destination. Settings store no capability
+URLs. See [Configure an app preview](/previews/apps#configure-an-app-preview).
+
+Rewriting covers common app patterns rather than arbitrary JavaScript. A target
+CSP can block the injected script; Subshell doesn't relax that policy to make
+rewriting work. Opaque-origin storage and service-worker restrictions still apply.
 
 The cookie jar isn't a full browser cookie implementation: it keys by cookie
 name. Applications that require service workers, browser storage,

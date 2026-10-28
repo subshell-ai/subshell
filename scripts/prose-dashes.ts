@@ -96,6 +96,10 @@ export function proseFiles(cwd: string): string[] {
       "apps/website/app",
       "apps/website/components",
       "apps/website/lib",
+      // The display helper's consent copy lives in a package because the
+      // helper bundle is not under any apps/ directory. Its string literals
+      // are visitor-facing like the website's, so they carry the same rule.
+      "packages/helper-panel/src",
     ],
     { cwd },
   );

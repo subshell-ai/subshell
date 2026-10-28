@@ -1,9 +1,11 @@
-//! The two native menus install the same helper. Nothing calls this at startup.
-//! Consent and permission prompts belong to the helper's own native panel.
+//! The native menus and both assistants' Virtual Displays screens install the
+//! same helper. Nothing calls this at startup.
+//! Consent and permission prompts belong to the helper itself: its panel and its
+//! status-menu toggle are the only doors, and neither is a page in this app.
 use std::fs::{self, File, OpenOptions};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::io::AsRawFd;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const BUNDLE: &str = "Subshell Display Helper.app";
@@ -43,14 +45,29 @@ fn version(bundle: &Path) -> Result<String, String> {
     Ok(version.into())
 }
 
+/// The `-R` value for verifying the helper's designated requirement.
+///
+/// The leading `=` is not decoration: `codesign` reads an unprefixed `-R`
+/// argument as a FILE to load requirements from, so a bare spec fails with
+/// `"<the whole requirement>": No such file or directory` before the helper
+/// ever opens. `=` says "this literal string is the requirement". Debug
+/// builds drop the publisher anchor because dev bundles are ad-hoc signed.
+fn requirement_test_arg(development: bool) -> String {
+    if development {
+        format!("=identifier \"{ID}\"")
+    } else {
+        format!("=anchor apple generic and identifier \"{ID}\" and certificate leaf[subject.OU] = \"DVRYX6BV6J\"")
+    }
+}
+
 fn verify(bundle: &Path) -> Result<(), String> {
+    verify_with(bundle, &mut run)
+}
+
+fn verify_with(bundle: &Path, run: &mut impl FnMut(&[&str]) -> Result<String, String>) -> Result<(), String> {
     // The outer desktop bundle authenticates its resource too. Verify the
     // standalone copy before reusing it, including its publisher in releases.
-    let requirement = if cfg!(debug_assertions) {
-        format!("identifier \"{ID}\"")
-    } else {
-        format!("anchor apple generic and identifier \"{ID}\" and certificate leaf[subject.OU] = \"DVRYX6BV6J\"")
-    };
+    let requirement = requirement_test_arg(cfg!(debug_assertions));
     run(&[
         "/usr/bin/codesign",
         "--verify",
@@ -60,6 +77,20 @@ fn verify(bundle: &Path) -> Result<(), String> {
         path(bundle)?,
     ])
     .map(|_| ())
+}
+
+fn open_verified_settings(bundle: &Path) -> Result<(), String> {
+    open_verified_settings_with(bundle, &mut run)
+}
+
+fn open_verified_settings_with(
+    bundle: &Path,
+    run: &mut impl FnMut(&[&str]) -> Result<String, String>,
+) -> Result<(), String> {
+    // Replacement may be needed because this copy failed verification. A busy
+    // install lock must never turn that refusal into permission to execute it.
+    verify_with(bundle, run)?;
+    run(&["/usr/bin/open", path(bundle)?, "--args", "--settings"]).map(|_| ())
 }
 
 struct InstallLock(File);
@@ -77,7 +108,7 @@ impl InstallLock {
             .open(directory.join("install.lock"))
             .map_err(|e| e.to_string())?;
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err("A newer helper is bundled with this app. Choose Quit Helper in the display helper's menu, then open these settings again to update it.".into());
+            return Err("A newer helper is bundled with this app. Choose Quit helper in the display helper's menu, then open these settings again to update it.".into());
         }
         Ok(Self(file))
     }
@@ -90,11 +121,17 @@ impl Drop for InstallLock {
     }
 }
 
+/// The argv for reading a bundle's CDHash. The verbosity is load-bearing:
+/// `codesign` prints `CDHash=` only from `-dvvv` up, and `-dvv` prints just
+/// `Signature=` and friends, so the digest check below used to fail with
+/// "Couldn't verify the display helper's code identity" on every press that
+/// had an installed copy to compare against.
+fn code_hash_argv(bundle: &str) -> [String; 3] {
+    ["/usr/bin/codesign".into(), "-dvvv".into(), bundle.into()]
+}
+
 fn code_hash(bundle: &Path) -> Result<String, String> {
-    let result = crate::proc::run(
-        &["/usr/bin/codesign".into(), "-dvv".into(), path(bundle)?.into()],
-        Duration::from_secs(10),
-    );
+    let result = crate::proc::run(&code_hash_argv(path(bundle)?), Duration::from_secs(10));
     if !result.ok() {
         return Err(result.detail());
     }
@@ -119,7 +156,15 @@ fn replacement_needed(bundled: &Path, bundled_version: &str, installed: &Path) -
         }
         _ => {}
     }
-    verify(installed)?;
+    // A copy that fails its own signature check is a reason to replace it, not a
+    // reason to lock the door. The bundled copy was verified by the caller, and
+    // the staging below renames whatever is there to `previous.app` and keeps a
+    // rollback; refusing here would strand both assistants' only way into the
+    // helper settings behind a leftover from another identity, with no remedy
+    // named and no rebuild that could repair it.
+    if verify(installed).is_err() {
+        return Ok(true);
+    }
     let installed_version = version(installed)?;
     if !may_replace_version(bundled_version, &installed_version, cfg!(debug_assertions)) {
         return Ok(false);
@@ -133,7 +178,9 @@ fn may_replace_version(bundled: &str, installed: &str, development: bool) -> boo
     crate::version::version_lt(installed, bundled) || (development && bundled == installed)
 }
 
-/// Called only from a native menu selection. Opening settings does not enable
+/// Called from a native menu selection or from either assistant's Virtual
+/// Displays screen, which reach it through a command granted to the bundled page
+/// only. Opening settings does not enable
 /// capture, input, login registration, or a node's virtual display setting.
 pub fn open_settings(resource_dir: &Path, home: &Path) -> Result<(), String> {
     let bundled = if resource_dir.file_name().is_some_and(|name| name == "Resources") {
@@ -157,50 +204,324 @@ pub fn open_settings(resource_dir: &Path, home: &Path) -> Result<(), String> {
             Ok(lock) => lock,
             // An update must never block the route to Disable. Keep using the
             // verified running copy; the next menu open after Quit can update.
-            Err(_) if installed.exists() => {
-                return run(&["/usr/bin/open", path(&installed)?, "--args", "--settings"]).map(|_| ())
-            }
+            Err(_) if installed.exists() => return open_verified_settings(&installed),
             Err(error) => return Err(error),
         };
         // Another app may have installed a newer copy while this menu was opening.
         if !replacement_needed(&bundled, &bundled_version, &installed)? {
             drop(_lock);
-            return run(&["/usr/bin/open", path(&installed)?, "--args", "--settings"]).map(|_| ());
+            return open_verified_settings(&installed);
         }
         fs::create_dir_all(&applications).map_err(|e| e.to_string())?;
-        let staging = applications.join(format!(".subshell-display-helper-{}", std::process::id()));
-        // Never overwrite an unknown staging directory left by another run.
-        fs::create_dir(&staging).map_err(|e| e.to_string())?;
+        let staging = create_staging(&applications)?;
         let next = staging.join(BUNDLE);
         let previous = staging.join("previous.app");
-        let result = (|| {
-            run(&["/usr/bin/ditto", path(&bundled)?, path(&next)?])?;
-            verify(&next)?;
-            let had_previous = installed.exists();
-            if had_previous {
-                fs::rename(&installed, &previous).map_err(|e| e.to_string())?;
-            }
-            if let Err(error) = fs::rename(&next, &installed) {
+        let result = staged_swap(&SwapSteps {
+            copy: &|| run(&["/usr/bin/ditto", path(&bundled)?, path(&next)?]).map(|_| ()),
+            verify: &|| verify(&next),
+            move_aside: &|| {
+                let had_previous = installed.exists();
                 if had_previous {
-                    let _ = fs::rename(&previous, &installed);
+                    fs::rename(&installed, &previous).map_err(|e| e.to_string())?;
                 }
-                return Err(error.to_string());
-            }
-            Ok(())
-        })();
-        // Keep a previous copy if rollback itself failed, rather than deleting it.
-        if installed.exists() {
-            let _ = fs::remove_dir_all(&staging);
-        }
-        result?;
+                Ok(had_previous)
+            },
+            promote: &|| fs::rename(&next, &installed).map_err(|e| e.to_string()),
+            restore: &|| fs::rename(&previous, &installed).map_err(|e| e.to_string()),
+        });
+        // Only a confirmed successful swap makes old recovery copies expendable.
+        // Keep the install lock through the sweep so another attempt cannot race it.
+        finish_staging(&applications, result)?;
     }
-    run(&["/usr/bin/open", path(&installed)?, "--args", "--settings"]).map(|_| ())
+    open_verified_settings(&installed)
+}
+
+/// Successful installation supersedes abandoned recovery copies. Failed swaps keep
+/// all staging evidence, including when the previous install was restored.
+fn finish_staging(applications: &Path, result: Result<(), String>) -> Result<(), String> {
+    result?;
+    let Ok(entries) = fs::read_dir(applications) else {
+        return Ok(());
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(suffix) = name
+            .to_str()
+            .and_then(|name| name.strip_prefix(".subshell-display-helper-"))
+        else {
+            continue;
+        };
+        let parts = suffix.split('-').collect::<Vec<_>>();
+        // Recognize our old PID-only names and current PID-stamp-attempt names,
+        // rather than treating the whole prefix as permission to delete data.
+        if !matches!(parts.len(), 1 | 3)
+            || parts
+                .iter()
+                .any(|part| part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()))
+        {
+            continue;
+        }
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        let directory = entry.path();
+        let Ok(children) = fs::read_dir(&directory) else {
+            continue;
+        };
+        let children = children.collect::<Result<Vec<_>, _>>();
+        let Ok(children) = children else { continue };
+        if children.iter().any(|child| {
+            let name = child.file_name();
+            (name != BUNDLE && name != "previous.app") || !child.file_type().is_ok_and(|kind| kind.is_dir())
+        }) {
+            continue;
+        }
+        // remove_dir_all doesn't follow symbolic links inside a real directory.
+        let _ = fs::remove_dir_all(directory);
+    }
+    Ok(())
+}
+
+/// Reserve a new staging directory without touching a previous failed rollback.
+fn create_staging(applications: &Path) -> Result<PathBuf, String> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    for attempt in 0..1024 {
+        let staging = applications.join(format!(
+            ".subshell-display-helper-{}-{stamp}-{attempt}",
+            std::process::id()
+        ));
+        match fs::create_dir(&staging) {
+            Ok(()) => return Ok(staging),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "Couldn't prepare the display helper in {}: {error}",
+                    applications.display()
+                ))
+            }
+        }
+    }
+    Err(format!("Couldn't reserve display helper staging space in {}. Keep any previous.app recovery copies before clearing old .subshell-display-helper directories.", applications.display()))
+}
+
+/// The steps of the staged swap, injected so a test can fail each one and watch what
+/// happens to the copy the person is already using.
+struct SwapSteps<'a> {
+    copy: &'a dyn Fn() -> Result<(), String>,
+    verify: &'a dyn Fn() -> Result<(), String>,
+    move_aside: &'a dyn Fn() -> Result<bool, String>,
+    promote: &'a dyn Fn() -> Result<(), String>,
+    restore: &'a dyn Fn() -> Result<(), String>,
+}
+
+/// Copy the bundle in, verify it, then swap it over the installed copy, putting the old
+/// one back if the swap itself fails.
+///
+/// Two orders are the whole contract, and neither could be tested while they were inline
+/// in the one function that performs them. An unverified copy must never become
+/// `installed`: the staged one is a `ditto` of the bundle, and promoting a corrupt one
+/// replaces the only helper the person has. And a promote that fails must restore the
+/// previous copy exactly when there was one, which is the difference between a refused
+/// update and a vanished install.
+fn staged_swap(steps: &SwapSteps) -> Result<(), String> {
+    (steps.copy)()?;
+    (steps.verify)()?;
+    let had_previous = (steps.move_aside)()?;
+    if let Err(error) = (steps.promote)() {
+        if had_previous {
+            let _ = (steps.restore)();
+        }
+        return Err(error);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_old_staging_directory_does_not_block_another_attempt() {
+        let root = std::env::temp_dir().join(format!("subshell-helper-stage-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let old = root.join(format!(".subshell-display-helper-{}", std::process::id()));
+        fs::create_dir_all(&old).unwrap();
+        fs::write(old.join("previous.app"), b"recovery").unwrap();
+        let first = create_staging(&root).unwrap();
+        let second = create_staging(&root).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(fs::read(old.join("previous.app")).unwrap(), b"recovery");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn staging_is_pruned_only_after_success_without_touching_unrelated_paths() {
+        let root = std::env::temp_dir().join(format!("subshell-helper-prune-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let old = root.join(".subshell-display-helper-123");
+        let current = create_staging(&root).unwrap();
+        fs::create_dir_all(old.join("previous.app")).unwrap();
+        fs::write(old.join("previous.app/recovery"), b"recovery").unwrap();
+        let unrelated = root.join(".subshell-display-helper-not-ours");
+        fs::create_dir_all(&unrelated).unwrap();
+        let unknown = root.join(".subshell-display-helper-456");
+        fs::create_dir_all(&unknown).unwrap();
+        fs::write(unknown.join("personal"), b"keep").unwrap();
+        let target = root.join("personal-folder");
+        fs::create_dir_all(target.join("previous.app")).unwrap();
+        fs::write(target.join("previous.app/keep"), b"keep").unwrap();
+        let link = root.join(".subshell-display-helper-789");
+        symlink(&target, &link).unwrap();
+        let inner_link = root.join(".subshell-display-helper-987");
+        fs::create_dir_all(&inner_link).unwrap();
+        symlink(&target, inner_link.join("previous.app")).unwrap();
+        assert!(finish_staging(&root, Err("failed swap".into())).is_err());
+        assert!(current.exists());
+        assert_eq!(fs::read(old.join("previous.app/recovery")).unwrap(), b"recovery");
+        finish_staging(&root, Ok(())).unwrap();
+        assert!(!old.exists());
+        assert!(!current.exists());
+        assert!(unrelated.exists());
+        assert!(unknown.join("personal").exists());
+        assert!(fs::symlink_metadata(link).unwrap().file_type().is_symlink());
+        assert!(fs::symlink_metadata(inner_link.join("previous.app"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read(target.join("previous.app/keep")).unwrap(), b"keep");
+        fs::remove_dir_all(root).unwrap();
+    }
+
     use super::*;
+    use std::cell::RefCell;
     use std::os::unix::fs::symlink;
+
+    #[test]
+    fn a_copy_that_does_not_verify_is_never_promoted() {
+        // Delete the `verify` step from the transaction and every other test here stays
+        // green, because the promote still happens: this is the only thing that says a
+        // bundle the person cannot run never becomes their installed helper.
+        let log = RefCell::new(Vec::new());
+        let steps = SwapSteps {
+            copy: &|| {
+                log.borrow_mut().push("copy");
+                Ok(())
+            },
+            verify: &|| {
+                log.borrow_mut().push("verify");
+                Err("bad signature".to_string())
+            },
+            move_aside: &|| {
+                log.borrow_mut().push("aside");
+                Ok(true)
+            },
+            promote: &|| {
+                log.borrow_mut().push("promote");
+                Ok(())
+            },
+            restore: &|| {
+                log.borrow_mut().push("restore");
+                Ok(())
+            },
+        };
+        assert_eq!(staged_swap(&steps).unwrap_err(), "bad signature");
+        assert_eq!(*log.borrow(), vec!["copy", "verify"]);
+    }
+
+    #[test]
+    fn a_failed_promote_puts_the_previous_copy_back() {
+        // Without the restore the person is left with no helper at all and a menu that
+        // now opens nothing, which is why the rollback is asserted rather than trusted.
+        let log = RefCell::new(Vec::new());
+        let steps = SwapSteps {
+            copy: &|| Ok(()),
+            verify: &|| Ok(()),
+            move_aside: &|| {
+                log.borrow_mut().push("aside");
+                Ok(true)
+            },
+            promote: &|| {
+                log.borrow_mut().push("promote");
+                Err("busy".to_string())
+            },
+            restore: &|| {
+                log.borrow_mut().push("restore");
+                Ok(())
+            },
+        };
+        assert_eq!(staged_swap(&steps).unwrap_err(), "busy");
+        assert_eq!(*log.borrow(), vec!["aside", "promote", "restore"]);
+    }
+
+    #[test]
+    fn a_first_install_that_fails_to_promote_has_nothing_to_put_back() {
+        // There was no previous copy, so a restore would rename a path that does not
+        // exist, and the error the user is shown must stay the promote's own.
+        let log = RefCell::new(Vec::new());
+        let steps = SwapSteps {
+            copy: &|| Ok(()),
+            verify: &|| Ok(()),
+            move_aside: &|| Ok(false),
+            promote: &|| {
+                log.borrow_mut().push("promote");
+                Err("busy".to_string())
+            },
+            restore: &|| {
+                log.borrow_mut().push("restore");
+                Ok(())
+            },
+        };
+        assert_eq!(staged_swap(&steps).unwrap_err(), "busy");
+        assert!(!log.borrow().contains(&"restore"));
+    }
+
+    #[test]
+    fn opening_an_installed_helper_requires_a_valid_signature_even_when_reusing_it() {
+        let bundle = Path::new("/Applications/Subshell Display Helper.app");
+        for valid in [false, true] {
+            let mut commands = Vec::new();
+            let result = open_verified_settings_with(bundle, &mut |args| {
+                commands.push(args[0].to_string());
+                if args[0] == "/usr/bin/codesign" && !valid {
+                    Err("invalid signature".into())
+                } else {
+                    Ok(String::new())
+                }
+            });
+            if valid {
+                assert!(result.is_ok());
+                assert_eq!(commands, ["/usr/bin/codesign", "/usr/bin/open"]);
+            } else {
+                assert_eq!(result, Err("invalid signature".into()));
+                assert_eq!(commands, ["/usr/bin/codesign"]);
+            }
+        }
+    }
+
+    #[test]
+    fn the_codesign_requirement_is_a_literal_not_a_filename() {
+        // The original shipped without the `=` prefix and codesign read the
+        // whole requirement as a file path, so no bundle ever verified and
+        // "Open Display Helper settings" failed on every press.
+        for development in [true, false] {
+            let arg = requirement_test_arg(development);
+            assert!(arg.starts_with("=identifier") || arg.starts_with("=anchor apple generic"));
+            assert!(arg.contains(&format!("identifier \"{ID}\"")));
+            assert_eq!(arg.contains("DVRYX6BV6J"), !development);
+        }
+    }
+
+    #[test]
+    fn the_digest_read_uses_the_verbosity_that_prints_cdhash() {
+        // `-dvv` exits 0 but shows no `CDHash=` line, which read as a broken
+        // code identity and blocked every settings press that had an
+        // installed copy to compare. Only `-dvvv` and up emit it.
+        let argv = code_hash_argv("/Applications/Subshell Display Helper.app");
+        assert_eq!(argv[1], "-dvvv");
+        assert_eq!(argv[2], "/Applications/Subshell Display Helper.app");
+    }
 
     #[test]
     fn release_updates_require_a_newer_shared_helper_version() {
@@ -220,6 +541,31 @@ mod tests {
         drop(first);
         let next = InstallLock::acquire(&directory).unwrap();
         drop(next);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn an_unverifiable_install_is_replaced_rather_than_locked_behind() {
+        // The failure this guards: a stale or foreign copy under ~/Applications
+        // that no longer satisfies its signature made every later press of
+        // "Open Display Helper settings" fail with codesign's own words, even
+        // though the app carries a verified bundle that would replace it.
+        let directory = std::env::temp_dir().join(format!("subshell-helper-broken-{}", std::process::id()));
+        fs::create_dir_all(directory.join(BUNDLE).join("Contents")).unwrap();
+        fs::write(
+            directory.join(BUNDLE).join("Contents/Info.plist"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>dev.subshell.display-helper</string><key>CFBundleVersion</key><string>9.9.9</string></dict></plist>\n",
+        )
+        .unwrap();
+        let installed = directory.join(BUNDLE);
+        assert!(
+            replacement_needed(Path::new("/unused"), "1.0.0", &installed).unwrap(),
+            "a copy that fails verification must be replaced, not reported as an error"
+        );
+        assert!(
+            fs::symlink_metadata(&installed).is_ok(),
+            "the decision alone touches nothing"
+        );
         fs::remove_dir_all(directory).unwrap();
     }
 

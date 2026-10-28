@@ -176,7 +176,9 @@ describe("AddNodeDialog", () => {
       expect(screen.getAllByText(/nsk_secret/)).toHaveLength(1);
       fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
       expect(
-        screen.getByText('curl -fsSL "https://plane.example/install.sh?setup_key=nsk_secret" | bash'),
+        screen.getByText(
+          "printf '%s\\n' 'url = \"https://plane.example/install.sh?setup_key=nsk_secret\"' | curl -fsSL --config - | bash",
+        ),
       ).toBeDefined();
       expect(
         (screen.getByRole("button", { name: "Copy install command" }) as HTMLButtonElement).matches(
@@ -203,7 +205,9 @@ describe("AddNodeDialog", () => {
       await renderDialog();
       fireEvent.click(screen.getByRole("button", { name: "Generate setup key" }));
       expect(
-        await screen.findByText('curl -fsSL "http://localhost/install.sh?setup_key=nsk_secret" | bash'),
+        await screen.findByText(
+          "printf '%s\\n' 'url = \"http://localhost/install.sh?setup_key=nsk_secret\"' | curl -fsSL --config - | bash",
+        ),
       ).toBeDefined();
       expect(screen.getAllByText(/nsk_secret/)).toHaveLength(1);
       expect(screen.queryByText(/only time the full key is shown/i)).toBeNull();
@@ -223,7 +227,9 @@ describe("AddNodeDialog", () => {
       await renderDialog();
       fireEvent.click(screen.getByRole("button", { name: "Generate setup key" }));
       expect(
-        await screen.findByText('curl -fsSL "http://100.71.37.94:3080/install.sh?setup_key=nsk_secret" | bash'),
+        await screen.findByText(
+          "printf '%s\\n' 'url = \"http://100.71.37.94:3080/install.sh?setup_key=nsk_secret\"' | curl -fsSL --config - | bash",
+        ),
       ).toBeDefined();
       expect(screen.queryByText(/points at loopback/i)).toBeNull();
     } finally {
@@ -250,7 +256,7 @@ describe("AddNodeDialog", () => {
       fireEvent.click(screen.getByRole("button", { name: "Generate setup key" }));
       expect(
         await screen.findByText(
-          'curl -fsSL "http://192.0.2.10:3080/install.sh?setup_key=nsk_secret&server=http://192.0.2.10:3080" | bash',
+          "printf '%s\\n' 'url = \"http://192.0.2.10:3080/install.sh?setup_key=nsk_secret&server=http://192.0.2.10:3080\"' | curl -fsSL --config - | bash",
         ),
       ).toBeDefined();
       expect(screen.queryByText(/points at loopback/i)).toBeNull();
@@ -270,7 +276,9 @@ describe("AddNodeDialog", () => {
       await renderDialog();
       fireEvent.click(screen.getByRole("button", { name: "Generate setup key" }));
       expect(
-        await screen.findByText('curl -fsSL "http://subshell.lan:3080/install.sh?setup_key=nsk_secret" | bash'),
+        await screen.findByText(
+          "printf '%s\\n' 'url = \"http://subshell.lan:3080/install.sh?setup_key=nsk_secret\"' | curl -fsSL --config - | bash",
+        ),
       ).toBeDefined();
     } finally {
       restore();
@@ -291,7 +299,9 @@ describe("AddNodeDialog", () => {
       await renderDialog();
       fireEvent.click(screen.getByRole("button", { name: "Generate setup key" }));
       expect(
-        await screen.findByText('curl -fsSL "http://localhost:3080/install.sh?setup_key=nsk_secret" | bash'),
+        await screen.findByText(
+          "printf '%s\\n' 'url = \"http://localhost:3080/install.sh?setup_key=nsk_secret\"' | curl -fsSL --config - | bash",
+        ),
       ).toBeDefined();
       expect(screen.queryByText(/points at loopback/i)).toBeNull();
     } finally {
@@ -329,9 +339,13 @@ describe("AddNodeDialog", () => {
       ]);
       // The default (base URL) is on the commands, and needs no `server=`.
       expect(
-        screen.getByText('curl -fsSL "https://subshell.example/install.sh?setup_key=nsk_secret" | bash'),
+        screen.getByText(
+          "printf '%s\\n' 'url = \"https://subshell.example/install.sh?setup_key=nsk_secret\"' | curl -fsSL --config - | bash",
+        ),
       ).toBeDefined();
-      expect(screen.getByText('subshell setup --server "https://subshell.example" --key "nsk_secret"')).toBeDefined();
+      expect(
+        screen.getByText("SUBSHELL_SETUP_KEY='nsk_secret' subshell setup --server 'https://subshell.example'"),
+      ).toBeDefined();
     } finally {
       restore();
     }
@@ -340,16 +354,16 @@ describe("AddNodeDialog", () => {
   describe("installCommandFor", () => {
     it("carries the chosen address only when it deviates from the base URL", () => {
       expect(installCommandFor("http://100.64.1.2:3080", "nsk_k", "http://localhost:3080")).toBe(
-        'curl -fsSL "http://100.64.1.2:3080/install.sh?setup_key=nsk_k&server=http://100.64.1.2:3080" | bash',
+        "printf '%s\\n' 'url = \"http://100.64.1.2:3080/install.sh?setup_key=nsk_k&server=http://100.64.1.2:3080\"' | curl -fsSL --config - | bash",
       );
       // The stock case stays byte-identical to the command this predates.
       expect(installCommandFor("http://subshell.lan:3080", "nsk_k", "http://subshell.lan:3080")).toBe(
-        'curl -fsSL "http://subshell.lan:3080/install.sh?setup_key=nsk_k" | bash',
+        "printf '%s\\n' 'url = \"http://subshell.lan:3080/install.sh?setup_key=nsk_k\"' | curl -fsSL --config - | bash",
       );
       // A path or trailing slash on the config value names the SAME origin,
       // so nothing is carried for a spelling difference.
       expect(installCommandFor("http://subshell.lan:3080", "nsk_k", "http://subshell.lan:3080/")).toBe(
-        'curl -fsSL "http://subshell.lan:3080/install.sh?setup_key=nsk_k" | bash',
+        "printf '%s\\n' 'url = \"http://subshell.lan:3080/install.sh?setup_key=nsk_k\"' | curl -fsSL --config - | bash",
       );
     });
 
@@ -361,13 +375,13 @@ describe("AddNodeDialog", () => {
       // and with `-g` on the wire the param needs no percent-encoding (the
       // route test pins the raw bracketed spelling end to end).
       expect(installCommandFor("http://[fe80::1]:3080", "nsk_k", "http://localhost:3080")).toBe(
-        'curl -fsSLg "http://[fe80::1]:3080/install.sh?setup_key=nsk_k&server=http://[fe80::1]:3080" | bash',
+        "printf '%s\\n' 'url = \"http://[fe80::1]:3080/install.sh?setup_key=nsk_k&server=http://[fe80::1]:3080\"' | curl -fsSLg --config - | bash",
       );
       // Underscore hosts (`http://dev_server:3080`, another LAN regular)
       // are not glob characters and must NOT gain the flag — every stock
       // command stays exactly the string from before this feature.
       expect(installCommandFor("http://dev_server:3080", "nsk_k", "http://localhost:3080")).toBe(
-        'curl -fsSL "http://dev_server:3080/install.sh?setup_key=nsk_k&server=http://dev_server:3080" | bash',
+        "printf '%s\\n' 'url = \"http://dev_server:3080/install.sh?setup_key=nsk_k&server=http://dev_server:3080\"' | curl -fsSL --config - | bash",
       );
     });
 
@@ -375,10 +389,10 @@ describe("AddNodeDialog", () => {
       // Unloaded settings, and a server old enough to lack the field (which
       // would ignore the param anyway).
       expect(installCommandFor("http://192.168.1.14:3080", "nsk_k", undefined)).toBe(
-        'curl -fsSL "http://192.168.1.14:3080/install.sh?setup_key=nsk_k" | bash',
+        "printf '%s\\n' 'url = \"http://192.168.1.14:3080/install.sh?setup_key=nsk_k\"' | curl -fsSL --config - | bash",
       );
       expect(installCommandFor("http://192.168.1.14:3080", "nsk_k", "not a url")).toBe(
-        'curl -fsSL "http://192.168.1.14:3080/install.sh?setup_key=nsk_k" | bash',
+        "printf '%s\\n' 'url = \"http://192.168.1.14:3080/install.sh?setup_key=nsk_k\"' | curl -fsSL --config - | bash",
       );
     });
   });
@@ -412,7 +426,9 @@ describe("AddNodeDialog", () => {
       await renderDialog();
       fireEvent.click(screen.getByRole("button", { name: "Generate setup key" }));
       expect(await screen.findByText(/has no node binary for:/i)).toBeDefined();
-      expect(screen.getByText('subshell setup --server "https://subshell.example" --key "nsk_secret"')).toBeDefined();
+      expect(
+        screen.getByText("SUBSHELL_SETUP_KEY='nsk_secret' subshell setup --server 'https://subshell.example'"),
+      ).toBeDefined();
       // The one-liner stays visible — it still works once artifacts exist.
       expect(screen.getByText(/install\.sh\?setup_key=nsk_secret/)).toBeDefined();
       // And no first-run sentence anywhere — it was removed outright on
@@ -641,7 +657,9 @@ describe("AddNodeDialog", () => {
         expect(screen.getByRole("button", { name: "Desktop App" })).toBeDefined();
         expect(terminal.getAttribute("aria-pressed")).toBe("true");
         expect(
-          screen.getByText('curl -fsSL "https://plane.example/install.sh?setup_key=nsk_secret" | bash'),
+          screen.getByText(
+            "printf '%s\\n' 'url = \"https://plane.example/install.sh?setup_key=nsk_secret\"' | curl -fsSL --config - | bash",
+          ),
         ).toBeDefined();
 
         fireEvent.click(screen.getByRole("button", { name: "Desktop App" }));
@@ -666,7 +684,9 @@ describe("AddNodeDialog", () => {
         // And back: the switch hides a panel, it does not destroy the command.
         fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
         expect(
-          screen.getByText('curl -fsSL "https://plane.example/install.sh?setup_key=nsk_secret" | bash'),
+          screen.getByText(
+            "printf '%s\\n' 'url = \"https://plane.example/install.sh?setup_key=nsk_secret\"' | curl -fsSL --config - | bash",
+          ),
         ).toBeDefined();
         expect(screen.queryByRole("button", { name: "Copy setup key" })).toBeNull();
       } finally {
@@ -770,7 +790,7 @@ describe("AddNodeDialog", () => {
       // No --name: `setup` asks. `enroll` would demand one, which is a fact the
       // browser cannot know and the person at the machine can.
       expect(setupCommandFor("http://100.64.1.2:3080", "nsk_k")).toBe(
-        'subshell setup --server "http://100.64.1.2:3080" --key "nsk_k"',
+        "SUBSHELL_SETUP_KEY='nsk_k' subshell setup --server 'http://100.64.1.2:3080'",
       );
     });
   });

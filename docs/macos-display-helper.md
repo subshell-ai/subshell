@@ -8,21 +8,44 @@ settings using LaunchServices. This identity is distinct from the experimental
 
 ## Consent and lifecycle
 
-Installation and first-run setup never call the helper. The native menu opens
-settings without opting in. Only the AppKit Enable button writes the shared
-UserDefaults consent flag and registers `SMAppService.mainApp`. OS privacy
-prompts have their own buttons, available only after consent. A remote web
-page has no Tauri command for any of these operations.
+Installation and first-run setup never call the helper. The status menu opens
+the panel without opting in. The panel is a `WKWebView` over a bundled page: it
+draws the controls and posts actions. Swift accepts messages only from the
+bundled main frame and checks consent before requesting OS privacy prompts.
+Only an enable act turns consent
+on, whether it arrives from the panel's **Enable helper** button or from the
+status menu's toggle; the matching disable act is the only thing that turns it
+off, and a sign-in start that cannot bring the runtime up stops it without
+touching the flag. Starting at sign-in is its own act with its own
+button (**Start at sign-in** / **Stop at sign-in**), in the panel: the menu
+carries consent and the exits, and leaves the login list to the row that can
+read macOS's answer back. Enabling never registers it, because agreeing to be
+captured and agreeing to launch at sign-in are two choices. OS privacy prompts have
+their own buttons, available only after consent. A remote web page has no
+Tauri command for any of these operations.
 
-After consent, login may resume the helper. Disable clears consent first,
-closes every capture and input connection, releases held keys/buttons, and
-unregisters startup. Quit also disables; normal logout preserves consent.
-Disabling does not revoke TCC grants, close terminals, or guarantee removal
-of virtual screens while BetterDisplay is unreachable. A disabled running
-helper answers read-only status requests, but refuses all other RPCs. No RPC
-can enable it, register login startup, or request a privacy prompt.
+After consent, login may resume the helper. Disable clears consent first and
+closes every capture and input connection, releasing held keys/buttons; it
+leaves the login item alone, so a helper that returns at the next sign-in is
+found disabled and exits at once. **Quit helper** asks first, in the panel and
+in the status menu alike, then ends the process: captures close, consent and
+the TCC grants stay, and a registered login item brings it back at the next
+sign-in. Removing its sign-in start (the panel's **Stop at sign-in**) is what
+keeps it from coming back at all; disabling only makes the next start idle.
+Normal logout preserves consent. Disabling does not revoke TCC grants, close
+terminals, or guarantee removal of virtual screens while BetterDisplay is
+unreachable. A disabled running helper answers the read-only `status` request
+and accepts `rescue-cursor` (which acts only when the cursor sits inside no
+screen's frame, so a pointer the person can already see is left exactly where
+they put it), but refuses every other RPC. No RPC can enable it, register
+login startup, or request a privacy prompt. Because a virtual screen can
+outlive the helper, the stranded-pointer rescue also runs on any start: a
+cursor left on a display that went away while nothing was listening is put back
+on the main screen the next time the helper launches, from sign-in or from a
+desktop app alike. It moves the cursor only when it sits inside no screen's
+frame, so an ordinary launch changes nothing.
 
-User procedures belong in [node management](../apps/docs/content/docs/nodes/manage.mdx#macos-display-helper).
+User procedures belong in [macOS virtual displays](../apps/docs/content/docs/previews/macos.mdx).
 
 The [BetterDisplay protocol reference](betterdisplay-protocol.md) specifies the
 CLI commands, helper messages, RFB subset, resource limits, and versioning.
@@ -112,16 +135,29 @@ downgrade the installed helper.
 The installer verifies signatures and compares versions and code hashes.
 It uses a shared install lock and atomic directory renames with rollback.
 The helper holds that lock for its entire lifetime, even while disabled, so
-an update cannot replace a running permission owner. If an update is needed while the helper runs, the menu still opens the existing
-settings so Disable stays reachable. The user quits the helper and reopens
+an update cannot replace a running permission owner. If an update is needed
+while the helper runs, the desktop app verifies the installed copy again before
+opening its settings so Disable stays reachable. A failed verification refuses
+the launch even when the install lock is busy; the fallback must never execute
+the invalid copy that prompted replacement. The user quits the helper and reopens
 settings to install the new version. No installer changes consent
 or OS privacy settings. Release smoke checks inspect the nested bundle's
 identity and hardened runtime without launching it.
 
+Staging preserves the helper executable's source permissions even when its
+bytes haven't changed. A warm cache requires an executable file, not just a
+file at the expected path, so an earlier non-executable stage is repaired.
+The bundled page's HTML fold escapes script and style closing tags without
+regard to case and inserts JavaScript and CSS literally, including replacement
+tokens such as `$&`. Keep the HTML-parser regression test: a string match alone
+doesn't establish that the browser sees only one script element.
+
 `native/display-helper/test.sh` compiles tests into a temporary directory and
 uses a disposable preference suite and Unix socket. It never opens an app,
-requests permissions, registers login startup, captures a display, or injects
-input. `scripts/rust-check.sh` runs it on macOS; the CI router includes native
+requests permissions, registers login startup, captures a display, or posts input
+events. It does reach the cursor rescue, so a run on a Mac whose pointer is
+currently stranded inside no screen's frame would warp it home; that is the one
+side effect the suite has, and it is the behaviour under test. `scripts/rust-check.sh` runs it on macOS; the CI router includes native
 source changes and checks both desktop integrations on macOS. TypeScript
 provider tests cover policy, ownership, uncertain allocation, recovery, and
 helper-loss teardown; socket tests exercise RFB negotiation and bounded input.
@@ -149,9 +185,13 @@ The review fixed three revocation gaps:
 Validation passed: 564 pane-runtime tests, 57 preview-route authorization tests,
 TypeScript checks, and lint (with existing warnings). On the M5, native tests
 covered consent, rejected RPCs while disabled, and revocation during capture
-startup; all Swift sources compiled with warnings treated as errors for arm64
-and x86_64. These tests used temporary files and preferences and requested no
-privacy permissions. The temporary terminal and build directory were removed.
+startup; every Swift source the native test script compiles (all of them except
+`main.swift`, which it excludes) built with warnings treated as errors, for the
+architecture that run was on. Both limits are worth stating: the script targets
+the host's own architecture rather than arm64 and x86_64 in one pass, and the
+release build in `build_support.rs` passes no `-warnings-as-errors` at all, so
+neither is a both-arch warnings gate. These tests used temporary files and
+preferences and requested no privacy permissions. The temporary terminal and build directory were removed.
 
 A signed release's install/update, TCC persistence, and real ScreenCaptureKit
 revocation still need end-to-end validation on macOS. This review did not
@@ -221,9 +261,9 @@ control requests responsive without weakening revocation.
 
 `native/display-helper/Info.plist` owns the helper's independent version for
 both desktop apps. After its first release, bump both version fields whenever
-shipping helper changes. Release installers only replace an older helper
-version; equal-version bundles retain the installed copy even if their hashes
-differ. Development builds may refresh equal-version content by hash. Never
+shipping helper changes. Release installers replace an older valid helper version or repair a copy
+that fails signature verification. Valid equal-version bundles retain the
+installed copy even if their hashes differ. Development builds may refresh equal-version content by hash. Never
 use either desktop app's independently advancing version for this shared app.
 
 The RFB clipboard limit stays at 64 KiB: the screen viewer doesn't call

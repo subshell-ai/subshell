@@ -2,6 +2,38 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import { ApiError, errMessage } from "@internal/node-admin";
 
 /**
+ * The words a create-path refusal carries when the VIRTUAL DISPLAY is what
+ * failed, either as the thrown detail or inside the plane's remedy sentence (the
+ * screen-launch mirror in `apps/server/api/src/modules/previews/refusals.ts`
+ * names every node word, and the service's switch preflight names the same
+ * `preview-node-off` voice the node's own launch gate uses). A refusal carrying
+ * one of these is shown beside the Virtual display control it belongs to, not at
+ * the bottom of the form: the design rule is that a warning sits at the decision
+ * point, and these refusals are that checkbox's result. `preview-node-off` is
+ * display-owned HERE because nothing else on the create path can answer with it:
+ * browser previews are refused by the view routes, not by `POST /api/subshells`.
+ *
+ * Matched as the mirror's own tail group rather than a bare substring:
+ * `screenLaunchRemedy` and the preflight both finish the sentence with the word
+ * in parentheses (`… (preview-display-not-ready: …)`), and that position is what
+ * tells this refusal apart from a person whose PRESET is named
+ * `preview-display-test`. The create path interpolates that name into
+ * `Preset "…" is disabled`, so a free substring would blame the **Virtual
+ * display** checkbox for a preset-state 409.
+ */
+const DISPLAY_REFUSAL_TAIL = /\((?:preview-display-[a-z0-9-]+|preview-node-off)(?::.*?)?\)\s*$/;
+
+/**
+ * Is this create-failure text a virtual-display refusal? True only for the
+ * mirrored words in the tail group the server actually prints, so the dialog
+ * can route it to the field's own error slot instead of the form-level line
+ * without letting a preset name steer the routing.
+ */
+export function isDisplayLaunchRefusal(message: string): boolean {
+  return DISPLAY_REFUSAL_TAIL.test(message);
+}
+
+/**
  * Display text for a failed `POST /api/subshells` — the one copy both launch
  * surfaces (`/new` and the workspace dialog) show under the form.
  *

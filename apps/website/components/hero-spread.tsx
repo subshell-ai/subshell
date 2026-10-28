@@ -9,7 +9,7 @@ import type { ReleasesManifest } from "../lib/releases";
  */
 export function HeroSpread({ manifest }: { manifest: ReleasesManifest }) {
   return (
-    <div className="mx-auto grid w-full max-w-[1220px] items-center gap-12 py-[26px] max-[980px]:py-[20px] [grid-template-columns:minmax(0,1fr)_min(300px,54vw)_minmax(0,1fr)] max-[980px]:block max-[980px]:space-y-[26px]">
+    <div className="mx-auto grid w-full max-w-[1220px] items-center gap-12 py-[26px] max-[980px]:py-[20px] [grid-template-columns:minmax(0,1fr)_260px_minmax(0,1fr)] max-[980px]:block max-[980px]:space-y-[26px]">
       <div className="min-w-0 max-[980px]:mb-6">
         <h1 className="m-0 text-[clamp(28px,2.9vw,42px)] font-bold leading-[1.12] tracking-[-.035em]">
           Manage multiple agents <span className="text-[var(--orchid)]">away from your desk</span>
@@ -19,7 +19,7 @@ export function HeroSpread({ manifest }: { manifest: ReleasesManifest }) {
           with Subshell.
         </p>
       </div>
-      <div className="max-[980px]:mx-auto max-[980px]:w-[min(260px,72vw)]">
+      <div className="mx-auto w-[min(260px,72vw)]">
         <PhoneCard />
       </div>
       <div className="max-[980px]:mt-6">

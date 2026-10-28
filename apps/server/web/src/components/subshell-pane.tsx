@@ -1,16 +1,19 @@
 import { Button } from "@internal/node-admin";
 import type { ViewersState } from "@internal/subshell-protocol";
 import { RotateCcw, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LogTail } from "@/components/log-tail";
 import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
 import { SubshellTerminal, type SubshellTerminalHandles } from "@/components/subshell-terminal";
 import { TerminalKeyBar } from "@/components/terminal-key-bar";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
+import { useNodes } from "@/hooks/use-nodes";
 import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
 import { usePublishPaneDevices } from "@/hooks/use-pane-devices";
+import { usePaneDiagnostics } from "@/hooks/use-pane-diagnostics";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
+import { FALLBACK_NODE_ID, nodeLabelFor } from "@/lib/subshell-node-groups";
 import type { WorkspacePaneRow } from "@/types/workspace";
 
 /** Props for {@link SubshellPane}. */
@@ -90,6 +93,16 @@ export function SubshellPane({
   // Read access from the cached live row for the touch-bar input controls.
   // Selecting this row avoids repainting when another subshell changes.
   const subshellRow = useSubshellRow(pane.subshellId);
+  // The Wave C HUD on a docked terminal: the toggle lives in the workspace
+  // header's actions menu (same per-device preference, `usePaneDiagnostics`
+  // keeps this read in step with it), and the terminal contributes what only
+  // it can see. The node label follows the standalone page's ladder.
+  const [diagOn] = usePaneDiagnostics(pane.subshellId);
+  const { data: nodesData } = useNodes();
+  const nodeLabel = useMemo(() => {
+    if (!subshellRow) return null;
+    return nodeLabelFor(subshellRow.nodeId || FALLBACK_NODE_ID, nodesData?.nodes, nodesData === undefined).label;
+  }, [subshellRow, nodesData]);
   const handleSizing = useCallback((mode: "auto" | "pinned", viewerId?: string | null) => {
     handlesRef.current?.setSizing(mode, viewerId);
   }, []);
@@ -171,6 +184,7 @@ export function SubshellPane({
   const terminal = (
     <SubshellTerminal
       subshellId={pane.subshellId}
+      subshell={subshellRow}
       active={active}
       showUploads
       showStatePanels={false}
@@ -178,6 +192,7 @@ export function SubshellPane({
       onDispose={handleDispose}
       onStatusChange={(status) => setConnected(status.connected)}
       onViewers={setViewers}
+      diagnosticsOverlay={diagOn ? { nodeLabel } : null}
       copyMode={copyOn}
     />
   );

@@ -26,6 +26,7 @@ import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import type { UserMetaTable } from "@/db/types/user-meta.db-types.js";
 import type { WorkspacePaneTable } from "@/db/types/workspace-panes.db-types.js";
 import type { WorkspaceTable } from "@/db/types/workspaces.db-types.js";
+import type { PreviewProxySettingsTable } from "./preview-proxy-settings.db-types.js";
 
 /**
  * Typed database schema for Kysely. Each table mirrors a migration.
@@ -33,6 +34,7 @@ import type { WorkspaceTable } from "@/db/types/workspaces.db-types.js";
  * them separately.)
  */
 export interface Database {
+  previewProxySettings: PreviewProxySettingsTable;
   subshellServices: import("./subshell-services.db-types.js").SubshellServiceTable;
   presetShares: PresetShareTable;
   sshPresetShares: PresetShareTable;

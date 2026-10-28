@@ -2,6 +2,7 @@ import { Button, errMessage } from "@internal/node-admin";
 import { type JSX, useEffect, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
 import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
+import { LaunchRefusal } from "@/components/launch-error-line";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
 import {
   canSubmit,
@@ -24,6 +25,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
+import { displayFieldOwnsRefusal, splitLaunchError } from "@/lib/display-refusal-routing";
 import type { SplitDirection } from "@/types/workspace";
 
 /** Which half of the dialog is showing. */
@@ -87,6 +89,8 @@ export function AddSubshellDialog({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A refusal naming the virtual display is the checkbox's own result, so it
+  // renders inside the field; everything else keeps the form-level line.
 
   const excluded = new Set(excludeSubshellIds);
   const available = (subshells ?? []).filter((s) => s.crossAgent !== true && !excluded.has(s.id));
@@ -166,6 +170,18 @@ export function AddSubshellDialog({
     }
   }
 
+  // Where a refusal renders: the Virtual display checkbox owns it while that control
+  // is on screen and switched on, and the form line takes it back when either is
+  // not, so a display refusal is never both invisible and orphaned.
+  // ONE variable decides "the agent branch is on screen", and both the split
+  // below and the JSX that mounts `NewSubshellForm` read it. Written twice, the
+  // two can drift, and the drift is silent: a refusal handed to a field that is
+  // not mounted, with the form line empty as well, tells nobody anything.
+  const agentBranch = visibleMode !== "existing" && !(kind === "ssh" && open);
+  const { field: displayLaunchError, form: formLaunchError } = splitLaunchError(
+    error,
+    displayFieldOwnsRefusal({ mounted: agentBranch, virtualDisplay: form.virtualDisplay }),
+  );
   return (
     <Dialog
       open={open}
@@ -207,47 +223,47 @@ export function AddSubshellDialog({
           </div>
         )}
 
-        {visibleMode === "existing" ? (
-          <ExistingSubshellList
-            subshells={available}
-            query={query}
-            onQueryChange={setQuery}
-            loadFailed={subshellsFailed}
-            loading={subshellsLoading}
-            onPick={(id) => void handlePick(id)}
-            busyId={busyId}
-          />
-        ) : (
-          <div className="flex flex-col gap-4">
-            <SubshellKindPicker value={kind} onChange={setKind} disabled={creating} />
-            {kind === "ssh" && open ? (
-              <ConnectPanel
-                draft={sshDraft}
-                onDraftChange={setSshDraft}
-                onPendingChange={setCreating}
-                initial={{ node: form.nodeId || undefined }}
-                onLeave={dismiss}
-                onCreated={async (id) => {
-                  try {
-                    await onAdd(id, "within");
-                    onOpenChange(false);
-                    reset();
-                  } catch (err) {
-                    setError(
-                      `SSH subshell was created but could not be added (${errMessage(err, "unknown error")}). Add it from the list instead.`,
-                    );
-                    setForm({ ...form, nodeId: "" });
-                    setMode("existing");
-                  }
-                }}
-              />
-            ) : (
-              <NewSubshellForm value={form} onChange={setForm} onLeave={dismiss} />
-            )}
-          </div>
-        )}
-
-        {error && <p className="text-destructive text-detail">{error}</p>}
+        <LaunchRefusal error={formLaunchError}>
+          {visibleMode === "existing" ? (
+            <ExistingSubshellList
+              subshells={available}
+              query={query}
+              onQueryChange={setQuery}
+              loadFailed={subshellsFailed}
+              loading={subshellsLoading}
+              onPick={(id) => void handlePick(id)}
+              busyId={busyId}
+            />
+          ) : (
+            <div className="flex flex-col gap-4">
+              <SubshellKindPicker value={kind} onChange={setKind} disabled={creating} />
+              {!agentBranch ? (
+                <ConnectPanel
+                  draft={sshDraft}
+                  onDraftChange={setSshDraft}
+                  onPendingChange={setCreating}
+                  initial={{ node: form.nodeId || undefined }}
+                  onLeave={dismiss}
+                  onCreated={async (id) => {
+                    try {
+                      await onAdd(id, "within");
+                      onOpenChange(false);
+                      reset();
+                    } catch (err) {
+                      setError(
+                        `SSH subshell was created but could not be added (${errMessage(err, "unknown error")}). Add it from the list instead.`,
+                      );
+                      setForm({ ...form, nodeId: "" });
+                      setMode("existing");
+                    }
+                  }}
+                />
+              ) : (
+                <NewSubshellForm value={form} onChange={setForm} onLeave={dismiss} launchError={displayLaunchError} />
+              )}
+            </div>
+          )}
+        </LaunchRefusal>
 
         {visibleMode === "new" && kind === "agent" && (
           <DialogFooter sticky>
