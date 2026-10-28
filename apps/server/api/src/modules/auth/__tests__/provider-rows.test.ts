@@ -33,14 +33,24 @@ const row = (over: Partial<StoredProviderRow>): StoredProviderRow => ({
 });
 
 describe("toGenericOAuthConfig", () => {
-  test("explicit endpoints + accountIssuer are carried; discovery is never re-fetched", () => {
+  test("issuer-scoped subjects preserve numeric IDs and reject missing or invalid subjects", async () => {
+    const resolve = toGenericOAuthConfig(row({}), "https://sub.acme").accountSubject;
+    expect(resolve).toBeDefined();
+    for (const id of [undefined, null, "", " ", "null", "undefined", Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(await resolve?.({ profile: { id, emailVerified: true }, tokens: {} })).toBe("");
+    }
+    expect(await resolve?.({ profile: { id: 0, emailVerified: true }, tokens: {} })).toBe(
+      JSON.stringify(["https://id.acme", "0"]),
+    );
+  });
+
+  test("explicit endpoints are carried; discovery is never re-fetched", () => {
     const cfg = toGenericOAuthConfig(row({}), "https://sub.acme");
     expect(cfg).toMatchObject({
       providerId: "acme",
       name: "Acme",
       clientId: "cid",
       clientSecret: "sec",
-      accountIssuer: "https://id.acme",
       authorizationUrl: "https://id.acme/authorize",
       tokenUrl: "https://id.acme/token",
       userInfoUrl: "https://id.acme/userinfo",

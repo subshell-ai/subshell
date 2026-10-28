@@ -8,8 +8,8 @@ the legacy dynamic window; migration 0038 adds `user_meta.approval_state`).
 when the better-auth singleton is constructed, and `invalidateAuth()` (a
 sibling of `resetAuthForTests()`) drops the memo so every successful
 `/api/auth-providers` write takes effect without a restart. Providers are
-built FAIL-TOLERANT: each config entry pins `accountIssuer` to the stored
-issuer and carries the endpoints discovery resolved AT SAVE TIME, so a rebuild
+built FAIL-TOLERANT: each config entry carries the endpoints discovery resolved
+AT SAVE TIME, so a rebuild
 never re-fetches a dead issuer, `genericOAuth` stays out of `AUTH_OPTIONS`
 (a throwing provider must not crash boot's migration path), and a throwing
 rebuild serves the last-known-good instance. **Provider policy is one global
@@ -52,3 +52,14 @@ changes need a server restart; provider overrides invalidate auth immediately.
 `genericOAuth.redirectURI` remains a static string, never derived from a request.
 The Google preset sends `prompt=select_account`. Flow-matrix case 14 pins the
 explicit override through the emitted authorization URL.
+
+Better Auth 1.7.14 identifies accounts by `(providerId, accountId)`, not issuer
+([upstream migration guide](https://better-auth.com/docs/guides/1-7-upgrade-guide#account-identity-keeps-the-provider-key)).
+Migration 0069 removes the required account issuer column and its index from
+1.7.1 databases before auth starts. It refuses duplicate provider keys rather
+than merging identities. OAuth account subjects become a JSON pair of the old
+issuer and subject, matching `accountSubject` in `provider-rows.ts`. This keeps
+a replacement issuer from claiming an old identity when a provider ID is reused.
+Credential subjects, account row IDs, passwords, tokens and sessions stay intact;
+downgrade requires a pre-upgrade backup. Providers sharing an issuer now keep
+separate account rows, with the same verified-email linking policy.

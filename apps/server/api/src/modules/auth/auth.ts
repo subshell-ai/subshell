@@ -68,10 +68,9 @@ export const AUTH_OPTIONS = {
       // generic "account not linked". The inversion makes the PROVIDER's
       // verified claim the link defense; that claim's enforcement (provider-policy
       // + mapProfileToUser) is what pays for it, and docs/security.md §5
-      // accounting lands with it (final docs task). 1.7.1 marks the member
-      // deprecated ("gate becomes unconditional"); upgrading better-auth
-      // therefore re-arms the default this line removes, and the upgrade is a
-      // spec-§5 decision, not a dependency bump.
+      // accounting lands with it. Better Auth 1.7.14 still honors this option;
+      // oidc-signin-flow.test.ts verifies linking to an unverified local user.
+      // If a later release removes it, revisit this policy before upgrading.
       requireLocalEmailVerified: false,
     },
   },

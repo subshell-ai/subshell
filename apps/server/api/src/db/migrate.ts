@@ -62,6 +62,7 @@ import * as nodeSystemSpecsMigration from "@/db/migrations/0061-node-system-spec
 import * as nodePreviewEnabledMigration from "@/db/migrations/0062-node-preview-enabled.js";
 import * as subshellServicesMigration from "@/db/migrations/0063-subshell-services.js";
 import * as presetEnabledMigration from "@/db/migrations/0068-preset-enabled.js";
+import * as authAccountProviderKeyMigration from "@/db/migrations/0069-auth-account-provider-key.js";
 import * as dropSshGrantsMigration from "./migrations/0053-drop-ssh-grants.js";
 import * as presetSharingMigration from "./migrations/0057-preset-sharing.js";
 import * as nodeVirtualDisplayEnabledMigration from "./migrations/0064-node-virtual-display-enabled.js";
@@ -191,6 +192,7 @@ export async function runMigrations(): Promise<void> {
           "0066-node-display-provider": nodeDisplayProviderMigration,
           "0067-display-provider-choices": displayProviderChoicesMigration,
           "0068-preset-enabled": presetEnabledMigration,
+          "0069-auth-account-provider-key": authAccountProviderKeyMigration,
         };
       },
     },

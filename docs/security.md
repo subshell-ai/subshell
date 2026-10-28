@@ -365,7 +365,7 @@ against the token endpoint the discovery document itself declares, never a URL
 composed from the issuer, where the metadata advertises that grant (400 `CREDENTIALS_REJECTED`; the
 2026-09-25 ruling deleted the separate `POST /test` probe, so the save is the
 only verification), and stores the resolved endpoints beside
-`accountIssuer`, so every later rebuild runs offline and one drifted issuer
+the issuer, so every later rebuild runs offline and one drifted issuer
 cannot crash-loop boot; a rebuild that throws anyway serves the last-known-good
 auth instance (spec §3). The id slug is `[a-z0-9-]` ≤ 40 chars, `email` is
 reserved, and a collision answers `SLUG_TAKEN` (409). **The last open
@@ -384,8 +384,12 @@ config array in the better-auth singleton is current without a restart.
 (spec §7): `kind` is a PRESET (which endpoints and prefills, `google` or
 generic `oidc`), the id slug is the unique thing, and login buttons label by
 the provider's NAME because two Google Workspaces rows rendered kind-first would be
-indistinguishable to the clicker. Providers that share an `accountIssuer` (two
-Workspaces of one Google account) land the same person on the same account.
+indistinguishable to the clicker. Better Auth 1.7.14 keys accounts by provider ID
+and account subject. Subshell encodes the issuer and original subject together
+in that subject, including when migrating existing accounts, so changing or
+recreating a provider cannot bind another issuer's subject to an old user. Two
+providers sharing an issuer keep separate account rows; linking to the same
+local user still requires the verified-email policy below.
 
 **Adding a provider is the same class of trust decision as installing a
 plugin** (spec §5, priced here rather than discovered later). Implicit email
