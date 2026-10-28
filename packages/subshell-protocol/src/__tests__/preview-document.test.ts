@@ -42,6 +42,10 @@ it("offers the same list it recognizes", () => {
   // health check sends, and treating it as a navigation would refuse it.
   expect(acceptsPreviewDocument("*/*")).toBe(false);
   expect(acceptsPreviewDocument("text/html-fragment")).toBe(false);
+  // q=0 is a refusal, not a preference: this client asked not to receive a page,
+  // so it must not be classified as navigating into one.
+  expect(acceptsPreviewDocument("text/html;q=0, application/json;q=0.9")).toBe(false);
+  expect(acceptsPreviewDocument("application/json;q=0.9, text/html;q=0.5")).toBe(true);
   expect(acceptsPreviewDocument(null)).toBe(false);
 });
 
@@ -114,6 +118,14 @@ it("paints a chosen navigation unless the response names something else", () => 
   expect(isPreviewPaintableNavigation("video/webm", null)).toBe(true);
   expect(isPreviewPaintableNavigation("application/pdf", null)).toBe(false);
   expect(isPreviewPaintableNavigation("application/octet-stream", null)).toBe(false);
+  // A browser also shows JSON and XML itself, so a dev server's /api/status stays
+  // reachable on the client the feature targets.
+  expect(isPreviewPaintableNavigation("application/json", null)).toBe(true);
+  expect(isPreviewPaintableNavigation("application/json; charset=utf-8", null)).toBe(true);
+  expect(isPreviewPaintableNavigation("application/xml", null)).toBe(true);
+  expect(isPreviewPaintableNavigation("application/rss+xml", null)).toBe(true);
+  // A type that merely starts with one of these is not it.
+  expect(isPreviewPaintableNavigation("application/json-lines", null)).toBe(false);
   // A download keeps its refusal whatever the type claims.
   expect(isPreviewPaintableNavigation("text/plain", "attachment")).toBe(false);
 });

@@ -213,6 +213,10 @@ beforeAll(async () => {
           },
         });
       if (url.pathname === "/headers") return Response.json(Object.fromEntries(req.headers));
+      // A binary with no disposition and no reader: refused on a navigation the
+      // way an attachment is, because the view cannot present it.
+      if (url.pathname === "/blob")
+        return new Response(new Uint8Array([7, 8, 9]), { headers: { "content-type": "application/octet-stream" } });
       if (url.pathname === "/page")
         return new Response('<head><link href="/style.css"></head><h1>App</h1>', {
           headers: { "content-type": "text/html" },
@@ -419,7 +423,9 @@ describe("pv-http: the same-origin rewrite", () => {
       nodeId: NODE,
       port: targetPort,
     });
-    for (const path of ["download", "download-error", "headers"]) {
+    // What is refused is what leaves the frame: a file handed over, or a binary
+    // the view has no reader for.
+    for (const path of ["download", "download-error", "blob"]) {
       const response = await proxyFetch(`/pv/${ref}/${path}`, {
         headers: { "sec-fetch-dest": "iframe", "sec-fetch-mode": "navigate", "user-agent": IPHONE_UA },
       });
@@ -436,6 +442,26 @@ describe("pv-http: the same-origin rewrite", () => {
     const response = await proxyFetch(`/pv/${ref}/download`, { headers: { "sec-fetch-dest": "empty" } });
     expect(response.status).toBe(200);
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2]));
+  });
+
+  it("shows an API response a phone would have rendered itself", async () => {
+    // Someone who tapped /api/status on a phone gets the JSON, the way every
+    // browser presents it: refusing it strands nothing and loses the answer.
+    const { ref } = await getPreviewBroker().openForward({
+      viewerUserId: USER,
+      paneId: PANE,
+      nodeId: NODE,
+      port: targetPort,
+    });
+    const response = await proxyFetch(`/pv/${ref}/headers`, {
+      headers: { "sec-fetch-dest": "document", accept: "text/html,application/xhtml+xml", "user-agent": IPHONE_UA },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    // The app's own bytes, not our error page, and the request reached it with
+    // the offer it made.
+    const body = (await response.json()) as Record<string, string>;
+    expect(body.accept).toContain("text/html");
   });
 
   it("lets a desktop click download instead of showing it an error page", async () => {

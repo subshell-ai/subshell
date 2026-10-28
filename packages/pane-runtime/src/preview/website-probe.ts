@@ -110,6 +110,14 @@ export async function probeWebsite(port: number, signal: AbortSignal): Promise<W
       // does not end anything: it means the socket accepted and is thinking, which
       // is what a cold `next dev` does while it compiles the route, and hiding that
       // port until the server warms up would hide the one row the person came for.
+      //
+      // The accepted cost: a listener that accepts and NEVER answers is
+      // indistinguishable from a compiling one at this distance, so a wedged server
+      // stays offered as an untitled website for as long as it hangs. The scan is
+      // stateless by design (one pass, nothing to reconcile), and the alternative
+      // is to hide every dev server during its first compile, which is the moment
+      // the picker is most wanted. The frame then spins rather than refusing, which
+      // is the same thing an unreachable port does when opened by hand.
       if (signal.aborted) return fallback;
       if (attempt.aborted) fallback ??= {};
     }

@@ -28,6 +28,12 @@ export interface UpstreamAnswer {
  * where a client that sends no `Sec-Fetch-*` at all and offers HTML is navigating
  * even if we cannot see the gesture.
  *
+ * The known gap: a client that sends no `Sec-Fetch-*` on a SUBPATH looks like a
+ * fetch, not a navigation, and is left alone. Guessing otherwise would refuse the
+ * JSON a page's own code asks for. In practice this means WebKit old enough to
+ * predate `Sec-Fetch-Dest` (before Safari 16.4) is not covered by the guard, on a
+ * service whose whole trust model is the operator's own LAN and browser.
+ *
  * @returns a reason word when the frame must not be given this response, else null
  */
 export function strandingNavigationReason(

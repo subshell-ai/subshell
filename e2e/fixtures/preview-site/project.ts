@@ -49,7 +49,9 @@ const app=Bun.serve({hostname:'127.0.0.1',port:Number(process.env.DEMO_PORT||300
  if(url.pathname==='/echo')return Response.json({method:req.method});
  // A long-lived text/event-stream answer, so the shim's socket rewrite can be
  // proven not to have leaked onto EventSource, which requires http(s) by spec.
- if(url.pathname==='/events'){const body=new ReadableStream({start(c){c.enqueue('event: ready\\ndata: {}\\n\\n');c.close();}});return new Response(body,{headers:{'content-type':'text/event-stream','cache-control':'no-store'}});}
+ // Held open on purpose: closing right after one event races the open and the
+ // error dispatch, which makes the caller's check a coin flip rather than a proof.
+ if(url.pathname==='/events'){const body=new ReadableStream({start(c){c.enqueue('event: ready\\ndata: {}\\n\\n');}});return new Response(body,{headers:{'content-type':'text/event-stream','cache-control':'no-store'}});}
  const file=url.pathname==='/'?'index.html':url.pathname.slice(1);
  if(!['index.html','filter.js','worker.js'].includes(file))return new Response('Not found',{status:404});
  return new Response(readFileSync(path.join(root,file)),{headers:{'content-type':file.endsWith('.js')?'text/javascript':'text/html','cache-control':'no-store','set-cookie':'demo=website; Path=/; HttpOnly'}});

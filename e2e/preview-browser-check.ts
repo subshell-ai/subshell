@@ -66,15 +66,30 @@ export async function verifyPreviewBrowser(frame: Frame | Page, dashboardOrigin:
       // ever leaked onto this constructor the URL would arrive as ws: and throw,
       // which is how every server-sent stream inside a preview would die.
       const eventStream = await new Promise<string>((resolve) => {
-        const source = new EventSource(new URL("./events", location.href).href);
-        const settle = (outcome: string) => {
+        let source: EventSource;
+        try {
+          source = new EventSource(new URL("./events", location.href).href);
+        } catch {
+          // The failure this leg exists to catch: a ws: URL handed to EventSource
+          // throws at once. Named apart from "error" so a transport hiccup on the
+          // held-open stream can never be mistaken for it, or hide it.
+          resolve("threw");
+          return;
+        }
+        const timeout = setTimeout(() => {
+          source.close();
+          resolve("timed out");
+        }, 5000);
+        source.onopen = () => {
           clearTimeout(timeout);
           source.close();
-          resolve(outcome);
+          resolve("open");
         };
-        const timeout = setTimeout(() => settle("timed out"), 5000);
-        source.onopen = () => settle("open");
-        source.onerror = () => settle("error");
+        source.onerror = () => {
+          clearTimeout(timeout);
+          source.close();
+          resolve("error");
+        };
       });
       // The shim rewrites URL attributes, so it must leave the ones that are not
       // URLs alone. A rel that reached the mapper would come back as a proxied

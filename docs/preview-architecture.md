@@ -215,7 +215,8 @@ Opaque `Origin: null` is admitted only to preview HTTP preflight and preview
 WebSocket handshakes. Dashboard API and WebSocket gates still reject it.
 Document navigations are judged by what the phone does with the answer, not by
 whether it is a web page. A response the browser presents itself stays: a document,
-a chunk of text, an image, an audio or video clip. What is answered with an inline
+a chunk of text, an image, an audio or video clip, or JSON and XML rendered as text.
+What is answered with an inline
 error page is a file the server hands over (an `attachment`, whatever its type
 claims) or a binary the view cannot read, because on iOS that hand-off takes the
 whole presentation with no way back. A desktop browser downloads in its own UI and

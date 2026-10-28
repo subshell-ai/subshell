@@ -43,13 +43,22 @@ export function isPreviewDocumentContentType(contentType: string | null | undefi
 
 /**
  * Does this request's `Accept` list ask for a document? Each comma-separated
- * entry is read as a whole media type, parameters and all, so a wildcard offer
- * is not a request for HTML, and neither is a type that merely begins with one.
- * A browser navigating sends `text/html` explicitly, which is what this is for.
+ * entry is read as a whole media type, so a wildcard offer is not a request for
+ * HTML, and neither is a type that merely begins with one. A `q=0` is a refusal,
+ * not a preference: a client that says `text/html;q=0` has explicitly asked not
+ * to receive a page, and treating that as an offer would let a script opt into a
+ * navigation it rejected.
  */
 export function acceptsPreviewDocument(accept: string | null | undefined): boolean {
   if (typeof accept !== "string") return false;
-  return accept.split(",").some((entry) => isPreviewDocumentContentType(entry.split(";")[0]?.trim()));
+  return accept.split(",").some((entry) => {
+    const [type, ...parameters] = entry.split(";");
+    for (const parameter of parameters) {
+      const match = /^\s*q\s*=\s*([0-9.]+)\s*$/i.exec(parameter);
+      if (match && Number(match[1]) === 0) return false;
+    }
+    return isPreviewDocumentContentType(type?.trim());
+  });
 }
 
 /** XHTML, the one document in the set a browser parses as strict XML. */
@@ -111,17 +120,27 @@ export function isPreviewAttachmentDisposition(disposition: string | null | unde
 const SELF_PRESENTED = /^(?:text|image|audio|video)\//i;
 
 /**
+ * The `application/*` types a browser still shows on its own: JSON, XML and
+ * their feed dialects as selectable text or a tree, and scripts as text. A dev
+ * server's `/api/status` is the everyday case, and refusing it would hide an
+ * answer the phone was going to render anyway.
+ */
+const SELF_PRESENTED_APPLICATION =
+  /^application\/(?:json|ld\+json|xml|rss\+xml|atom\+xml|javascript|ecmascript|x-javascript|x-sh)(?:\s*;|\s*$)/i;
+
+/**
  * May the proxy paint this navigation?
  *
  * The question is what the phone does with the response, not whether it is a web
- * page. A browser shows a document, a chunk of text, an image, and an audio or
- * video clip itself, so those stay: a dev server's log page served as text/plain
- * is a page someone tapped for, and refusing it strands nothing. What leaves the
- * frame is a file the server is handing over (an `attachment`, whatever its type
- * claims) or a binary the view has no reader for, which is where iOS takes the
- * presentation away in a system viewer with no back button in a home-screen app.
- * A response naming no type is left to the browser, which renders it as text, and
- * a dev server that forgets the header still serves what was asked for.
+ * page. A browser shows a document, a chunk of text, an image, an audio or video
+ * clip, and JSON or XML as text itself, so those stay: a dev server's log page or
+ * `/api/status` is something someone tapped for, and refusing it strands nothing.
+ * What leaves the frame is a file the server is handing over (an `attachment`,
+ * whatever its type claims) or a binary the view has no reader for, which is where
+ * iOS takes the presentation away in a system viewer with no back button in a
+ * home-screen app. A response naming no type is left to the browser, which renders
+ * it as text, and a dev server that forgets the header still serves what was asked
+ * for.
  */
 export function isPreviewPaintableNavigation(
   contentType: string | null | undefined,
@@ -129,5 +148,9 @@ export function isPreviewPaintableNavigation(
 ): boolean {
   if (isPreviewAttachmentDisposition(disposition)) return false;
   if (typeof contentType !== "string" || contentType.trim() === "") return true;
-  return isPreviewDocumentContentType(contentType) || SELF_PRESENTED.test(contentType);
+  return (
+    isPreviewDocumentContentType(contentType) ||
+    SELF_PRESENTED.test(contentType) ||
+    SELF_PRESENTED_APPLICATION.test(contentType)
+  );
 }

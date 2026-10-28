@@ -13,6 +13,29 @@ const MAX_TRANSFORM_BYTES = 16 * 1024 * 1024;
 const MAX_BUFFERED_BYTES = 128 * 1024 * 1024;
 let bufferedBytes = 0;
 
+/**
+ * The proxied base a Turbopack chunk URL registers against, or null when the
+ * mapped URL is not one of its chunks.
+ *
+ * Only the pathname may carry the marker. A page that loads a script through a
+ * proxy route (`/proxy?url=/app/_next/static/x.js`) has the token in its query,
+ * and slicing at that occurrence would publish a base no chunk ever matches, so
+ * the runtime's registry would be keyed against a path that does not exist:
+ * precisely the breakage this injection exists to prevent.
+ */
+function turbopackChunkBase(mappedSrc: string, proxy: string): string | null {
+  if (!mappedSrc.startsWith(proxy)) return null;
+  let url: URL;
+  try {
+    url = new URL(mappedSrc);
+  } catch {
+    return null;
+  }
+  const marker = url.pathname.indexOf("/_next/static/");
+  if (marker < 0) return null;
+  return `${url.origin}${url.pathname.slice(0, marker)}/_next/`;
+}
+
 /** Quote a JS literal that can also safely appear inside an HTML script. */
 function scriptString(value: string): string {
   return JSON.stringify(value).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
@@ -257,9 +280,8 @@ export async function transformPreviewResponse(
             // prepends the proxy path, so a mapped URL cannot contain it unless the
             // raw one does, and non-Turbopack pages pay nothing for the check.
             if (src !== null && mappedSrc !== null && !nextChunkBaseInjected && src.includes("/_next/static/")) {
-              const nextStatic = mappedSrc.indexOf("/_next/static/");
-              if (mappedSrc.startsWith(proxy) && nextStatic >= 0) {
-                const chunkBase = `${mappedSrc.slice(0, nextStatic)}/_next/`;
+              const chunkBase = turbopackChunkBase(mappedSrc, proxy);
+              if (chunkBase) {
                 el.before(
                   previewInlineScript(`globalThis.TURBOPACK_CHUNK_BASE_PATH=${scriptString(chunkBase)};`, xml),
                   { html: true },

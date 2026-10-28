@@ -27,8 +27,10 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
     url.searchParams.delete("ts");
     for (const previous of document.querySelectorAll("link[rel][href]")) {
       // The attribute selector is case-sensitive and rel is whatever the app
-      // wrote, so compare the value rather than trusting the selector.
-      if (previous === element || String(previous.getAttribute("rel")).toLowerCase() !== "stylesheet") continue;
+      // wrote, so compare the value rather than trusting the selector, and read
+      // it as the token list it is: a twin declared "preload stylesheet" is
+      // still the active stylesheet this new link would otherwise reuse.
+      if (previous === element || !isStylesheetRel(previous.getAttribute("rel"))) continue;
       if (!previous.href.startsWith(globalThis.TURBOPACK_CHUNK_BASE_PATH)) continue;
       const existing = new URL(previous.href);
       existing.searchParams.delete("ts");

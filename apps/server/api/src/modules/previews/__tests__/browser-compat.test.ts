@@ -33,6 +33,10 @@ describe("the injected preview shim", () => {
     expect(source.slice(relBranch, mapper)).toContain("return String(value)");
     // And the stylesheet test is a token list, so "stylesheet preload" counts.
     expect(source).toContain('.split(/\\s+/).includes("stylesheet")');
+    // The twin being scanned for is judged the same way. Comparing the attribute
+    // exactly would miss `rel="preload stylesheet"`, leaving the stale stylesheet
+    // reused, which is the only thing the revision exists to stop.
+    expect(source).toContain('!isStylesheetRel(previous.getAttribute("rel"))');
   });
 
   it("wraps inline script in CDATA only for a document parsed as XML", () => {

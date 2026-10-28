@@ -103,6 +103,26 @@ describe("preview resource compatibility", () => {
     expect(text.indexOf(bootstrap)).toBeLessThan(text.indexOf(`src="${proxy}app/_next/static/chunks/runtime.js"`));
   });
 
+  it("ignores a chunk marker that only appears in a script's query", async () => {
+    // A page serving its scripts through a proxy route carries the token in the
+    // query. Slicing there would set the runtime's base to a path no chunk ever
+    // matches, which is the exact breakage the injection exists to prevent, so
+    // only the pathname may name a chunk, while the src itself is still rewritten.
+    const response = await transformPreviewResponse(
+      new Response('<head><script async src="/proxy?url=/app/_next/static/chunks/page.js"></script></head>', {
+        headers: { "content-type": "text/html" },
+      }),
+      target,
+      proxy,
+      "/app/",
+    );
+    const text = await response.text();
+    // The shim's own source mentions the global, so the assertion is against the
+    // assignment the injection makes, the same shape the positive test uses.
+    expect(text).not.toContain('globalThis.TURBOPACK_CHUNK_BASE_PATH="');
+    expect(text).toContain(`src="${proxy}proxy?url=/app/_next/static/chunks/page.js"`);
+  });
+
   it("resolves a relative base once for static and runtime resources", async () => {
     const response = await transformPreviewResponse(
       new Response('<head><base href="assets/"></head><img src="a.png">', { headers: { "content-type": "text/html" } }),
