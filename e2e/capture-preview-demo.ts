@@ -115,9 +115,11 @@ try {
   await page.getByRole("button", { name: /^Open web preview or screen/ }).click();
   await page.getByRole("button", { name: "Open web preview on port 3000" }).click();
   await expect(page.locator("iframe")).toBeVisible();
+  await expect(
+    page.frameLocator("iframe").getByRole("heading", { name: "Small teams. Considered websites." }),
+  ).toBeVisible();
   const appFrame = page.frames().find((f) => f.url().includes("/pv/"));
   if (!appFrame) throw new Error("App preview did not mount");
-  await expect(appFrame.getByRole("heading", { name: "Small teams. Considered websites." })).toBeVisible();
   await verifyPreviewBrowser(appFrame, BASE_URL, true);
   const proxy = appFrame.url();
   const direct = await context.newPage();

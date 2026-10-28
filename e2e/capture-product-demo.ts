@@ -124,7 +124,7 @@ export function summarize(tasks) {
       ({ size }) => {
         localStorage.setItem("subshell.termFontSize", String(size));
       },
-      { size: mobile ? 18 : subagents ? 20 : 22 },
+      { size: mobile ? 22 : subagents ? 20 : 22 },
     );
     const page = await context.newPage();
     page.setDefaultTimeout(15000);

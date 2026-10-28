@@ -95,7 +95,8 @@ run tests, and trims idle waiting time. Never fabricate terminal output or add
 a notification that the recorded workflow doesn't produce.
 The root README uses an optimized animated GIF linked to the full-quality MP4
 because GitHub strips repository-hosted HTML video elements.
-Terminal font sizes are 20px in the desktop subagent clip and 18px on mobile. The desktop capture
+Terminal font sizes are 20px in the desktop subagent clip and 22px on mobile. The phone player
+uses up to 340px when the hero stacks, so recorded text stays readable on a phone. The desktop capture
 uses a compact viewport so the text stays large when embedded in the page;
 higher recording resolution alone does not make text more legible. Use
 `bun e2e/capture-product-demo.ts --subagents` to refresh only the desktop
