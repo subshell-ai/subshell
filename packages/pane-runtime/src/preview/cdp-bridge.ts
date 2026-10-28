@@ -54,8 +54,20 @@ export type PreviewClosedEvent = Extract<NodeEvent, { type: "preview_closed" }>;
 /** The handshake covers `/json/list` plus the websocket reaching open; this is its whole budget. */
 export const BRIDGE_HANDSHAKE_BUDGET_MS = 3000;
 
+/**
+ * What one loopback family may take of that budget for its `/json/list`.
+ *
+ * A listener that accepts on `127.0.0.1` and never answers would otherwise spend
+ * the entire handshake there, and the abort that follows kills the IPv6 fetch the
+ * moment it is asked, so a browser reachable only on `::1` would be refused as
+ * `not-cdp` because of a stall on a socket it never had to meet. Silence is an
+ * answer about one socket only, exactly as in discovery; two slices of this leave
+ * the rest of the budget for the websocket.
+ */
+export const BRIDGE_LIST_FAMILY_BUDGET_MS = 900;
+
 /** The `http://127.0.0.1:<port>/json/list` answer, narrowed to what a bridge reads. */
-interface BridgeFetchResponse {
+export interface BridgeFetchResponse {
   ok: boolean;
   status: number;
   json(): Promise<unknown>;
@@ -344,19 +356,37 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
   // bound to `::1` only is routine and discovery now lists such a port: the
   // bridge that refuses to ask it would call a watchable browser `not-cdp`.
   void (async () => {
+    /** One family's `/json/list`, bounded by its own slice so a stall cannot eat the handshake. */
+    const fetchListFrom = (host: string): Promise<{ response: BridgeFetchResponse } | { why: string }> =>
+      new Promise((resolve) => {
+        let answered = false;
+        const settle = (outcome: { response: BridgeFetchResponse } | { why: string }): void => {
+          if (answered) return;
+          answered = true;
+          timer.clearTimeout(slice);
+          resolve(outcome);
+        };
+        const slice = timer.setTimeout(
+          () => settle({ why: `list said nothing on ${host}` }),
+          BRIDGE_LIST_FAMILY_BUDGET_MS,
+        );
+        fetchImpl(`http://${host}:${args.cdpPort}/json/list`).then(
+          (candidate) => settle(candidate.ok ? { response: candidate } : { why: `list answered ${candidate.status}` }),
+          (err: unknown) => settle({ why: `list fetch threw (${String(err)})` }),
+        );
+      });
     let response: BridgeFetchResponse | null = null;
     let refusal: string | null = null;
     for (const host of CDP_LOOPBACK_FAMILIES) {
-      try {
-        const candidate = await fetchImpl(`http://${host}:${args.cdpPort}/json/list`);
-        if (candidate.ok) {
-          response = candidate;
-          break;
-        }
-        refusal = `list answered ${candidate.status}`;
-      } catch (err: unknown) {
-        refusal = `list fetch threw (${String(err)})`;
+      const outcome = await fetchListFrom(host);
+      if ("response" in outcome) {
+        response = outcome.response;
+        break;
       }
+      refusal = outcome.why;
+      // The handshake is already over (cancelled, dead, or out of budget):
+      // asking the next family could only add a fetch nobody will read.
+      if (discovery.signal.aborted) break;
     }
     if (!response) {
       handshakeFail(refusal ?? "list found no loopback answer");

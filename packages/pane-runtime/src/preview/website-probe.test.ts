@@ -195,26 +195,33 @@ it("sends a client class servers accept, so a bot filter does not hide a site", 
   }
 });
 
-it("keeps looking past an untitled page to find the family that names one", async () => {
-  // A tool on 127.0.0.1 that answers 200 text/html with no title is a website by
-  // the probe's own rule, so it would end the question there — while the real dev
-  // server on ::1 has the title the picker row is supposed to show.
+it("labels a port by the socket the lane will actually show, not the other family's title", async () => {
+  // The row a person picks is painted by forward.ts's dial, and that dial stays
+  // on 127.0.0.1 whenever the connect succeeds. A tool answering an untitled
+  // page there is therefore what the frame will show, so borrowing the dev
+  // server's title from `::1` would label the preview with a page nobody sees.
   const real = globalThis.fetch;
-  globalThis.fetch = (async (input: string | URL) =>
-    String(input).includes("127.0.0.1")
+  const asked: string[] = [];
+  globalThis.fetch = (async (input: string | URL) => {
+    const url = String(input);
+    asked.push(url);
+    return url.includes("127.0.0.1")
       ? new Response("<p>untitled tool page</p>", { headers: { "content-type": "text/html" } })
-      : new Response("<title>Dev server</title>", { headers: { "content-type": "text/html" } })) as typeof fetch;
+      : new Response("<title>Dev server</title>", { headers: { "content-type": "text/html" } });
+  }) as typeof fetch;
   try {
-    expect(await probeWebsite(4195, AbortSignal.timeout(3_000))).toEqual({ title: "Dev server" });
+    expect(await probeWebsite(4195, AbortSignal.timeout(3_000))).toEqual({});
+    expect(asked).toEqual(["http://127.0.0.1:4195/"]);
   } finally {
     globalThis.fetch = real;
   }
 });
 
-it("asks both families before dropping a port, since two sockets share the number", async () => {
-  // A tool bound to 127.0.0.1 while the dev server holds ::1 is a real
-  // arrangement. The first family's "not a website" describes its own socket, so
-  // discovery has to ask the second before it leaves the port out of the picker.
+it("will not offer an API's IPv4 socket on a dev server's IPv6 behalf", async () => {
+  // The arrangement is real (a tool bound to 127.0.0.1 while the dev server
+  // holds `::1`) and it is the one this rule exists for: the lane connects to
+  // IPv4, gets the API's JSON, and the frame shows that while the picker says
+  // "V6 site". An IPv4 that ANSWERS settles the question, answer or no answer.
   const real = globalThis.fetch;
   const asked: string[] = [];
   globalThis.fetch = (async (input: string | URL) => {
@@ -225,20 +232,23 @@ it("asks both families before dropping a port, since two sockets share the numbe
       : new Response("<title>V6 site</title>", { headers: { "content-type": "text/html" } });
   }) as typeof fetch;
   try {
-    expect(await probeWebsite(4198, AbortSignal.timeout(3_000))).toEqual({ title: "V6 site" });
-    expect(asked).toEqual(["http://127.0.0.1:4198/", "http://[::1]:4198/"]);
+    expect(await probeWebsite(4198, AbortSignal.timeout(3_000))).toBeNull();
+    expect(asked).toEqual(["http://127.0.0.1:4198/"]);
   } finally {
     globalThis.fetch = real;
   }
 });
 
 it("drops a port only after both families decline", async () => {
+  // "Decline" means no socket answered at all: that is the one shape where the
+  // lane would also walk to `::1`, so both families get asked before the port is
+  // left out.
   const real = globalThis.fetch;
   let asks = 0;
-  globalThis.fetch = (async (_input: string | URL) => {
+  globalThis.fetch = (async () => {
     asks++;
-    return Response.json({ ok: true });
-  }) as typeof fetch;
+    throw new TypeError("connect ECONNREFUSED");
+  }) as unknown as typeof fetch;
   try {
     expect(await probeWebsite(4197, AbortSignal.timeout(3_000))).toBeNull();
     expect(asks).toBe(2);

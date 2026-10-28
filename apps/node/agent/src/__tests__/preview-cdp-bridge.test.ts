@@ -25,7 +25,9 @@ import {
 import { PREVIEW_NODE_OFF } from "../commands/preview-ports-exec.js";
 import {
   BRIDGE_HANDSHAKE_BUDGET_MS,
+  BRIDGE_LIST_FAMILY_BUDGET_MS,
   type BridgeDeps,
+  type BridgeFetchResponse,
   type BridgeWs,
   bridgeCloseAll,
   bridgeCount,
@@ -550,6 +552,46 @@ describe("(c) not-cdp", () => {
       bridgeCloseAll("viewer-left");
       cdp.stop();
       void h;
+    }
+  });
+
+  it("does not spend the whole handshake on a stalled IPv4 listener before asking ::1", async () => {
+    // The failure this pins: a wedged process holds `127.0.0.1:9222` (accepts,
+    // never answers) while Chrome's devtools answers on `::1`. Without a
+    // per-family slice the stalled fetch owns the entire 3 s budget, the abort
+    // that follows kills the IPv6 fetch as it is asked, and a watchable browser
+    // is refused as `not-cdp` because of a stall on a socket it never met.
+    const cdp = new FakeCdp();
+    const clock = new FakeClock();
+    const asked: string[] = [];
+    try {
+      const starting = startBridge({
+        ref: refFor(907),
+        cdpPort: cdp.port(),
+        fps: 5,
+        lifetimeMs: 60_000,
+        emitStream: () => {},
+        emitClosed: () => {},
+        deps: {
+          timer: clock,
+          fetch: async (url: string) => {
+            asked.push(url);
+            if (url.includes("127.0.0.1")) return new Promise<BridgeFetchResponse>(() => {});
+            return {
+              ok: true,
+              status: 200,
+              json: async () => [{ type: "page", url: "about:blank", webSocketDebuggerUrl: cdp.wsUrl("T1") }],
+            };
+          },
+        },
+      });
+      // The stalled family gets its own slice, and only its own.
+      expect(clock.fire(BRIDGE_LIST_FAMILY_BUDGET_MS)).toBeGreaterThan(0);
+      await expect(starting).resolves.toEqual({ subscribers: 1 });
+      expect(asked).toEqual([`http://127.0.0.1:${cdp.port()}/json/list`, `http://[::1]:${cdp.port()}/json/list`]);
+    } finally {
+      bridgeCloseAll("viewer-left");
+      cdp.stop();
     }
   });
 

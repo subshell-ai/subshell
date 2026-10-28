@@ -123,16 +123,14 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
   const procRoot = opts.procRoot ?? "/proc";
   const screen = opts.screen ?? null;
 
-  // Started here, before the walk, so the /proc pass counts against the budget
+  // Measured from entry, so the /proc pass counts against the probe budget
   // rather than being free time in front of it: on a loaded host the reads and
   // readlinks across up to MAX_TREE_PIDS pids take seconds of their own, and a
-  // deadline that begins afterwards can push the whole answer past the plane's
-  // command timeout, which is the failure this budget exists to avoid.
-  // Measured from entry, so the /proc pass counts against the budget rather than
-  // being free time in front of it. It is a timestamp and not a signal: the walk
-  // is synchronous, so nothing could interrupt it, and a signal started here would
-  // instead be able to expire BEFORE a single port is probed and answer "no
-  // websites" for a pane with one perfect dev server.
+  // deadline that began afterwards could push the whole answer past the plane's
+  // command timeout, which is the failure this budget exists to avoid. It is a
+  // timestamp and not a signal, because the walk is synchronous and nothing
+  // could interrupt it; a signal started here could expire before a single port
+  // is probed and answer "no websites" for a pane with one perfect dev server.
   const startedAt = Date.now();
 
   const listeners = [

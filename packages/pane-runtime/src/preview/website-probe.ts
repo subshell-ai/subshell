@@ -99,44 +99,51 @@ const ATTEMPT_TIMEOUT_MS = 900;
  * later instead of now; the alternative hides nothing but fills the picker with
  * ports that cannot render.
  *
- * The IPv6 answer is held to the same standard the lane will meet, not just the
- * probe's: `forward.ts` dials v4 first and retries `::1` only when that connect
- * is REFUSED. So when v4 accepted and stalled (a DROP, or a wedged holder of
- * `127.0.0.1` while the app bound `::1`), the viewer's lane would hang on the
- * stalled socket no matter how nicely v6 answers, and the port is not offered.
- * A refused v4 is different: the lane walks past it to `::1` exactly as this
- * probe does, so a site only v6 serves is both listed and openable.
+ * THE SECOND FAMILY, and why it is a fallback rather than a second opinion:
+ * `forward.ts` dials `127.0.0.1` and stays on that socket whenever the connect
+ * succeeds, walking to `::1` only after a REFUSED connect. The socket the lane
+ * will dial is therefore the only one allowed to describe the row. An IPv4 that
+ * answers settles the port on its own merits even when that answer is not a
+ * document, and an IPv4 that accepts and stalls strands the lane wherever IPv6
+ * stands: in both cases the port is not offered on IPv6's behalf. A refused
+ * IPv4 is the one case where the two agree, because then the lane goes to `::1`
+ * too, and a site only IPv6 serves is listed and opens.
  */
 export async function probeWebsite(port: number, signal: AbortSignal): Promise<WebsiteInfo | null> {
-  // A page that answered without a title is held, not returned, so the other
-  // family still gets asked and a titled site on it is not hidden behind one
-  // unremarkable answer. Silence is not held at all: it is not an answer.
-  let fallback: WebsiteInfo | null = null;
-  for (const host of ["127.0.0.1", "[::1]"]) {
-    // The family's own timer is separate from the scan's, because the two aborts
-    // mean different things: see below.
-    const attempt = AbortSignal.timeout(ATTEMPT_TIMEOUT_MS);
-    try {
-      const info = await probeWebsiteOrigin(`http://${host}:${port}`, AbortSignal.any([signal, attempt]));
-      if (info?.title) return info;
-      // A page, but an unnamed one: keep looking, and remember what to offer if
-      // the other family has nothing better. A bare "not a website" asks the
-      // other family too: the two are different sockets that may hold different
-      // servers, and one "no" does not settle a port number.
-      if (info) fallback ??= info;
-    } catch {
-      // The scan's budget running out ends the asking, but not the answer: a
-      // verdict the first family already gave stays held. This family running out
-      // is only silence, and silence is not an answer to hold: see the policy
-      // above, which keeps a wedged listener out of the picker.
-      if (signal.aborted) return fallback;
-      // IPv4 accepted and never answered: the lane would stall on that same
-      // socket, because it only walks to ::1 after a REFUSED connect. Offering
-      // the port here would be offering a preview that opens into a hang.
-      if (attempt.aborted && host === "127.0.0.1") return null;
-    }
+  const v4 = await probeFamily(`http://127.0.0.1:${port}`, signal);
+  if (v4.kind === "page") return v4.info;
+  if (v4.kind !== "unreachable") return null;
+  // Nothing answered IPv4, so ask IPv6, which is where the lane would go too.
+  // A scan that has already run out of budget asks nothing further.
+  if (signal.aborted) return null;
+  const v6 = await probeFamily(`http://[::1]:${port}`, signal);
+  return v6.kind === "page" ? v6.info : null;
+}
+
+/** What one loopback family said about the port. */
+type FamilyVerdict =
+  /** A document, with or without a title: this is what a frame would render. */
+  | { kind: "page"; info: WebsiteInfo }
+  /** Answered, but not with an offerable document: the socket is talking about itself. */
+  | { kind: "no-page" }
+  /** Accepted and never answered inside the family's window. */
+  | { kind: "stalled" }
+  /** No socket at all (refused), or the caller's budget ended the question. */
+  | { kind: "unreachable" };
+
+/** Ask one family once, in its own window, and classify what came back. */
+async function probeFamily(origin: string, signal: AbortSignal): Promise<FamilyVerdict> {
+  // The family's own timer is separate from the scan's, because the two aborts
+  // mean different things: one is this socket's silence, the other is the
+  // caller no longer asking.
+  const attempt = AbortSignal.timeout(ATTEMPT_TIMEOUT_MS);
+  try {
+    const info = await probeWebsiteOrigin(origin, AbortSignal.any([signal, attempt]));
+    return info ? { kind: "page", info } : { kind: "no-page" };
+  } catch {
+    if (signal.aborted) return { kind: "unreachable" };
+    return attempt.aborted ? { kind: "stalled" } : { kind: "unreachable" };
   }
-  return fallback;
 }
 
 /** What the probe says it is: a probe, in the shape servers expect of a client. */

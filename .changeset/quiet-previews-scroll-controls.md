@@ -10,4 +10,6 @@ Discovery offers only the ports that answer with a website, and shows each page'
 
 A navigation that would hand a phone's whole screen to a file shows a closeable error page instead, and the dashboard says so in a toast. A desktop click keeps downloading the way it did before. The refused response's cookies still reach the preview's jar, so the app isn't quietly signed out, and anything a browser renders itself, plain text, an image, a clip, JSON or XML, is shown rather than blocked. A server answering `application/xhtml+xml` counts as a website again. Discovery travels on node protocol 26, so update each node alongside the server.
 
+Dashboard pages now run `seroval` 1.7.3, the release the router's own dependency range already permits, which clears five open advisories, three of them high.
+
 Route alternate-screen history buttons to the running program, in the key form the app asked for. Use matching device and preview count badges, move ownership notices beside the action menu, and make their explanations available by tapping.
