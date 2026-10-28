@@ -24,7 +24,11 @@ async function pageTitle(response: Response): Promise<string | undefined> {
     // SVG titles label graphics, not the page. Bun's rewriter reports the
     // HTML namespace for these too, so exclude SVG before selecting titles.
     source = await new HTMLRewriter()
-      .on("svg", { element: (element) => element.remove() })
+      .on("svg", {
+        element(element) {
+          element.remove();
+        },
+      })
       .transform(new Response(source))
       .text();
     let title = "";
