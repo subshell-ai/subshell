@@ -4,7 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useRef, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
 import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
-import { LaunchErrorLine } from "@/components/launch-error-line";
+import { LaunchRefusal } from "@/components/launch-error-line";
 import {
   canSubmit,
   emptyNewSubshellForm,
@@ -141,71 +141,68 @@ export function LaunchSubshellDialog({
           <DialogDescription>Start an agent, a terminal, or an SSH session in a subshell.</DialogDescription>
         </DialogHeader>
         <SubshellKindPicker value={kind} onChange={setKind} disabled={sshPending || create.isPending} />
-        {!agentBranch ? (
-          <ConnectPanel
-            draft={sshDraft}
-            onDraftChange={setSshDraft}
-            onPendingChange={setSshPending}
-            initial={initialSsh}
-            onLeave={dismiss}
-            onCreated={async (id) => {
-              onOpenChange(false);
-              reset();
-              // The SSH create rides `/api/ssh/launch`, which knows nothing of
-              // workspaces — so the filing this dialog's AGENT path gets from
-              // the create server-side is this half's to do (spec
-              // 2026-10-17): onto the workspace on screen when there is one
-              // (the idempotent pane add, and the same arming), else the
-              // shared no-screen ladder. The two invalidations are what
-              // `useCreateSubshell` performs after its own create: the rail's
-              // tree and the pane rows wake from the caches, not a reload.
-              const onto = currentWorkspaceId();
-              let filed: string | null = null;
-              if (onto && (await apiPost(`/api/workspaces/${onto}/panes`, { subshellId: id }).catch(() => null))) {
-                armPaneFocusOnArrive(id);
-                filed = onto;
-              } else {
-                filed = await fileLaunchedPane(id);
-              }
-              void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
-              void invalidateWorkspaceMembership(queryClient);
-              if (filed) void navigate({ to: "/workspaces/$id", params: { id: filed } });
-              else void navigate({ to: "/subshells/$id", params: { id } });
-            }}
-          />
-        ) : (
-          <>
-            <NewSubshellForm
-              skipPriorLaunch={initialNodeId !== undefined}
-              value={form}
-              onChange={setForm}
+        <LaunchRefusal error={formLaunchError}>
+          {!agentBranch ? (
+            <ConnectPanel
+              draft={sshDraft}
+              onDraftChange={setSshDraft}
+              onPendingChange={setSshPending}
+              initial={initialSsh}
               onLeave={dismiss}
-              launchError={displayLaunchError}
+              onCreated={async (id) => {
+                onOpenChange(false);
+                reset();
+                // The SSH create rides `/api/ssh/launch`, which knows nothing of
+                // workspaces — so the filing this dialog's AGENT path gets from
+                // the create server-side is this half's to do (spec
+                // 2026-10-17): onto the workspace on screen when there is one
+                // (the idempotent pane add, and the same arming), else the
+                // shared no-screen ladder. The two invalidations are what
+                // `useCreateSubshell` performs after its own create: the rail's
+                // tree and the pane rows wake from the caches, not a reload.
+                const onto = currentWorkspaceId();
+                let filed: string | null = null;
+                if (onto && (await apiPost(`/api/workspaces/${onto}/panes`, { subshellId: id }).catch(() => null))) {
+                  armPaneFocusOnArrive(id);
+                  filed = onto;
+                } else {
+                  filed = await fileLaunchedPane(id);
+                }
+                void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
+                void invalidateWorkspaceMembership(queryClient);
+                if (filed) void navigate({ to: "/workspaces/$id", params: { id: filed } });
+                else void navigate({ to: "/subshells/$id", params: { id } });
+              }}
             />
-            <DialogFooter sticky>
-              <Button
-                variant="outline"
-                onClick={dismiss}
-                disabled={create.isPending}
-                disabledReason="Wait for the subshell to start."
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={() => void submit()}
-                disabled={create.isPending || !canSubmit(form)}
-                disabledReason={create.isPending ? "Wait for the subshell to start." : launchDisabledReason(form)}
-              >
-                {create.isPending ? "Starting…" : "Start subshell"}
-              </Button>
-            </DialogFooter>
-          </>
-        )}
-        {/* The refusal the field cannot host renders here, OUTSIDE the agent branch:
-            switching to the SSH tab unmounts the Virtual display checkbox without
-            clearing the error, and a refusal nobody can read is the failure
-            `splitLaunchError` exists to prevent. */}
-        <LaunchErrorLine message={formLaunchError} />
+          ) : (
+            <>
+              <NewSubshellForm
+                skipPriorLaunch={initialNodeId !== undefined}
+                value={form}
+                onChange={setForm}
+                onLeave={dismiss}
+                launchError={displayLaunchError}
+              />
+              <DialogFooter sticky>
+                <Button
+                  variant="outline"
+                  onClick={dismiss}
+                  disabled={create.isPending}
+                  disabledReason="Wait for the subshell to start."
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => void submit()}
+                  disabled={create.isPending || !canSubmit(form)}
+                  disabledReason={create.isPending ? "Wait for the subshell to start." : launchDisabledReason(form)}
+                >
+                  {create.isPending ? "Starting…" : "Start subshell"}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </LaunchRefusal>
       </DialogContent>
     </Dialog>
   );

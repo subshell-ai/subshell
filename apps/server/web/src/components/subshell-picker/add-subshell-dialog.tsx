@@ -2,7 +2,7 @@ import { Button, errMessage } from "@internal/node-admin";
 import { type JSX, useEffect, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
 import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
-import { LaunchErrorLine } from "@/components/launch-error-line";
+import { LaunchRefusal } from "@/components/launch-error-line";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
 import {
   canSubmit,
@@ -223,47 +223,47 @@ export function AddSubshellDialog({
           </div>
         )}
 
-        {visibleMode === "existing" ? (
-          <ExistingSubshellList
-            subshells={available}
-            query={query}
-            onQueryChange={setQuery}
-            loadFailed={subshellsFailed}
-            loading={subshellsLoading}
-            onPick={(id) => void handlePick(id)}
-            busyId={busyId}
-          />
-        ) : (
-          <div className="flex flex-col gap-4">
-            <SubshellKindPicker value={kind} onChange={setKind} disabled={creating} />
-            {!agentBranch ? (
-              <ConnectPanel
-                draft={sshDraft}
-                onDraftChange={setSshDraft}
-                onPendingChange={setCreating}
-                initial={{ node: form.nodeId || undefined }}
-                onLeave={dismiss}
-                onCreated={async (id) => {
-                  try {
-                    await onAdd(id, "within");
-                    onOpenChange(false);
-                    reset();
-                  } catch (err) {
-                    setError(
-                      `SSH subshell was created but could not be added (${errMessage(err, "unknown error")}). Add it from the list instead.`,
-                    );
-                    setForm({ ...form, nodeId: "" });
-                    setMode("existing");
-                  }
-                }}
-              />
-            ) : (
-              <NewSubshellForm value={form} onChange={setForm} onLeave={dismiss} launchError={displayLaunchError} />
-            )}
-          </div>
-        )}
-
-        <LaunchErrorLine message={formLaunchError} />
+        <LaunchRefusal error={formLaunchError}>
+          {visibleMode === "existing" ? (
+            <ExistingSubshellList
+              subshells={available}
+              query={query}
+              onQueryChange={setQuery}
+              loadFailed={subshellsFailed}
+              loading={subshellsLoading}
+              onPick={(id) => void handlePick(id)}
+              busyId={busyId}
+            />
+          ) : (
+            <div className="flex flex-col gap-4">
+              <SubshellKindPicker value={kind} onChange={setKind} disabled={creating} />
+              {!agentBranch ? (
+                <ConnectPanel
+                  draft={sshDraft}
+                  onDraftChange={setSshDraft}
+                  onPendingChange={setCreating}
+                  initial={{ node: form.nodeId || undefined }}
+                  onLeave={dismiss}
+                  onCreated={async (id) => {
+                    try {
+                      await onAdd(id, "within");
+                      onOpenChange(false);
+                      reset();
+                    } catch (err) {
+                      setError(
+                        `SSH subshell was created but could not be added (${errMessage(err, "unknown error")}). Add it from the list instead.`,
+                      );
+                      setForm({ ...form, nodeId: "" });
+                      setMode("existing");
+                    }
+                  }}
+                />
+              ) : (
+                <NewSubshellForm value={form} onChange={setForm} onLeave={dismiss} launchError={displayLaunchError} />
+              )}
+            </div>
+          )}
+        </LaunchRefusal>
 
         {visibleMode === "new" && kind === "agent" && (
           <DialogFooter sticky>

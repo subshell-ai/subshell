@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 /**
  * The launch refusal a dialog shows at form level.
  *
@@ -14,5 +16,25 @@ export function LaunchErrorLine({ message }: { message: string | null | undefine
     <p role="alert" className="text-destructive text-detail">
       {message}
     </p>
+  );
+}
+
+/**
+ * The launch form's content, with the refusal that content cannot host.
+ *
+ * The line has to sit OUTSIDE the agent/SSH branch, not inside the form: choosing
+ * the SSH tab unmounts the Virtual display checkbox without clearing the error, and
+ * a refusal nobody can read is the failure `splitLaunchError` exists to prevent.
+ * Each dialog stated that placement itself, which meant a dialog could drop the
+ * line and still render. Here the announcement travels with the content, so
+ * rendering a launch form at all renders its refusal; the fragment adds no element,
+ * which keeps every dialog's sticky-footer layout exactly where it was.
+ */
+export function LaunchRefusal({ error, children }: { error: string | null; children: ReactNode }) {
+  return (
+    <>
+      {children}
+      <LaunchErrorLine message={error} />
+    </>
   );
 }

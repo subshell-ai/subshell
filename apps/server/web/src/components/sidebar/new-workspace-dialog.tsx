@@ -4,7 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
 import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
-import { LaunchErrorLine } from "@/components/launch-error-line";
+import { LaunchRefusal } from "@/components/launch-error-line";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
 import {
   canSubmit,
@@ -235,48 +235,48 @@ export function NewWorkspaceDialog({
             }}
           />
         </fieldset>
-        {createdId ? (
-          // The workspace exists; the error line above says which adds failed.
-          <p className="text-muted-foreground text-sm">The workspace is created. Enter it to add the rest.</p>
-        ) : mode === "existing" ? (
-          <ExistingSubshellList
-            subshells={subshells ?? []}
-            // Nothing is a member yet (the workspace does not exist), so the
-            // eligible roster is the candidate list; 0 means none to add.
-            totalCount={subshells?.length}
-            query={query}
-            onQueryChange={setQuery}
-            loadFailed={loadFailed}
-            loading={loading}
-            selected={new Set(selected)}
-            onToggle={toggle}
-          />
-        ) : (
-          <div className="flex flex-col gap-4">
-            <SubshellKindPicker value={kind} onChange={setKind} disabled={launching || creating} />
-            {!agentBranch ? (
-              <ConnectPanel
-                draft={sshDraft}
-                onDraftChange={setSshDraft}
-                onPendingChange={setLaunching}
-                onLeave={() => onOpenChange(false)}
-                onCreated={(id) => {
-                  setSelected((prev) => [...prev, id]);
-                  setMode("existing");
-                }}
-              />
-            ) : (
-              <NewSubshellForm
-                value={form}
-                onChange={setForm}
-                onLeave={() => onOpenChange(false)}
-                launchError={displayLaunchError}
-              />
-            )}
-          </div>
-        )}
-
-        <LaunchErrorLine message={formLaunchError} />
+        <LaunchRefusal error={formLaunchError}>
+          {createdId ? (
+            // The workspace exists; the error line above says which adds failed.
+            <p className="text-muted-foreground text-sm">The workspace is created. Enter it to add the rest.</p>
+          ) : mode === "existing" ? (
+            <ExistingSubshellList
+              subshells={subshells ?? []}
+              // Nothing is a member yet (the workspace does not exist), so the
+              // eligible roster is the candidate list; 0 means none to add.
+              totalCount={subshells?.length}
+              query={query}
+              onQueryChange={setQuery}
+              loadFailed={loadFailed}
+              loading={loading}
+              selected={new Set(selected)}
+              onToggle={toggle}
+            />
+          ) : (
+            <div className="flex flex-col gap-4">
+              <SubshellKindPicker value={kind} onChange={setKind} disabled={launching || creating} />
+              {!agentBranch ? (
+                <ConnectPanel
+                  draft={sshDraft}
+                  onDraftChange={setSshDraft}
+                  onPendingChange={setLaunching}
+                  onLeave={() => onOpenChange(false)}
+                  onCreated={(id) => {
+                    setSelected((prev) => [...prev, id]);
+                    setMode("existing");
+                  }}
+                />
+              ) : (
+                <NewSubshellForm
+                  value={form}
+                  onChange={setForm}
+                  onLeave={() => onOpenChange(false)}
+                  launchError={displayLaunchError}
+                />
+              )}
+            </div>
+          )}
+        </LaunchRefusal>
         {!createdId && selected.length > 0 && (
           <p className="text-detail text-muted-foreground">
             {selected.length === 1 ? "1 subshell" : `${selected.length} subshells`} to add
