@@ -122,8 +122,8 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
   await expect(dialog.locator("#node-name")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Generate setup key" }).click();
 
-  // The rendered install command: curl … /install.sh?setup_key=<the key> |
-  // bash. Since 2026-09-18 the key's only carrier is a COMMAND (the
+  // The rendered install command feeds the URL and setup key to curl through
+  // stdin, then pipes the installer to bash. Since 2026-09-18 the key's only carrier is a COMMAND (the
   // standalone box is gone; the air-gapped branch has two command rows,
   // alternatives that each carry it) — so the key is read OFF the command.
   // The count-0 is the box's RETURN alarm specifically: a bare key element's
@@ -252,7 +252,12 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   await expect(addressPicker).toBeVisible();
   const selectedAddress = (await addressPicker.locator('[data-slot="select-value"]').textContent())?.trim();
   expect([appBaseUrl, ...trustedOrigins]).toContain(selectedAddress);
-  const installUrl = new URL(((await command.textContent()) ?? "").match(/curl -fsSL "([^"]+)"/)?.[1] ?? "");
+  const commandText = (await command.textContent()) ?? "";
+  // The secret-bearing URL is a curl config value sent through stdin.
+  expect(commandText).toMatch(/\| curl -fsSLg? --config - \| bash$/);
+  const encodedUrl = commandText.match(/url = ("(?:[^"\\]|\\.)*")/)?.[1];
+  expect(encodedUrl, "the install command carries a quoted curl config URL").toBeTruthy();
+  const installUrl = new URL(JSON.parse(encodedUrl ?? '""'));
   expect(installUrl.origin).toBe(selectedAddress);
   expect(installUrl.pathname).toBe("/install.sh");
   expect(installUrl.searchParams.get("setup_key")).toBe(setupKey);
