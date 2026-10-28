@@ -3,6 +3,7 @@ import { Input, Label } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import type { JSX } from "react";
 import { useEffect, useState } from "react";
+import { LaunchErrorLine } from "@/components/launch-error-line";
 import { ListLoadError } from "@/components/list-load-error";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
 import { LaunchCommandPreview } from "@/components/subshell-picker/launch-command-preview";
@@ -266,11 +267,7 @@ export function NewSubshellForm({
     // vanishes the moment every machine becomes unselectable behind the dialog.
     return (
       <>
-        {launchError && (
-          <p role="alert" className="text-destructive text-detail">
-            {launchError}
-          </p>
-        )}
+        <LaunchErrorLine message={launchError} />
         <NoLaunchTargets nodes={nodes} onNavigate={onLeave} />
       </>
     );
