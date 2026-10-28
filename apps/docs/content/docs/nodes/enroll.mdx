@@ -23,17 +23,29 @@ Sign in to the server with permission to enroll nodes. Use a supported Linux or 
 5. Choose the machine's display name and whether to install the background service.
 6. Confirm that the new node appears online.
 
-The command downloads a compatible node binary from the control plane and runs `subshell setup`. The name is chosen on the node, not by the setup key.
+The command downloads a compatible node binary from the control plane and runs
+`subshell setup`. The name is chosen on the node, not by the setup key. The
+generated command sends the download URL to curl through standard input so the
+setup key doesn't appear in curl's process arguments.
+
+Treat the copied command as a credential: it still contains the setup key and
+may be saved in your shell history. Don't paste it into shared logs or messages.
 
 ## Use an existing binary
 
-When `subshell` is already installed, use the server and key from the dialog:
+When a current `subshell` binary is already installed, use the server and key
+from the dialog. Check that `subshell --help` lists `SUBSHELL_SETUP_KEY`; update
+an older binary before using this form:
 
 ```bash
-subshell setup --server https://server.example.com --key nsk_REPLACE_ME
+SUBSHELL_SETUP_KEY='nsk_REPLACE_ME' subshell setup --server https://server.example.com
 ```
 
-Replace the example address and key before running it. A setup key is single-use and must not be confused with a rotated node credential.
+Replace the example address and key before running it. The environment input
+keeps the key out of command arguments; privileged processes and processes
+running as your OS user can still inspect it. The CLI consumes it before
+starting child processes. A setup key is single-use and must not be confused
+with a rotated node credential.
 
 Setup-key rows remain available to their owner; an unused key's **Setup** action reopens the instructions.
 
