@@ -1,6 +1,6 @@
 ---
 title: "Web app previews"
-description: "Open discovered dev servers and saved services, configure personal preview settings, and protect private links."
+description: "Open dev servers and saved services, understand iframe and localhost limitations, and improve your app's preview compatibility."
 ---
 
 Open a website running on your node beside its subshell.
@@ -10,6 +10,21 @@ Open a website running on your node beside its subshell.
 Follow [Preview prerequisites and setup](/previews/setup) for the node setting
 and access you need. Automatic port discovery requires Linux; use a saved
 service for a web server on macOS.
+
+## How the preview runs
+
+A web preview loads your app in an **iframe**, an embedded page inside the
+Subshell dashboard. The app's JavaScript runs in the browser on the device
+you're viewing from. Subshell forwards requests through a private preview URL
+to one host and port reachable from the node.
+
+By default, the iframe runs in a sandbox that separates the app from your
+Subshell account. The preview URL also changes the address and path the app
+sees. These differences mean a locally hosted app can work in a browser on the
+node and still fail in a preview. Subshell adapts common app patterns, but
+can't fully support every local service or browser feature. See
+[Browser compatibility and private links](#browser-compatibility-and-private-links)
+for limitations and ways to improve compatibility.
 
 ## Check a website
 
@@ -96,24 +111,84 @@ shows its configuration and warning before opening.
 
 ## Browser compatibility and private links
 
-By default, app previews use an isolated browser document so the website's JavaScript can't
-read your dashboard's DOM, storage, or authenticated API responses. Target
-cookies stay in the preview's server-side cookie jar. Sites that need browser
-storage, service workers, JavaScript-managed cookies, or full browser login
-flows may work with **Run outside the sandbox** enabled for a trusted app. This
-doesn't guarantee compatibility with every app. A [virtual display](/previews#choose-a-view)
-lets you use a normal browser on the node.
+### Local addresses and multiple services
+
+The saved service's **Host** is resolved on the node. An address used by your
+app's browser-side JavaScript is different: if it isn't rewritten through the
+preview, `localhost` and `127.0.0.1` refer to the device viewing the dashboard.
+For example, a phone viewing a frontend on the node can't reach the node's API
+by fetching `http://localhost:8000`.
 
 With **Rewrite app URLs** enabled, Subshell rewrites supported HTML attributes,
 CSS URLs, and module imports. It also adds a browser compatibility script for
 common requests such as fetch, XMLHttpRequest, WebSocket, and EventSource.
-This helps apps that assume they're hosted at `/`, but it doesn't make every
-app compatible. A target's strict Content Security Policy can block the
-compatibility script or other resources. Preview settings don't relax the
-sandbox.
+URLs for other hosts or ports stay external. Opening a second preview doesn't
+automatically connect it to the first app's API requests.
 
-If the app rejects the preview's host or origin, check the app's allowed-host
-and origin settings. Subshell doesn't bypass the app's access checks.
+### Common limitations
+
+| What may fail | Why it happens |
+| --- | --- |
+| Assets, routes, or API calls | An app may build URLs that escape the preview path, assume it lives at `/`, or call a separate local service. Rewriting covers common patterns, not arbitrary JavaScript. |
+| Live reload or hot module replacement (HMR) | The page can load while its WebSocket connection points at another port or a hardcoded local address. |
+| Browser storage and service workers | The default sandbox gives the page an isolated, opaque origin. Features such as `localStorage`, IndexedDB, and service workers aren't available as they would be on the app's own origin. |
+| Cookies and sign-in | Target cookies stay in a server-side jar, so app JavaScript can't manage them through `document.cookie`. The jar keys cookies by name, without normal browser path and domain scoping. Login flows that depend on these behaviors, an exact callback URL, or leaving the iframe may fail. |
+| Header-based authentication | The proxy strips `Authorization` and `X-Api-Key` request headers and HTTP authentication challenges to protect dashboard credentials. Apps that depend on them may not work through the preview. |
+| Strict browser or app policies | Content Security Policy (CSP) can block the injected compatibility script or resources. App host and origin checks, and browser rules for external requests, can also reject traffic. |
+
+The iframe permits scripts and forms, but doesn't grant every browser
+capability. MDN's [iframe sandbox reference](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#sandbox)
+explains how embedding and sandbox permissions affect a page.
+
+### Improve your app's compatibility
+
+Make these changes in your application's development configuration on the node:
+
+1. **Keep browser requests on one app origin.** Prefer relative asset and API
+   URLs over hardcoded hosts. If the frontend runs on port 3000 and its API on
+   port 8000, configure the frontend's dev server to proxy `/api` to that API.
+   Browser code can then fetch `/api/items` through the frontend preview.
+2. **Keep URL and redirect rewriting enabled to start.** Use the
+   [preview configuration controls](#configure-an-app-preview) to check them.
+   If your framework exposes a public URL, base path, or router base setting,
+   make sure it supports being served beneath a path. Don't bake a private
+   preview URL into source code; its access reference changes between previews.
+3. **Route live reload through the same service.** Configure the dev server's
+   HMR or WebSocket endpoint to use the app's host and port, allowing the preview
+   to rewrite it. A separate hardcoded socket address won't gain a tunnel from
+   opening the page. Check the browser's Network panel if the page loads but
+   updates stop.
+4. **Check rejected requests before changing policies.** Use the browser's
+   Console and Network panels and the dev server's logs to identify the failed
+   URL or check. The app receives its target Host by default; **Pass the preview
+   host** changes that to the dashboard's host. Allow only the development hosts
+   your app needs. Keep any CSP changes scoped to development, and use a normal
+   browser if your policy must block injected scripts.
+5. **Let optional browser features fail gracefully.** Catch storage-access
+   errors and provide an in-memory fallback where practical. Skip service-worker
+   registration in preview development when it isn't part of the behavior
+   you're testing. Test storage, offline behavior, and authentication in the
+   app's normal browser context.
+
+### When to use a normal browser
+
+In the preview toolbar, **More view actions** → **Open in browser tab** removes
+the surrounding iframe. It still opens the private proxy URL, and the default
+sandbox also applies through response headers. This doesn't restore the app's
+original origin, cookie behavior, or access to other local ports.
+
+**Run outside the sandbox** can help a fully trusted app that needs browser
+storage or some sign-in features. It leaves the iframe, proxy, cookie jar, and
+credential filtering in place, so compatibility still isn't guaranteed. Read
+the [account-access warning](#configure-an-app-preview) before enabling it.
+
+For apps that need their normal origin or browser capabilities, open the app's
+original URL in a browser on the node. A [virtual display](/previews#choose-a-view)
+lets you control that browser from Subshell. You can also use the original URL
+directly from another device if that device already has network access to the
+app; a loopback address still refers to that device.
+
+### Keep preview links private
 
 > [!WARNING]
 > Treat a preview URL as a private access link. Anyone who receives it can use it
