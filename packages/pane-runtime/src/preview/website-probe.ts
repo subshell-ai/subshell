@@ -82,12 +82,9 @@ const ATTEMPT_TIMEOUT_MS = 900;
  * Check for HTML without following redirects off this port or downloading an
  * unbounded body, on both spellings of loopback.
  *
- * Each family gets its OWN slice of the window. Usually the family nobody
- * listened on answers with a refused socket, which costs nothing; when it stalls
- * instead (a firewall DROP, or a listener holding 127.0.0.1 while the app bound
- * `::1`) one shared budget would spend the whole window on the side that never
- * replies and leave a real IPv6-only website out of the picker. The caller's
- * signal stays the outer bound: once the scan is over, the scan is over.
+ * Each attempted family gets its own timeout, within the caller's scan budget.
+ * IPv6 is tried only when IPv4 could not connect, matching the forward lane.
+ * An accepted but silent IPv4 connection is not a reason to try another socket.
  *
  * THE POLICY, because the two pressures here pull opposite ways and this has
  * been decided once already: a port is offered when something on it ANSWERED

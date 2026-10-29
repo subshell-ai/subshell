@@ -2,9 +2,9 @@
  * CDP discovery and the bridge's bootstrap read one port over loopback, and a
  * browser bound to only one family is routine. These reads therefore try both
  * spellings of loopback, in the same order the forward lane dials them
- * (`forward.ts`): v4 first, and v6 when v4 cannot answer at all. Keeping the
+ * (`forward.ts`): v4 first, then v6 when v4 supplies no usable CDP document. Keeping the
  * family list here means discovery, the bridge, and the lane cannot drift into
- * three different opinions of what "reachable loopback" means, which is what
+ * different spellings of loopback, which is what
  * made an IPv6-only devtools endpoint discoverable as a website yet never as a
  * browser to watch.
  */
@@ -48,7 +48,7 @@ export async function fetchCdpJson(url: string, signal: AbortSignal): Promise<un
  * Fetch `path` on `port` from whichever loopback family answers.
  *
  * A family that throws (refused, or out of its window) hands the question to the
- * next; a family that answers with a non-2xx or oversized body is an answer that
+ * next; a non-2xx, oversized body, or JSON rejected by `accept` is an answer that
  * refuses CDP on that socket, and the next family is a different socket which may
  * hold the real endpoint, so the walk continues rather than trusting one "no".
  * When nothing answers, the last failure is what the caller hears: it names the
@@ -61,7 +61,7 @@ export async function fetchCdpJsonFromLoopback(
   port: number,
   path: string,
   signal: AbortSignal,
-  opts: { perFamilyTimeoutMs?: number; fetchImpl?: typeof fetch } = {},
+  opts: { perFamilyTimeoutMs?: number; fetchImpl?: typeof fetch; accept?: (body: unknown) => boolean } = {},
 ): Promise<unknown> {
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
   let lastError: unknown;
@@ -71,7 +71,9 @@ export async function fetchCdpJsonFromLoopback(
         ? signal
         : AbortSignal.any([signal, AbortSignal.timeout(opts.perFamilyTimeoutMs)]);
     try {
-      return await fetchCdpJsonAt(`http://${host}:${port}${path}`, attempt, fetchImpl);
+      const body = await fetchCdpJsonAt(`http://${host}:${port}${path}`, attempt, fetchImpl);
+      if (opts.accept && !opts.accept(body)) throw new Error("Loopback response is not the requested CDP document");
+      return body;
     } catch (err) {
       // The caller gave up (the scan ended, the handshake died): that is the
       // answer, and asking the other family would only delay it.

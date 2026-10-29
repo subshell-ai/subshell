@@ -83,6 +83,8 @@ afterAll(() => {
 /* ------------------------------------------------------------------ */
 
 interface FakeCdpOpts {
+  hostname?: string;
+  redirectWsTo?: () => string;
   /** HTTP status for /json/list (default 200). */
   listStatus?: number;
   /** The targets array answered on /json/list. */
@@ -97,11 +99,12 @@ class FakeCdp {
   readonly server: Server<WsData>;
   readonly sockets: ServerWebSocket<WsData>[] = [];
   listRequests = 0;
+  websocketRequests = 0;
 
   constructor(opts: FakeCdpOpts = {}) {
     this.server = Bun.serve<WsData>({
       port: 0,
-      hostname: "127.0.0.1",
+      hostname: opts.hostname ?? "127.0.0.1",
       fetch: (req, srv) => {
         const path = new URL(req.url).pathname;
         if (path === "/json/list") {
@@ -113,6 +116,8 @@ class FakeCdp {
             opts.targets ?? (() => [{ type: "page", url: "about:blank", webSocketDebuggerUrl: this.wsUrl("T1") }]);
           return Response.json(targets());
         }
+        if (path.startsWith("/devtools/")) this.websocketRequests++;
+        if (path.startsWith("/devtools/") && opts.redirectWsTo) return Response.redirect(opts.redirectWsTo());
         if (path.startsWith("/devtools/") && srv.upgrade(req, { data: { messages: [] } })) {
           return undefined as unknown as Response;
         }
@@ -492,6 +497,95 @@ describe("(c) not-cdp", () => {
     } finally {
       bridgeCloseAll("viewer-left");
       source.stop();
+      foreign.stop();
+    }
+  });
+
+  it("ignores malformed target rows and refuses an entirely malformed list cleanly", async () => {
+    let valid = false;
+    const cdp = new FakeCdp({
+      targets: () => [
+        null,
+        7,
+        "page",
+        [],
+        { type: "page" },
+        { type: "page", webSocketDebuggerUrl: "" },
+        ...(valid ? [{ type: "page", webSocketDebuggerUrl: cdp.wsUrl("T1") }] : []),
+      ],
+    });
+    const args = {
+      ref: refFor(950),
+      cdpPort: cdp.port(),
+      fps: 5,
+      lifetimeMs: 60000,
+      emitStream: () => undefined,
+      emitClosed: () => {},
+    };
+    try {
+      await expect(startBridge(args)).rejects.toThrow("not-cdp");
+      expect(bridgeCount()).toBe(0);
+      valid = true;
+      await expect(startBridge(args)).resolves.toEqual({ subscribers: 1 });
+    } finally {
+      bridgeCloseAll("viewer-left");
+      cdp.stop();
+    }
+  });
+
+  it("skips non-CDP JSON and resolves localhost against the answering IPv6 family", async () => {
+    const asked: string[] = [];
+    const cdp = new FakeCdp({ hostname: "::1" });
+    try {
+      await startBridge({
+        ref: refFor(951),
+        cdpPort: cdp.port(),
+        fps: 5,
+        lifetimeMs: 60000,
+        emitStream: () => {},
+        emitClosed: () => {},
+        deps: {
+          fetch: async (url) => {
+            asked.push(url);
+            return {
+              ok: true,
+              status: 200,
+              json: async () =>
+                url.includes("[::1]")
+                  ? [{ type: "page", webSocketDebuggerUrl: `ws://localhost:${cdp.port()}/devtools/page/T1` }]
+                  : { status: "ok" },
+            };
+          },
+        },
+      });
+      expect(asked).toHaveLength(2);
+      expect(cdp.sockets).toHaveLength(1);
+    } finally {
+      bridgeCloseAll("viewer-left");
+      cdp.stop();
+    }
+  });
+
+  it("does not follow a WebSocket upgrade redirect to a different loopback port", async () => {
+    const foreign = new FakeCdp();
+    const cdp = new FakeCdp({ redirectWsTo: () => foreign.wsUrl("T1").replace("ws:", "http:") });
+    try {
+      await expect(
+        startBridge({
+          ref: refFor(952),
+          cdpPort: cdp.port(),
+          fps: 5,
+          lifetimeMs: 60000,
+          emitStream: () => {},
+          emitClosed: () => {},
+        }),
+      ).rejects.toThrow("not-cdp");
+      expect(foreign.sockets).toHaveLength(0);
+      expect(foreign.websocketRequests).toBe(0);
+      expect(bridgeCount()).toBe(0);
+    } finally {
+      bridgeCloseAll("viewer-left");
+      cdp.stop();
       foreign.stop();
     }
   });

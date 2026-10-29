@@ -225,6 +225,7 @@ export async function defaultCdpProbe(port: number, signal: AbortSignal): Promis
   try {
     const body = await fetchCdpJsonFromLoopback(port, "/json/version", signal, {
       perFamilyTimeoutMs: CDP_PROBE_TIMEOUT_MS,
+      accept: (body) => typeof body === "object" && body !== null && "Browser" in body,
     });
     return typeof body === "object" && body !== null && "Browser" in body;
   } catch {

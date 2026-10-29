@@ -87,8 +87,10 @@ without sending a key.
 
 The history controls are grouped between dividers: top, Page Up, Page Down,
 and bottom. In the normal buffer they scroll local terminal history. In the
-alternate screen, the program owns its history, so the controls send Home,
-Page Up, Page Down, and End through the regular input path. That requires
+alternate screen, the controls visibly switch to Home, PgUp, PgDn, and End.
+Their accessible names say "Send", because they send keys through the regular
+input path. The program decides what those keys do; they are not independent
+history scrolling and can change the shared app state for other viewers. That requires
 input access and input mode; when the screen belongs to a full-screen app and
 the connection cannot send keys (copy mode, view-only access, or no socket
 yet), the four buttons gray out and name the reason at the control, on the

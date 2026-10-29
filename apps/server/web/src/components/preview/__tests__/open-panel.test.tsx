@@ -26,7 +26,7 @@ function mount() {
   Object.defineProperty(frame, "contentWindow", { value: own, configurable: true });
   const notice = spyOn(toast, "message").mockImplementation(() => 1);
   spies.push(notice);
-  return { own, notice };
+  return { own, notice, view };
 }
 
 function deliver(source: MessageEventSource | null, data: unknown) {
@@ -61,4 +61,17 @@ it("renders only fixed copy, never a word the app chose", () => {
   expect(notice).toHaveBeenCalledTimes(1);
   expect(notice.mock.calls[0]?.[0]).toBe("That address isn't a web page");
   expect(JSON.stringify(notice.mock.calls)).not.toContain("please delete everything");
+});
+
+it("bounds frame-authored notifications and permits another after an explicit reload", () => {
+  const { own, notice, view } = mount();
+  for (let i = 0; i < 100; i++)
+    deliver(own, { type: PREVIEW_REFUSAL_MESSAGE, ref: REF, reason: i % 2 ? "download" : "not-a-page" });
+  expect(notice).toHaveBeenCalledTimes(1);
+  view.rerender(<OpenPanel port={3000} proxyBase={PROXY_BASE} reloadKey={1} />);
+  const reloaded = view.container.querySelector("iframe") as HTMLIFrameElement;
+  const next = new Window();
+  Object.defineProperty(reloaded, "contentWindow", { value: next, configurable: true });
+  deliver(next, { type: PREVIEW_REFUSAL_MESSAGE, ref: REF, reason: "download" });
+  expect(notice).toHaveBeenCalledTimes(2);
 });

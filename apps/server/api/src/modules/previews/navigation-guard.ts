@@ -49,10 +49,9 @@ export function strandingNavigationReason(
     (!destination && !rest && acceptsPreviewDocument(request.headers.get("accept")));
   if (!navigation || !isPreviewStrandingClient(request.headers.get("user-agent"))) return null;
   // Redirects are the app's own business, and a no-content answer strands nobody.
-  // The exemption is safe because the browser re-requests through this proxy after
-  // following, and that followed request is judged on its own: a 302 that ends at
-  // a PDF is refused when the PDF itself arrives, not here. Nothing in the browser
-  // suite exercises that chain, so a change here should be checked by hand.
+  // Same-target redirects are rewritten under the capability, so the next
+  // response is checked here. External redirects remain external: this guard
+  // neither fetches nor inspects a destination outside the authorized target.
   if (answer.status < 200 || (answer.status >= 300 && answer.status < 400)) return null;
   if (answer.status === 204 || answer.status === 205) return null;
   const contentType = answer.headers.find(([name]) => name === "content-type")?.[1] ?? "";
@@ -67,9 +66,9 @@ export function strandingNavigationReason(
  * It also announces itself to the dashboard, because a person watching the toolbar
  * sees a frame change with no explanation. The page runs in the same opaque-origin
  * sandbox, so the one channel out is postMessage to the parent, and what crosses is
- * a fixed marker, this session's own ref, and one of two known words: nothing the
- * app could author. The panel believes a message only from the frame it created,
- * and the sentences here stay ours.
+ * a fixed marker, this session's own ref, and one of two known words. The app
+ * shares that frame and can forge the same status, so the panel limits notices
+ * per load and treats them only as informational. The sentences stay ours.
  */
 export function previewRefusalPage(ref: string, origin: string, reason: PreviewRefusalReason): string {
   // Only the clients that can be stranded ever see this, so the advice has to be

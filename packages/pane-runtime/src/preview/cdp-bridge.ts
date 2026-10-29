@@ -370,17 +370,40 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
           () => settle({ why: `list said nothing on ${host}` }),
           BRIDGE_LIST_FAMILY_BUDGET_MS,
         );
-        fetchImpl(`http://${host}:${args.cdpPort}/json/list`).then(
-          (candidate) => settle(candidate.ok ? { response: candidate } : { why: `list answered ${candidate.status}` }),
-          (err: unknown) => settle({ why: `list fetch threw (${String(err)})` }),
-        );
+        Promise.resolve()
+          .then(() => fetchImpl(`http://${host}:${args.cdpPort}/json/list`))
+          .then(async (candidate) => {
+            if (!candidate.ok) {
+              settle({ why: `list answered ${candidate.status}` });
+              return;
+            }
+            const targets: unknown = await candidate.json();
+            if (
+              !Array.isArray(targets) ||
+              !targets.some(
+                (row) =>
+                  row &&
+                  typeof row === "object" &&
+                  !Array.isArray(row) &&
+                  typeof row.webSocketDebuggerUrl === "string" &&
+                  row.webSocketDebuggerUrl.length > 0,
+              )
+            ) {
+              settle({ why: "list carried no usable targets" });
+              return;
+            }
+            settle({ response: { ok: true, status: candidate.status, json: async () => targets } });
+          })
+          .catch((err: unknown) => settle({ why: `list fetch failed (${String(err)})` }));
       });
     let response: BridgeFetchResponse | null = null;
+    let answeredHost: string = "127.0.0.1";
     let refusal: string | null = null;
     for (const host of CDP_LOOPBACK_FAMILIES) {
       const outcome = await fetchListFrom(host);
       if ("response" in outcome) {
         response = outcome.response;
+        answeredHost = host;
         break;
       }
       refusal = outcome.why;
@@ -405,7 +428,14 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
     }
     // Newest first per CDP's own ordering; a page target wins, else the first
     // row stands (a worker-only list still means this port answers CDP).
-    const rows = targets as CdpTarget[];
+    const rows = targets.filter(
+      (row): row is CdpTarget =>
+        typeof row === "object" &&
+        row !== null &&
+        !Array.isArray(row) &&
+        typeof row.webSocketDebuggerUrl === "string" &&
+        row.webSocketDebuggerUrl.length > 0,
+    );
     const target = rows.find((t) => t.type === "page") ?? rows[0];
     const url = typeof target?.webSocketDebuggerUrl === "string" ? target.webSocketDebuggerUrl : "";
     if (!url) {
@@ -436,10 +466,10 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
       return;
     }
     // Resolve the loopback alias ourselves; the target cannot choose a DNS lookup.
-    if (host === "localhost") destination.hostname = "127.0.0.1";
+    if (host === "localhost") destination.hostname = answeredHost;
     if (settled) return;
     attachSocket(destination.href);
-  })();
+  })().catch((err: unknown) => handshakeFail(`target discovery failed (${String(err)})`));
 
   return handshake;
 }

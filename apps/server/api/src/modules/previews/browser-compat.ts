@@ -15,8 +15,9 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
   // app that blanks it would make the prefix test pass for anything, and a URL
   // that will not parse is left exactly as the app asked for it.
   const stylesheetBump = (element, mapped) => {
-    if (typeof globalThis.TURBOPACK_CHUNK_BASE_PATH !== "string"
-      || !mapped.startsWith(globalThis.TURBOPACK_CHUNK_BASE_PATH)) return mapped;
+    const chunkBase = globalThis.TURBOPACK_CHUNK_BASE_PATH;
+    if (typeof chunkBase !== "string" || !chunkBase.startsWith(proxy)
+      || !chunkBase.endsWith("/_next/") || !mapped.startsWith(chunkBase)) return mapped;
     let url;
     try {
       url = new URL(mapped);
@@ -35,7 +36,7 @@ const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl
       // it as the token list it is: a twin declared "preload stylesheet" is
       // still the active stylesheet this new link would otherwise reuse.
       if (previous === element || !isStylesheetRel(previous.getAttribute("rel"))) continue;
-      if (!previous.href.startsWith(globalThis.TURBOPACK_CHUNK_BASE_PATH)) continue;
+      if (!previous.href.startsWith(chunkBase)) continue;
       const existing = new URL(previous.href);
       existing.searchParams.delete("ts");
       if (existing.href !== url.href) continue;

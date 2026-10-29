@@ -196,17 +196,20 @@ export function TerminalKeyBar({
     }
   }
   const scrollButtons = (onScrollTop || onScrollPageUp || onScrollPageDown || onScrollBottom) && (
-    <fieldset aria-label="Terminal history" className="mx-1 flex shrink-0 items-stretch border-border/60 border-x">
+    <fieldset
+      aria-label={altScreen ? "Application navigation keys" : "Terminal history"}
+      className="mx-1 flex shrink-0 items-stretch border-border/60 border-x"
+    >
       {onScrollTop && (
         <KeyBarControl
           type="button"
           disabled={historyDisabled}
           disabledReason={historyDisabledReason}
-          aria-label="Scroll to top"
+          aria-label={altScreen ? "Send Home" : "Scroll to top"}
           onClick={onScrollTop}
           className={BUTTON_CLASS}
         >
-          <ArrowUpToLine className="mx-auto size-4" aria-hidden="true" />
+          {altScreen ? "Home" : <ArrowUpToLine className="mx-auto size-4" aria-hidden="true" />}
         </KeyBarControl>
       )}
       {onScrollPageUp && (
@@ -214,11 +217,11 @@ export function TerminalKeyBar({
           type="button"
           disabled={historyDisabled}
           disabledReason={historyDisabledReason}
-          aria-label="Scroll page up"
+          aria-label={altScreen ? "Send Page Up" : "Scroll page up"}
           onClick={onScrollPageUp}
           className={BUTTON_CLASS}
         >
-          <ChevronsUp className="mx-auto size-4" aria-hidden="true" />
+          {altScreen ? "PgUp" : <ChevronsUp className="mx-auto size-4" aria-hidden="true" />}
         </KeyBarControl>
       )}
       {onScrollPageDown && (
@@ -226,11 +229,11 @@ export function TerminalKeyBar({
           type="button"
           disabled={historyDisabled}
           disabledReason={historyDisabledReason}
-          aria-label="Scroll page down"
+          aria-label={altScreen ? "Send Page Down" : "Scroll page down"}
           onClick={onScrollPageDown}
           className={BUTTON_CLASS}
         >
-          <ChevronsDown className="mx-auto size-4" aria-hidden="true" />
+          {altScreen ? "PgDn" : <ChevronsDown className="mx-auto size-4" aria-hidden="true" />}
         </KeyBarControl>
       )}
       {onScrollBottom && (
@@ -238,11 +241,11 @@ export function TerminalKeyBar({
           type="button"
           disabled={historyDisabled}
           disabledReason={historyDisabledReason}
-          aria-label="Scroll to bottom"
+          aria-label={altScreen ? "Send End" : "Scroll to bottom"}
           onClick={onScrollBottom}
           className={BUTTON_CLASS}
         >
-          <ArrowDownToLine className="mx-auto size-4" aria-hidden="true" />
+          {altScreen ? "End" : <ArrowDownToLine className="mx-auto size-4" aria-hidden="true" />}
         </KeyBarControl>
       )}
     </fieldset>

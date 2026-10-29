@@ -504,7 +504,7 @@ describe("TerminalKeyBar", () => {
     expect(jumps).toBe(2);
   });
 
-  const HISTORY_ARIA = ["Scroll to top", "Scroll page up", "Scroll page down", "Scroll to bottom"];
+  const HISTORY_ARIA = ["Send Home", "Send Page Up", "Send Page Down", "Send End"];
 
   it("explains the history buttons instead of swallowing taps when an app owns the screen and access cannot send keys", () => {
     // The reviewed defect: a view grantee opens a full-screen app's preview,

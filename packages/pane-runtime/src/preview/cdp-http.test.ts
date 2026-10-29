@@ -106,6 +106,20 @@ describe("the loopback family ladder", () => {
     ).resolves.toEqual({ Browser: "real" });
   });
 
+  it("continues to IPv6 when IPv4's JSON is not a CDP document", async () => {
+    const f = scriptedFetch({
+      "127.0.0.1": () => Response.json({ status: "ok" }),
+      "::1": () => Response.json({ Browser: "Chrome" }),
+    });
+    expect(
+      await fetchCdpJsonFromLoopback(9333, "/json/version", signal(), {
+        fetchImpl: f.fetchImpl,
+        accept: (body) => typeof body === "object" && body !== null && "Browser" in body,
+      }),
+    ).toEqual({ Browser: "Chrome" });
+    expect(f.asked).toHaveLength(2);
+  });
+
   it("asks only IPv4 when it answers, leaving the common path one fetch", async () => {
     const f = scriptedFetch({ "127.0.0.1": () => Response.json({ Browser: "v4" }) });
     await fetchCdpJsonFromLoopback(9333, "/json/version", signal(), { fetchImpl: f.fetchImpl });

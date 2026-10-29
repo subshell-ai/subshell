@@ -39,6 +39,7 @@ const REFUSAL_TOAST: Record<PreviewRefusalReason, { title: string; description: 
 
 export function OpenPanel({ port, proxyBase, reloadKey, onConnectionChange }: OpenPanelProps): JSX.Element {
   const frame = useRef<HTMLIFrameElement | null>(null);
+  const announced = useRef<{ proxyBase: string; reloadKey: number | undefined } | null>(null);
   useEffect(() => {
     // Tolerant of the trailing slash and of hex case, because a listener that
     // silently fails to mount is a phone whose refusal arrives with no
@@ -47,6 +48,8 @@ export function OpenPanel({ port, proxyBase, reloadKey, onConnectionChange }: Op
     // ref, so a case difference here would disable the channel while looking live.
     const ref = /^\/pv\/([0-9a-f]{32})\/?$/i.exec(proxyBase)?.[1]?.toLowerCase();
     if (!ref) return;
+    // The app shares this frame and knows its ref too. This channel carries
+    // untrusted status, so one load cannot flood the dashboard with notices.
     const onMessage = (event: MessageEvent) => {
       // The refusal page runs sandboxed with no same-origin, so its event.origin
       // reads "null" and proves nothing. What authorizes a message is that it came
@@ -60,12 +63,14 @@ export function OpenPanel({ port, proxyBase, reloadKey, onConnectionChange }: Op
       const data = event.data as { type?: unknown; ref?: unknown; reason?: unknown } | null;
       if (!data || data.type !== PREVIEW_REFUSAL_MESSAGE || data.ref !== ref) return;
       if (!isPreviewRefusalReason(data.reason)) return;
+      if (announced.current?.proxyBase === proxyBase && announced.current.reloadKey === reloadKey) return;
+      announced.current = { proxyBase, reloadKey };
       const copy = REFUSAL_TOAST[data.reason];
       toast.message(copy.title, { description: copy.description });
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [proxyBase]);
+  }, [proxyBase, reloadKey]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">

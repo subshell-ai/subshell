@@ -141,7 +141,7 @@ describe("SubshellPane touch key bar", () => {
         });
       });
       expect(termHolder.current?.buffer.active.type).toBe("alternate");
-      for (const name of ["Scroll to top", "Scroll page up", "Scroll page down", "Scroll to bottom"]) {
+      for (const name of ["Send Home", "Send Page Up", "Send Page Down", "Send End"]) {
         const button = screen.getByRole("button", { name }) as HTMLButtonElement;
         // The publish is an xterm event, not a React one: poll for it.
         await waitFor(() => expect(button.matches(":disabled, [aria-disabled=true]")).toBe(true));

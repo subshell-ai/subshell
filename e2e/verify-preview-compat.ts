@@ -280,7 +280,7 @@ try {
   await phonePage.getByRole("button", { name: "Website", exact: true }).tap();
   // This marker follows the alternate-buffer switch in the terminal replay.
   await expect(phonePage.locator(".xterm-rows")).toContainText("History test ready");
-  for (const name of ["Scroll to top", "Scroll page up", "Scroll page down", "Scroll to bottom"]) {
+  for (const name of ["Send Home", "Send Page Up", "Send Page Down", "Send End"]) {
     await phonePage.getByRole("button", { name, exact: true }).tap();
   }
   await expect

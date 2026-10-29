@@ -54,7 +54,9 @@ stalled: forwarding retries `::1` after a refused connect but not after a socket
 that accepts and never answers, so advertising such a port would offer a preview
 that can only hang. CDP probes and the screencast bridge, which dial loopback
 themselves rather than through a lane, ask both families whenever the first gives
-no usable answer.
+no usable answer, including well-formed JSON that is not a CDP response. The
+bridge validates target rows before choosing one and resolves an advertised
+`localhost` against the family that supplied that list, without a DNS lookup.
 Same-port redirects are followed; cross-origin redirects and download responses
 are excluded. A bounded document prefix supplies an optional page title for the
 picker and truncated tab labels; SVG accessibility titles are excluded.
@@ -227,7 +229,8 @@ error page is a file the server hands over (an `attachment`, whatever its type
 claims) or a binary the view cannot read, because on iOS that hand-off takes the
 whole presentation with no way back. A desktop browser downloads in its own UI and
 leaves the preview alone, so the same bytes go through there: the refusal is scoped
-to the clients that can be stranded. A page that declares no type at all is left to
+to the clients that can be stranded. It covers only responses served through the
+preview capability; external redirects are not fetched or inspected by the proxy. A page that declares no type at all is left to
 the browser, which renders it as text. Subresource and fetch
 responses retain their content types either way, and the cookies a refused response
 carried still enter the session jar, so the app is not quietly signed out by the
@@ -237,10 +240,11 @@ The refusal page also announces itself to the dashboard, which shows a toast so 
 person learns what happened where they were looking. The page runs in the same
 opaque-origin sandbox, so its `event.origin` reads `null` and proves nothing: the
 panel believes a message only when it comes from the window of the frame that panel
-created and names that session's own ref, and the words shown are fixed copy chosen
-from one of two known values. This is the third place an opaque `Origin: null` is
-admitted, beside the two named above, and for the same reason: the capability URL
-already scopes it.
+created and names that session's own ref. This is untrusted status: app scripts
+in that same frame know the ref and can send an identical message. The words shown
+are fixed copy chosen from two known values, and a mounted panel emits at most one
+notification per capability/reload. No message grants access or runs an action.
+The parent checks the source window; it does not add `null` to an origin allowlist.
 
 Discovery and the guard ask the same question from one place, and the rewriter
 answers it slightly differently: a document served as `application/xhtml+xml` is

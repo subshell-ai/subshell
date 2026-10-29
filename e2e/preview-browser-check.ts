@@ -104,6 +104,28 @@ export async function verifyPreviewBrowser(frame: Frame | Page, dashboardOrigin:
       link.rel = "Stylesheet";
       const linkRelKept = link.getAttribute("rel") === "Stylesheet";
       const linkHrefProxied = link.href.includes("/pv/");
+      // The chunk base is writable by the app. Blank/foreign bases must not
+      // let the Next workaround mutate unrelated sheets or parse broken URLs.
+      const runtime = globalThis as typeof globalThis & { TURBOPACK_CHUNK_BASE_PATH?: string };
+      const savedBase = runtime.TURBOPACK_CHUNK_BASE_PATH;
+      const oldSheet = document.createElement("link");
+      oldSheet.rel = "stylesheet";
+      oldSheet.href = "http://[";
+      document.head.append(oldSheet);
+      let unrelatedStylesKept = true;
+      try {
+        for (const base of ["", "https://external.invalid/_next/"]) {
+          runtime.TURBOPACK_CHUNK_BASE_PATH = base;
+          const sheet = document.createElement("link");
+          sheet.rel = "stylesheet";
+          sheet.href = "/assets/app.css";
+          unrelatedStylesKept &&= !new URL(sheet.href).searchParams.has("ts");
+        }
+      } finally {
+        oldSheet.remove();
+        runtime.TURBOPACK_CHUNK_BASE_PATH = savedBase;
+      }
+
       return {
         origin: self.origin,
         parentBlocked,
@@ -118,6 +140,7 @@ export async function verifyPreviewBrowser(frame: Frame | Page, dashboardOrigin:
         relKept,
         linkRelKept,
         linkHrefProxied,
+        unrelatedStylesKept,
       };
     },
     { dashboardOrigin, embedded },
@@ -136,5 +159,6 @@ export async function verifyPreviewBrowser(frame: Frame | Page, dashboardOrigin:
     relKept: true,
     linkRelKept: true,
     linkHrefProxied: true,
+    unrelatedStylesKept: true,
   });
 }
