@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -10,6 +11,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  unlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -188,6 +190,62 @@ describe("execWriteFile (spec §3.4)", () => {
     expect(readFileSync(final, "utf8")).toBe("NEW");
     expect(readdirSync(work).filter((n) => n.endsWith(".part"))).toEqual([]);
   });
+
+  it.each([
+    ["write_file", "symlink"],
+    ["write_file", "hardlink"],
+    ["transfer_write", "symlink"],
+    ["transfer_write", "hardlink"],
+  ])("%s refuses a pre-existing %s at the temporary path without modifying its target", async (command, kind) => {
+    const { work, outside, ctx } = setup(`temp-${command}-${kind}`);
+    await track(ctx, work);
+    const victim = join(outside, "private.txt");
+    writeFileSync(victim, "PRIVATE", { mode: 0o644 });
+    const final = join(work, "upload.txt");
+    const temp = join(work, ".upload.txt.part");
+    if (kind === "symlink") symlinkSync(victim, temp);
+    else linkSync(victim, temp);
+    // Transfers have no configured directory restriction in this fixture:
+    // the opened-file checks must protect them independently of pathAllowed.
+    const result = await dispatchCommand(
+      ctx,
+      command === "write_file"
+        ? chunkOf(final, "REPLACED", 0, true)
+        : {
+            type: "transfer_write",
+            path: final,
+            chunkB64: Buffer.from("REPLACED").toString("base64"),
+            chunk: 0,
+            eof: true,
+          },
+    );
+    expect(result.ok).toBe(false);
+    expect(readFileSync(victim, "utf8")).toBe("PRIVATE");
+    expect(statSync(victim).mode & 0o777).toBe(0o644);
+    expect(existsSync(final)).toBe(false);
+    expect(ctx.uploads.size).toBe(0);
+  });
+
+  it.each(["symlink", "hardlink"])(
+    "refuses a %s substituted between chunks before appending any bytes",
+    async (kind) => {
+      const { work, outside, ctx } = setup(`append-${kind}`);
+      await track(ctx, work);
+      const victim = join(outside, "private.txt");
+      writeFileSync(victim, "PRIVATE", { mode: 0o644 });
+      const final = join(work, "upload.txt");
+      const temp = join(work, ".upload.txt.part");
+      expect((await dispatchCommand(ctx, chunkOf(final, "FIRST", 0, false))).ok).toBe(true);
+      unlinkSync(temp);
+      if (kind === "symlink") symlinkSync(victim, temp);
+      else linkSync(victim, temp);
+      expect((await dispatchCommand(ctx, chunkOf(final, "APPENDED", 1, true))).ok).toBe(false);
+      expect(readFileSync(victim, "utf8")).toBe("PRIVATE");
+      expect(statSync(victim).mode & 0o777).toBe(0o644);
+      expect(existsSync(final)).toBe(false);
+      expect(ctx.uploads.size).toBe(0);
+    },
+  );
 
   it("a symlink planted under the cwd between chunk 0 and eof is caught by the eof re-check", async () => {
     const { work, outside, ctx } = setup("symlink");

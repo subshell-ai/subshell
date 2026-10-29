@@ -1,6 +1,6 @@
-import { appendFile, mkdir, rename, unlink, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { mkdir, open, rename, unlink } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { enforceMode } from "@internal/pane-runtime";
 import { type JsonValue, type NodeWriteFileResult, partPathOf } from "@internal/subshell-protocol";
 import type { CommandContext, CommandResult, UploadState } from "./context.js";
 
@@ -10,10 +10,9 @@ import type { CommandContext, CommandResult, UploadState } from "./context.js";
  * §4). The two commands answer through ONE implementation because their
  * discipline is identical and was battle-tested once: bytes accumulate in a
  * `.<basename>.part` temp BESIDE the final path (same filesystem, so the eof
- * rename can never hit EXDEV), the caller's gate runs TWICE per stream (chunk
- * 0 before any parent is created, eof with fresh facts, because symlinks and
- * roots drift mid-stream), chunks must arrive in order, and eof is exactly
- * one rename to land.
+ * rename can never hit EXDEV). Both paths are gated before writing and again
+ * at eof because symlinks and roots drift mid-stream. Each write checks the
+ * opened inode before changing it. Chunks arrive in order; eof renames once.
  *
  * What deliberately differs is passed IN: `gate` is the per-command POLICY
  * (uploads: dataDir + tracked cwds; transfers: the operator allowlist). The
@@ -24,6 +23,36 @@ import type { CommandContext, CommandResult, UploadState } from "./context.js";
 /** Per-command policy: whether this path may receive a stream right now. */
 export type StreamGate = (path: string) => Promise<boolean>;
 
+/** Check the opened inode before truncating, appending, or changing its mode. */
+async function writeChunk(path: string, bytes: Uint8Array, first: boolean): Promise<boolean> {
+  let file;
+  try {
+    file = await open(
+      path,
+      constants.O_WRONLY |
+        constants.O_NOFOLLOW |
+        constants.O_NONBLOCK |
+        (first ? constants.O_CREAT : constants.O_APPEND),
+      0o600,
+    );
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ELOOP") return false;
+    throw err;
+  }
+  try {
+    const info = await file.stat();
+    // O_NOFOLLOW cannot detect hard links. O_TRUNC at open would already
+    // damage the shared inode before this check could refuse it.
+    if (!info.isFile() || info.nlink !== 1) return false;
+    if (first) await file.truncate(0);
+    await file.chmod(0o600);
+    await file.writeFile(bytes);
+    return true;
+  } finally {
+    await file.close();
+  }
+}
+
 /**
  * Receive one chunk of a chunked stream. All refusal paths answer `ok:false`
  * and change no stream state except where the caller's own doc notes them:
@@ -31,9 +60,10 @@ export type StreamGate = (path: string) => Promise<boolean>;
  *   parent, (re)create the temp at 0600. Restart over an open stream deletes
  *   the old temp first (the mid-stream-failure self-heal the relays rely on).
  * - chunk N>0 requires an open stream whose `expectedChunk === N`; the stream
- *   itself stays open so the control plane can redeliver the right index.
+ *   stays open on a sequencing refusal so the plane can redeliver the right
+ *   index. A path or inode refusal discards it before any bytes are appended.
  * - eof RE-CHECKS the gate on fresh facts, re-creates a vanished parent,
- *   renames temp→final (replacing any existing file), re-tightens to 0600,
+ *   renames temp→final (replacing any existing file, retaining mode 0600),
  *   and drops the stream. An eof refusal deletes the temp — nothing stranded.
  *
  * @param ctx - the per-daemon context (`uploads` holds this stream's state)
@@ -69,7 +99,7 @@ export async function receiveChunkedStream(
       try {
         await unlink(existing.tmpPath);
       } catch {
-        // vanished mid-restart — the fresh writeFile truncates anyway
+        // A missing temp is fine; any surviving inode is checked below.
       }
     }
     await mkdir(dirname(key), { recursive: true });
@@ -77,15 +107,26 @@ export async function receiveChunkedStream(
     // the sweep compute the SAME name from code they both import, so this
     // writer cannot drift out of either.
     const tmpPath = partPathOf(key);
-    await writeFile(tmpPath, bytes, { mode: 0o600 });
-    await enforceMode(tmpPath, 0o600); // umask can't loosen 0600, but a pre-existing temp might have
+    if (!(await gate(tmpPath)) || !(await writeChunk(tmpPath, bytes, true))) {
+      return { ok: false, error: `path refused: ${rawPath}` };
+    }
     state = { tmpPath, received: bytes.byteLength, expectedChunk: 1 };
     ctx.uploads.set(key, state);
   } else {
     if (!existing || chunk !== existing.expectedChunk) {
       return { ok: false, error: `${label} chunk ${chunk} has no open stream` };
     }
-    await appendFile(existing.tmpPath, bytes);
+    // The destination check alone says nothing about the predictable .part
+    // leaf. Recheck both paths before every write, not only after the bytes
+    // have already followed a replaced parent or temporary-file link.
+    if (
+      !(await gate(rawPath)) ||
+      !(await gate(existing.tmpPath)) ||
+      !(await writeChunk(existing.tmpPath, bytes, false))
+    ) {
+      await discard(ctx, key);
+      return { ok: false, error: `path refused: ${rawPath}` };
+    }
     existing.received += bytes.byteLength;
     existing.expectedChunk += 1;
     state = existing;
@@ -96,13 +137,13 @@ export async function receiveChunkedStream(
   // eof: the world may have changed since chunk 0 — re-gate the final path
   // (the hardened policy catches `..`, ancestor symlinks, and any symlink
   // leaf planted mid-stream) before the rename can land bytes.
-  if (!(await gate(rawPath))) {
+  if (!(await gate(rawPath)) || !(await gate(state.tmpPath))) {
     await discard(ctx, key);
     return { ok: false, error: `path refused: ${rawPath}` };
   }
   await mkdir(dirname(key), { recursive: true }); // parent may have been deleted mid-stream
   await rename(state.tmpPath, key); // POSIX rename: replaces an existing final, preserves the 0600 mode
-  await enforceMode(key, 0o600); // landed bytes are user files — same re-tighten discipline as fs-mode.ts
+  // writeChunk set the mode through its checked descriptor; rename retains it.
   ctx.uploads.delete(key);
   return okData(rawPath, state.received);
 }

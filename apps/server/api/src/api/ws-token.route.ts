@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { authGuard } from "@/api/auth-guard.js";
+import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/api/middleware/context.plugin.js";
 import { apiModels } from "@/api/schemas/index.js";
 import { issueWsToken } from "@/api/ws/ws-token.js";
@@ -68,7 +68,10 @@ export const wsTokenRoutes = new Elysia({ prefix: "/api/auth" })
   .use(apiModels)
   .post(
     "/ws-token",
-    async ({ user, actor, principal, body, ctx, systemKeyPermissions }) => {
+    async ({ user, actor, principal, body, ctx, systemKeyPermissions, apiKeyPermissions }) => {
+      // Attach tokens permit terminal input. Binding to the caller's own pane
+      // must not turn a read-only subshell key into a write credential.
+      requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
       if (actor === "cookie") {
         // The human path ignores subshellId: scoping only narrows, and the
         // cookie identity can already attach (with its own access) to

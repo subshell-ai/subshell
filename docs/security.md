@@ -99,6 +99,9 @@ attempt burns it), and `/ws/live`, the whole-user feed, refuses scoped
 tokens outright. A subshell's own key may mint only for its own pane; the
 sibling-injection this route was cookie-only to prevent is still refused, and
 it is refused by an equality check now, not by the whole door being shut.
+Minting also requires `subshells.write` in the pane's permission map: an
+attach token permits terminal input, so a read-only pane key must not acquire
+one even for its own pane.
 
 ### Scoped system-key permissions
 
@@ -4196,6 +4199,8 @@ custom identity headers must prevent those from reaching preview routes.
 Target `Clear-Site-Data`, `WWW-Authenticate`, HSTS, Alt-Svc, NEL, Report-To,
 Reporting-Endpoints, Accept-CH, and Critical-CH response headers are removed
 so a dev server cannot install those origin-wide dashboard policies.
+The proxy also removes `X-Accel-*` response headers: a target must not instruct
+an outer nginx proxy to perform internal redirects or override caching.
 Responses use `Cache-Control: no-store` and
 `Referrer-Policy: no-referrer`.
 

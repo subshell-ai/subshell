@@ -9,13 +9,13 @@ import type { CommandContext, CommandResult } from "./context.js";
 /**
  * The `write_file` chunk receiver (spec 2026-08-31 §3.4): the terminal-upload
  * relay delivers a file as ordered base64 chunks + an `eof` flag. The stream
- * discipline (temp-beside-final `.part`, in-order chunks, gate-twice,
+ * discipline (temp-beside-final `.part`, in-order chunks, checked writes,
  * rename-last) lives in `chunked-stream.ts`, shared VERBATIM with
  * `transfer_write`; this module owns only the uploads policy.
  *
  * That policy is deliberately NOT the transfers one, and the two are not
- * mergeable: `write_file`'s roots are dataDir + tracked working dirs, gated
- * twice and pinned by tests as the narrow upload surface; widening them to
+ * mergeable: `write_file`'s roots are dataDir + tracked working dirs, checked
+ * before writes and publication as the narrow upload surface; widening them to
  * reach a transfer destination would weaken a load-bearing policy (spec
  * 2026-10-01 §4 says keep them apart, which is why the sibling verb carries a
  * different name). Every accepted chunk answers the {@link NodeWriteFileResult}
@@ -43,7 +43,7 @@ async function policyRoots(ctx: CommandContext): Promise<string[]> {
 
 /**
  * `write_file` (spec §3.4): receive one chunk of a chunked upload, gated
- * against {@link policyRoots} on chunk 0 and again at eof (semantics:
+ * against {@link policyRoots} before each write and again at eof (semantics:
  * `chunked-stream.ts`).
  *
  * @param ctx - the per-daemon context (`uploads` is this executor's map)

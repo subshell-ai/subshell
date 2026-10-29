@@ -203,6 +203,27 @@ describe("ws-token route (unscoped cookie mints, scoped bearer mints)", () => {
     expect(consumeWsToken(token)).toEqual({ userId, subshellId });
   });
 
+  it("a read-only subshell key cannot exchange its scope for terminal input", async () => {
+    const row = await new SubshellsRepository(db).findById(subshellId);
+    if (!row?.apiKeyId) throw new Error("missing test key");
+    const database = authDatabase();
+    const previous = database
+      .query<{ permissions: string }, [string]>("SELECT permissions FROM apikey WHERE id = ?")
+      .get(row.apiKeyId);
+    if (!previous) throw new Error("missing test permissions");
+    try {
+      database.run("UPDATE apikey SET permissions = ? WHERE id = ?", [
+        JSON.stringify({ subshells: ["read"] }),
+        row.apiKeyId,
+      ]);
+      const res = await app.fetch(bearerRequest("/api/auth/ws-token", subshellKey, { subshellId }));
+      expect(res.status).toBe(403);
+      expect(await res.json()).not.toHaveProperty("token");
+    } finally {
+      database.run("UPDATE apikey SET permissions = ? WHERE id = ?", [previous.permissions, row.apiKeyId]);
+    }
+  });
+
   it("subshell key naming a SIBLING -> 403 (the original cookie-only rationale)", async () => {
     // A subshell key resolves as its OWNER on the guard; without this
     // equality check a pane's key could mint its way into any sibling of the

@@ -193,7 +193,10 @@ function outHeadersToWeb(pairs: [string, string][], jar: Map<string, string>, re
   const headers = new Headers();
   const setCookies = setCookieValues(pairs);
   for (const [name, value] of pairs) {
-    if (OUTBOUND_DROP.has(name)) continue;
+    // An outer nginx proxy interprets these as trusted upstream instructions,
+    // including internal redirects and caching. A preview target must not
+    // inherit the control plane's authority over that proxy.
+    if (OUTBOUND_DROP.has(name) || name.startsWith("x-accel-")) continue;
     if (name === "content-security-policy" || name === "content-security-policy-report-only") {
       headers.append(name, stripFrameAncestors(value));
     } else if (name === "location") {

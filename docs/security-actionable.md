@@ -1,5 +1,107 @@
 # Security follow-ups and audit history
 
+## Codebase security audit: 2026-10-29
+
+Work was isolated on `security/codebase-audit-2026-10-29`, starting from a clean
+tree. This was a risk-based source review with local exploit regressions, not
+an exhaustive review of every file or an external penetration test. No checks
+targeted the running instance, and no release or deployment was performed.
+
+### Confirmed findings and fixes
+
+1. **Medium: a read-only pane credential could acquire terminal write access.**
+   `POST /api/auth/ws-token` checked the pane binding and inherited system-key
+   ceiling, but omitted the pane's own `subshells.write` permission check. A
+   valid, row-linked pane key narrowed to `subshells: ["read"]` received a
+   token that the attach resolver treated as its pane owner's terminal access.
+   This does not require a forged key or a foreign pane. The route now calls
+   `requirePerm` before minting. The regression in `ws-token-route.test.ts`
+   returned 200 before the fix and now returns 403 without a token. Existing
+   cookie, writable-pane, system-key, foreign-pane, and capacity tests pass.
+   Ordinary newly issued pane keys already carry write permission; the defect
+   affected enforcement of narrowed permission maps.
+
+2. **Medium, potentially high with protected nginx locations: preview targets
+   could issue instructions to the deployment's reverse proxy.**
+   `/pv/:session/*` forwarded target-controlled `X-Accel-*` response headers.
+   A target returning `X-Accel-Redirect: /private/instance.db` could therefore
+   ask an outer nginx proxy to perform an internal redirect. Exposure depends
+   on that proxy's configuration and accessible internal locations; this is
+   not an unconditional file-read vulnerability in Bun. `X-Accel-Expires` can
+   also influence caching of capability responses. The HTTP proxy now strips
+   the whole family before returning the response. The composed-app regression
+   demonstrated the redirect header escaping before the fix and checks its
+   removal alongside cache, buffering, charset, and rate directives. Ordinary
+   response bytes and isolation headers still pass through correctly.
+   The nginx behavior is documented in its
+   [proxy module reference](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_ignore_headers).
+   A live nginx deployment was not used in this audit.
+
+3. **Medium: linked upload temporaries bypassed the intended file boundary.**
+   The node's shared `write_file` / `transfer_write` receiver checked the final
+   destination but wrote and chmodded its predictable `.<name>.part` path
+   using operations that followed links. A pre-existing symlink could redirect
+   the first write; a hard link could modify an unrelated inode even though
+   its pathname remained inside the allowed directory. Replacing the temp
+   between chunks also redirected append operations before the eof check.
+   The receiver now gates temporary and final paths before writes, opens with
+   `O_NOFOLLOW`, checks that the opened inode is regular and has one link, and
+   only then truncates, chmods, or writes through that descriptor. Publication
+   preserves the descriptor-set mode instead of chmodding the destination by
+   name. Tests verify unchanged victim contents and permissions, no published
+   destination, and discarded stream state. Both upload and unrestricted
+   transfer paths are covered, as are replacements between chunks. The four
+   original upload attack cases failed before the fix. This closes planted
+   links; it does not claim to sandbox a hostile local OS user racing ancestor
+   replacement between filesystem calls, which remains outside the threat model.
+
+### Review coverage
+
+The detailed review concentrated on REST credential derivation, permission
+ceilings, the auth-provider passthrough, terminal token mint/redemption, pane
+ownership and sharing resolution, preview open authorization and HTTP/WS
+forwarding, and node chunked writes. Additional source inspection sampled
+channel identity/envelope handling, upload/transfer gates, node event routing,
+command signing and replay checks, path confinement, archive extraction and
+backup capture, registry integrity, signed-release verification, and the desktop
+client's committed-origin/native-key boundary. Existing tests exercise more
+paths than were manually inspected; their passing is not a claim that those
+entire subsystems received a line-by-line audit.
+
+The review retained the documented trust decisions: same-OS-user execution,
+trusted administrators and in-process plugins, configured filesystem browsing,
+capability-bearing preview links, and the loopback dashboard's local-user
+exposure. Already-issued terminal tickets and connections surviving system-key
+revocation are explicitly documented behavior, not an overlooked fix here.
+
+The live dependency gate reported one allowlisted advisory, for `deepmerge`.
+Its checked-in patch is covered by the dependency-security test, including the
+installed Expo consumer. The audit did not add an exception or change a dependency.
+
+### Validation and remaining scope
+
+Validation used isolated test databases and temporary files:
+
+| Check | Result |
+| --- | --- |
+| Server package | 4,935 passed |
+| Node package | 1,293 passed; two non-Linux cases skipped on Linux |
+| Pane runtime package | 598 passed |
+| Protocol package | 573 passed |
+| Dependency-security regression file | Four passed |
+| Live dependency audit | One advisory, already patched and allowlisted |
+
+Server and node type checks passed. Their lint
+checks passed with existing warnings outside the modified code. Each confirmed
+finding has an executable regression; a four-app patch changeset includes the
+desktop bundles that ship the affected CLIs.
+
+No macOS native execution, full browser E2E run, compiled release matrix,
+live reverse-proxy penetration test, fuzz campaign, or comprehensive mobile/CI
+audit was performed. Native OS consent, installed updater behavior, deployment
+configuration, and dependency advisories outside the Bun audit feed remain
+separate validation work. The normal release gates still apply before shipping.
+
 ## Preview reliability PR audit: 2026-10-28
 
 Reviewed PR #467's discovery probes, CDP fallback and handshake, capability URL
