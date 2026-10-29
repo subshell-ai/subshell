@@ -1101,6 +1101,26 @@ describe("resolveNodeRelease", () => {
     }
   }
 
+  for (const [path, padding] of [
+    ["/releases", 8 * 1024 * 1024],
+    [`/dl/${RELEASE_MANIFEST_NAME}`, 1024 * 1024],
+    [`/dl/${RELEASE_MANIFEST_SIG_NAME}`, 64 * 1024],
+  ] as const) {
+    it(`refuses oversized release metadata at ${path} before offering an update`, async () => {
+      const source = serveReleaseSource();
+      fakeRelease(source, releaseManifest());
+      source.routes[path] += " ".repeat(padding);
+      try {
+        const result = await resolveAgainst(source);
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.error.message).toMatch(/exceeds.*bytes/);
+        expect(source.requested).not.toContain(`/dl/${HOST_ASSET}`);
+      } finally {
+        source.stop();
+      }
+    });
+  }
+
   it("verifies the publisher before the bytes move and takes the digest from the SIGNED manifest", async () => {
     // The CLI path's ACCEPTANCE case (spec 2026-09-17 §4). This function is a
     // node's own trust anchor — it holds no REST credential, so it checks the

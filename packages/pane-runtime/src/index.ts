@@ -44,6 +44,7 @@ export {
   findBinary,
 } from "./binary-lookup.js";
 export { type BoundedResult, readCommandBounded } from "./bounded-exec.js";
+export { readResponseBounded } from "./bounded-response.js";
 export { builtInIds, type EmbeddedPlugin, readBuiltIn } from "./builtin-source.js";
 export { exitHookFor } from "./exit-hook.js";
 export { enforceMode } from "./fs-mode.js";

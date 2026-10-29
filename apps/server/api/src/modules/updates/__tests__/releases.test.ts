@@ -50,6 +50,7 @@ interface Fake {
   tags: { tag: string; draft?: boolean }[];
   /** How many times the list endpoint was read — the TTL's observable effect. */
   listReads: number;
+  listPadding?: number;
 }
 
 function startFakeRelease(): Fake {
@@ -74,7 +75,7 @@ function startFakeRelease(): Fake {
             browser_download_url: `${state.url}/asset/${encodeURIComponent(name)}`,
           })),
         }));
-        return Response.json(body);
+        return new Response(JSON.stringify(body) + " ".repeat(state.listPadding ?? 0));
       }
       const asset = url.pathname.startsWith("/asset/")
         ? decodeURIComponent(url.pathname.slice("/asset/".length))
@@ -191,6 +192,10 @@ describe("autoFetchEnabled", () => {
 });
 
 describe("resolveReleases", () => {
+  it("refuses oversized release lists before parsing them", async () => {
+    fake.listPadding = 8 * 1024 * 1024;
+    await expect(resolveReleases()).rejects.toThrow(/exceeds.*bytes/);
+  });
   it("indexes the newest release of EVERY component from one read", async () => {
     fake.tags = [
       { tag: "cli-server-v50.0.0" },
@@ -239,6 +244,19 @@ describe("resolveReleases", () => {
 });
 
 describe("compatibleNodeRelease", () => {
+  for (const [name, padding] of [
+    [RELEASE_MANIFEST_NAME, 1024 * 1024],
+    [RELEASE_MANIFEST_SIG_NAME, 64 * 1024],
+  ] as const) {
+    it(`refuses oversized ${name} before signature verification`, async () => {
+      fake.assets.set(name, enc(new TextDecoder().decode(fake.assets.get(name)) + " ".repeat(padding)));
+      const release = (await resolveReleases()).byComponent["cli-node"];
+      if (!release) throw new Error("fixture release is missing");
+      const outcome = await checkReleaseManifest(release);
+      expect(outcome.kind).toBe("failed");
+      if (outcome.kind === "failed") expect(outcome.reason).toMatch(/exceeds.*bytes/);
+    });
+  }
   it("offers the newest node release whose manifest matches this server's protocol", async () => {
     const { release, reason } = await compatibleNodeRelease();
     expect(release?.tag).toBe("cli-node-v9.9.9");

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, resolve, sep } from "node:path";
 import { parseNodeWriteFileResult } from "@internal/subshell-protocol";
@@ -175,6 +175,20 @@ export function resolveUploadPath(workingRealPath: string, name: string): string
   return full;
 }
 
+/** Refuse planted directory links before creating or writing anything beneath them. */
+function ensureUploadDirectory(path: string): void {
+  try {
+    mkdirSync(path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+  }
+  if (!lstatSync(path).isDirectory()) {
+    throw new UploadError(
+      "An upload directory is a link or isn't a directory. Check .subshell/uploads in the working directory.",
+    );
+  }
+}
+
 /**
  * Appends `.subshell/` to the working directory's `.git/info/exclude` when missing.
  *
@@ -190,14 +204,34 @@ export function resolveUploadPath(workingRealPath: string, name: string): string
 export function ensureGitExcluded(workingRealPath: string): void {
   try {
     const gitDir = join(workingRealPath, ".git");
-    if (!existsSync(gitDir)) return;
+    // Linked worktrees have a .git file; the upload's own .gitignore covers
+    // them. Following a .git symlink would let workspace content redirect writes.
+    try {
+      if (!lstatSync(gitDir).isDirectory()) return;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw err;
+    }
     const infoDir = join(gitDir, "info");
-    if (!existsSync(infoDir)) mkdirSync(infoDir, { recursive: true });
+    ensureUploadDirectory(infoDir);
     const excludeFile = join(infoDir, "exclude");
-    const current = existsSync(excludeFile) ? readFileSync(excludeFile, "utf8") : "";
-    if (current.split(/\r?\n/).some((line) => line.trim() === GIT_EXCLUDE_LINE)) return;
-    const prefix = current.length === 0 || current.endsWith("\n") ? "" : "\n";
-    appendFileSync(excludeFile, `${prefix}${GIT_EXCLUDE_LINE}\n`);
+    const fd = openSync(
+      excludeFile,
+      constants.O_RDWR | constants.O_CREAT | constants.O_APPEND | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      0o600,
+    );
+    try {
+      // A hard link passes O_NOFOLLOW. Check the opened inode before either
+      // reading its contents or appending, and keep both operations on that fd.
+      const stat = fstatSync(fd);
+      if (!stat.isFile() || stat.nlink !== 1) return;
+      const current = readFileSync(fd, "utf8");
+      if (current.split(/\r?\n/).some((line) => line.trim() === GIT_EXCLUDE_LINE)) return;
+      const prefix = current.length === 0 || current.endsWith("\n") ? "" : "\n";
+      writeFileSync(fd, `${prefix}${GIT_EXCLUDE_LINE}\n`);
+    } finally {
+      closeSync(fd);
+    }
   } catch (err) {
     // Never block an upload on git bookkeeping, but a permanently failing
     // exclude write should be visible somewhere rather than silent.
@@ -226,7 +260,6 @@ export function ensureGitExcluded(workingRealPath: string): void {
 function ensureSubshellSelfIgnoring(workingRealPath: string): void {
   try {
     const dir = join(workingRealPath, SUBSHELL_DIR);
-    mkdirSync(dir, { recursive: true });
     try {
       writeFileSync(join(dir, ".gitignore"), GIT_IGNORE_CONTENT, { flag: "wx" });
     } catch (err) {
@@ -292,12 +325,14 @@ export async function writeUpload({
 }): Promise<UploadResult> {
   const { bytes, name, contentType } = await sniffedUpload(file, now);
   const dir = uploadsDirFor(workingRealPath);
+  // Filename sanitizing can't see directory links supplied by a workspace.
+  // Validate each component before the ignore file or upload writes occur.
+  ensureUploadDirectory(join(workingRealPath, SUBSHELL_DIR));
+  ensureUploadDirectory(dir);
   // Seal BEFORE any upload byte lands — the same rule the relay's wire-order
   // test pins on the wire: a `git add` racing a first upload into a fresh
-  // directory must never find unsealed files. (The helper creates
-  // `.subshell` itself, so nothing here depends on ordering below it.)
+  // directory must never find unsealed files.
   ensureSubshellSelfIgnoring(workingRealPath);
-  mkdirSync(dir, { recursive: true });
   const { path, finalName } = await writeUnique(workingRealPath, name, bytes);
   // NOT a duplicate of the seal above, so do not "dedup" it away:
   // ensureGitExcluded is the fallback for a disk where even our own

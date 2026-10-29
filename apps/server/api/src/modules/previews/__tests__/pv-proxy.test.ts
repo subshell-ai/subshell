@@ -248,6 +248,15 @@ beforeAll(async () => {
             ["reporting-endpoints", 'target="https://collector.example"'],
             ["accept-ch", "Sec-CH-UA-Platform-Version"],
             ["critical-ch", "Sec-CH-UA-Platform-Version"],
+            ["X-Accel-Redirect", "/private/instance.db"],
+            ["X-Accel-Expires", "3600"],
+            ["X-Accel-Buffering", "no"],
+            ["X-Accel-Limit-Rate", "0"],
+            ["X-Accel-Charset", "utf-8"],
+            ["X-Sendfile", "/private/instance.db"],
+            ["X-Sendfile-Temporary", "/private/backup.tar"],
+            ["X-Sendfile2", "/private/instance.db 0-"],
+            ["X-LIGHTTPD-send-file", "/private/instance.db"],
           ],
         });
       }
@@ -641,6 +650,15 @@ describe("pv-http: the same-origin rewrite", () => {
       "reporting-endpoints",
       "accept-ch",
       "critical-ch",
+      "x-accel-redirect",
+      "x-accel-expires",
+      "x-accel-buffering",
+      "x-accel-limit-rate",
+      "x-accel-charset",
+      "x-sendfile",
+      "x-sendfile-temporary",
+      "x-sendfile2",
+      "x-lighttpd-send-file",
     ]) {
       expect(res.headers.get(name)).toBeNull();
     }

@@ -99,6 +99,9 @@ attempt burns it), and `/ws/live`, the whole-user feed, refuses scoped
 tokens outright. A subshell's own key may mint only for its own pane; the
 sibling-injection this route was cookie-only to prevent is still refused, and
 it is refused by an equality check now, not by the whole door being shut.
+Minting also requires `subshells.write` in the pane's permission map: an
+attach token permits terminal input, so a read-only pane key must not acquire
+one even for its own pane.
 
 ### Scoped system-key permissions
 
@@ -820,6 +823,12 @@ filesystem permissions, nothing more.
 `<workingDir>/.subshell/uploads/`, git-excluded, filename-sanitized, capped at
 `MAX_UPLOAD_BYTES` (25 MiB). Paths are injected into the pane via bracketed paste.
 They are not swept: an uploaded file stays until someone removes it.
+Local uploads refuse symlinks at `.subshell` and `uploads` before writing;
+exclusive creation prevents following a linked filename or overwriting an
+existing upload. The optional `.git/info/exclude` update also refuses directory
+links and only appends through a descriptor for a regular, singly linked file.
+These checks reject planted links in workspace contents; they don't sandbox a
+hostile OS user racing directory replacement between filesystem calls.
 
 ### Pane logs: the session transcript on disk
 
@@ -1707,6 +1716,9 @@ subshell may only be launched in one of them or beneath it.
   the relayed archive lands: the narrow root, not all of dataDir, so a
   transfer frame cannot overwrite a node state file (the same subtree
   `file_read`, `archive_create`, and `archive_extract` gate on).
+  Extraction refuses linked destinations and nonregular file leaves before
+  truncation or chmod. Leaf opens are nonblocking so an existing FIFO cannot
+  freeze the daemon while it waits for a reader.
 - Changes are audited (`node.allowed_dirs.update`).
 
 - **Setup keys** are single-use, expire in 24 h, are listed in full to the person
@@ -1883,6 +1895,10 @@ posture:
   verified bytes or a clean refusal, never a truncated body; the mid-flight
   error this replaced was the 2026-10-23 "Update all" incident's other face,
   where one shared stream left every joiner but the first with an empty one.
+  Release metadata is bounded before parsing or signature verification in both
+  the server and node: 8 MiB per release list, 1 MiB per manifest and 64 KiB per
+  signature. The reader counts delivered bytes and cancels oversized responses,
+  including chunked responses without Content-Length.
   The ingest is bounded by `MAX_ARTIFACT_BYTES` (300 MB) chunk by chunk; an
   endless body cannot fill the disk. And the check that predates all of it
   still stands: `install.sh` verifies the digest itself before the first
@@ -2140,6 +2156,15 @@ posture carries forward onto the new door, unchanged:
   vendored extractor refuses everything npm never ships (links, traversal,
   oversize), and the module load-check runs against a staging copy: a refused
   install leaves the previous state byte-identical.
+- **Limits apply before buffering or full decompression.** Registry metadata
+  and tarball responses each stop at 20 MiB of delivered bytes, including
+  responses without Content-Length. The tar reader caps decompression at the
+  file budget plus bounded header, padding and metadata overhead; its defaults
+  permit 20 MiB of files, 1,024 headers and 1 MiB of extended metadata.
+  Directory and metadata headers count toward that entry ceiling, and directory
+  bodies are refused. Compressed trailing padding cannot evade the inflation
+  limit by appearing after the tar terminator. These are availability controls
+  before plugin code loads, not a sandbox for an installed plugin.
 - **Any package name is installable, deliberately, decided against an
   allowlist** (spec §2.3). The four facts above are the control; a name list
   would be a second one no complaint asked for.
@@ -4196,6 +4221,10 @@ custom identity headers must prevent those from reaching preview routes.
 Target `Clear-Site-Data`, `WWW-Authenticate`, HSTS, Alt-Svc, NEL, Report-To,
 Reporting-Endpoints, Accept-CH, and Critical-CH response headers are removed
 so a dev server cannot install those origin-wide dashboard policies.
+The proxy also removes `X-Accel-*`, `X-Sendfile`, `X-Sendfile-Temporary`,
+`X-Sendfile2`, and `X-LIGHTTPD-send-file` response headers: a target must not
+instruct an outer proxy to redirect internally, override caching, serve a local
+file, or delete it after sending.
 Responses use `Cache-Control: no-store` and
 `Referrer-Policy: no-referrer`.
 

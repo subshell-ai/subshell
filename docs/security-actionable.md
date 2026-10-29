@@ -1,5 +1,460 @@
 # Security follow-ups and audit history
 
+## Archive, update and account follow-up: 2026-10-29
+
+This pass continued from `7b3004974` on `security/codebase-audit-2026-10-29`.
+It inspected plugin ingestion, signed release downloads, node archive transfers,
+backup/restore staging and downloads, and OAuth/account lifecycle policy. Three
+additional availability weaknesses were reproduced and fixed. These changes
+have not been deployed.
+
+### Findings and fixes
+
+1. **Unbounded HTTP buffering before validation.** Registry metadata used
+   `Response.json()` without a byte ceiling; tarballs used `arrayBuffer()` and
+   checked their 20 MiB ceiling only after the complete download. Server and
+   node release lists, manifests and signatures also buffered complete bodies
+   before parsing or signature verification. A hostile response source could
+   consume memory before any integrity check ran. A shared reader now counts
+   delivered bytes and cancels oversized responses: 20 MiB for registry
+   responses, 8 MiB for release lists, 1 MiB for manifests, and 64 KiB for
+   signatures. Content-Length is an early refusal only; chunked bodies face the
+   same running limit. Real loopback HTTP tests left oversized responses open;
+   the old calls waited for completion and the fixed calls refused immediately
+   after crossing the ceiling. Padded release fixtures separately proved that
+   both production callers apply the bounds before offering an update.
+2. **Plugin decompression preceded every archive limit.** The npm tar reader
+   expanded the whole gzip stream before counting regular-file payloads.
+   Directory and extended-metadata entries escaped the entry counter, and even
+   trailing zeros after the tar terminator were fully inflated. A small fixture
+   expanded beyond an injected ceiling and was accepted before the fix. Inflation
+   now has an output ceiling derived from the file/entry budgets plus bounded
+   metadata and padding overhead. Directory and metadata headers count toward
+   the entry cap, metadata has an aggregate ceiling, and directory bodies are
+   refused. Existing valid npm archives and installation tests still pass.
+3. **A transfer destination FIFO could block the node's event loop.** The
+   extractor opened existing leaves synchronously for writing before checking
+   the descriptor. Opening an unread named pipe never reached the check. A
+   disposable child process reproduced the hang and required its watchdog to
+   kill it. Leaf opens now use `O_NONBLOCK`, and `fstat().isFile()` rejects
+   nonregular files before truncation, chmod or writing. Tests with and without
+   a FIFO reader both finish promptly and preserve the pipe's permissions.
+
+These are availability findings, not demonstrated authentication bypasses or
+code execution. The HTTP findings require control over a contacted registry,
+release source, or its response channel. Plugin installation remains a trusted,
+administrator-only action that permits code execution once loading begins;
+decompression limits do not sandbox that code. The FIFO case requires a special
+file already present in a selected transfer destination and a transfer naming
+it. No process was deliberately exhausted on the deployed instance.
+
+### Other boundaries examined
+
+Backup download jobs and restore stages bind to the initiating administrator,
+expire, and refuse foreign ownership. The mounted backup routes require a
+cookie administrator. Archive ingestion uses streamed stored/expanded limits,
+allowlisted logical paths, duplicate/link refusal and SQLite schema validation.
+Recovery gating checks revoked sessions rather than trusting copied cookie
+caches. The covering server tests exercised malformed and encrypted archives,
+restore staging, schema attacks, ownership and recovery credentials without
+restoring the operator's instance.
+
+The OAuth review traced provider closure, verified-email linking, issuer-bound
+subjects, pending/disabled session creation, and the installed Better Auth link
+hooks. The release review traced publisher verification, component/version and
+asset binding, redirect restrictions and artifact digest checks. No additional
+authorization, archive escape or signature bypass was reproduced in those
+paths. This is a scoped source and fixture review, not a claim that every
+account transition, restore deployment mode or third-party component is safe.
+
+### Validation
+
+The new regression cases failed against the preceding implementation, then
+passed with the fixes. The server suite passed 4,945 tests; the node suite
+passed 1,296 with two existing skips; pane-runtime passed 603. The affected
+web, desktop TypeScript and E2E-helper suites also passed, along with 346
+repository-script checks (three macOS-only skips). The affected build/type/lint
+plan completed all 48 tasks with existing warnings; package, lockfile, license,
+design and prose checks passed.
+
+Eleven Chromium scenarios passed on an isolated running stack: initial setup,
+real node enrollment and launch, built-in and registry plugin installation,
+update refusal without a source, OAuth sign-in and approval, and encrypted
+backup download/inspection. Attack-specific networking tests used real loopback
+HTTP servers, while the FIFO regression used an isolated subprocess with an
+external watchdog. A separately compiled probe confirmed that the gzip output
+ceiling works in the compiled Bun runtime as well as source execution.
+
+Compiled server smoke passed. The CLI suite passed origin, headless
+server/node and installer scenarios, then stopped at the server-update safety
+guard because this host has an installed per-user server service. That scenario
+could select the operator's binary and was not bypassed. The isolated node
+update scenario was run separately and passed, including unsigned refusal,
+acceptance under a disposable signing key and refusal of tampered signed bytes.
+The server-update scenario and later scenarios in the interrupted full CLI run
+remain for an appropriate CI host; this was not a complete local CLI-suite pass.
+No production update or restore was performed. Source files and publisher-key
+artifacts temporarily changed by the CLI fixture were restored.
+
+Logs are under `/tmp/subshell-live-audit/` on the audit machine, named
+`followup-server-focused.log` (the package runner selected its whole suite),
+`followup-unit.log`, `followup-static.log`, `followup-e2e.log`,
+`followup-cli.log`, `followup-node-cli.log`, `followup-smoke.log` and
+`followup-compiled-archive.log`. The test stack released its listeners.
+
+## Live SSH follow-up: 2026-10-29
+
+The SSH-specific pass continued on `security/codebase-audit-2026-10-29` at
+application revision `d2673ee11`. No additional vulnerability was reproduced,
+and no application fix or deployment was needed in this pass.
+
+### Deployed endpoint
+
+Ten read-only checks against `https://subshell.ein.disaresta.com` passed:
+readiness, aliases, public agent identities, saved host pins, and recent
+destinations each returned 401 anonymously and 403 with the current pane's
+credential. These checks neither connected to an SSH destination nor changed
+trust or SSH settings on the deployed instance. The redacted results are in
+`/tmp/subshell-live-audit/ssh-deployed.json` on the audit machine.
+
+### Live connections and adversarial probes
+
+Six new scenarios in
+[`27-ssh-security.spec.ts`](../e2e/tests/27-ssh-security.spec.ts) exercise the
+running server and a real disposable OpenSSH destination:
+
+- Thirteen SSH discovery, launch, trust, setup and signing routes rejected
+  anonymous and valid system-key requests. The key could access its permitted
+  non-SSH endpoint, so the refusal did not depend on an invalid credential.
+- Option injection, newline injection and shell-substitution destinations
+  could not launch a pane or create a command canary. A changed canonical
+  destination also failed against the supplied approval.
+- Destination confirmation belonged to its account, could be consumed once,
+  and saved no pin before acceptance. Another account could neither see nor
+  delete it; a conflicting replacement preserved the original pin.
+- Confirmation rechecked outgoing-SSH permission after preparation. Turning
+  SSH off refused acceptance and consumed that challenge; turning it back on
+  did not make the refused challenge reusable.
+- A local-key handle could not be consumed, read or cancelled by another
+  account or another login session of the same account. Changing the username
+  failed, the original session could still launch, and replay failed. A
+  sequence-mismatched agent reply closed the bridge.
+- Two simultaneous launches using one preparation produced exactly one pane;
+  closing the preparation ended subsequent agent exchanges.
+
+The existing SSH E2E files `22`, `23-connect-flow`, `23-ssh-relay`, `25` and
+`26` also completed their ten scenarios. They verified owner-only SSH input
+despite an edit share; real password login and retry without passwords in the
+checked HTTP bodies, terminal history, presets or database bytes; browser-key
+login without uploading the key or passphrase; selected-key relay scoping,
+encrypted relay envelopes, expiry, revocation, destination enrollment, and
+changed-host-key refusal and explicit recovery. Actual TCP/SOCKS traffic
+verified local, remote and dynamic forwarding, loopback defaults, and refusal
+of wide binds until the owner enabled them.
+
+The native signer additionally passed its two explicit real-OpenSSH tests on
+Linux, covering Ed25519 and encrypted RSA keys with SHA-256/SHA-512 host proofs
+and one-signature consumption. Seventeen native signer unit tests and 44
+browser signer/lifecycle tests passed, including wrong host/user/session/key,
+forged bindings, unbound signing, replay, concurrency, expiry and SHA-1 refusals.
+Those unit tests supplement the live connections; they are not GUI tests.
+
+### Validation and limits
+
+Sixteen distinct SSH E2E scenarios and the setup scenario passed across the
+selected runs. The first run had one login-page failure before its SSH assertions:
+Chromium reported `ERR_NETWORK_CHANGED` while loading JavaScript, leaving a
+blank page. The trace is retained at
+`/tmp/subshell-live-audit/ssh-network-failure.zip`; the complete five-scenario
+connection-flow file passed on the follow-up run. This was not an observed
+authentication bypass, and the intermittent browser/network failure is not
+claimed fixed. Run logs are `ssh-e2e.log` and `ssh-adversarial.log` in that
+same audit directory. A final setup-plus-adversarial run passed all seven tests
+after making the disposable account unique across worker restarts; its log is
+`ssh-final.log`.
+
+The changed E2E package passed its type and lint checks; lint retained three
+existing warnings. The affected test plan selected setup plus the new SSH
+file, both exercised above. Temporary SSH daemons, agents, containers, node
+processes and data were cleaned up, and the test control-plane ports were
+released. No personal SSH configuration, keys or known-hosts files were changed.
+
+This does not establish deployed SSH login behavior: authenticated connections
+used the disposable branch instances. Native Tauri approval windows, origin
+navigation on macOS, and remote infrastructure were not exercised. Existing
+trust limits still apply: direct SSH uses `accept-new` on first contact;
+browser-selected private keys require trusting the served page; password
+keystrokes traverse the control plane; and connecting-account SSH configuration
+is trusted executable input. The detailed boundaries remain in
+[the security model](security.md#ssh-surfaces-and-credential-boundaries).
+
+## Live penetration checks: 2026-10-29
+
+This pass exercised the deployed HTTPS instance and a separate running copy of
+`security/codebase-audit-2026-10-29`. No additional security defect was reproduced.
+The application under test in the disposable stack was revision `c650765c5`;
+the fixes below have not been deployed by this audit.
+
+### Deployed endpoint
+
+`https://subshell.ein.disaresta.com` passed **49 checks**, including availability
+controls. Requests were anonymous or used the current pane's existing credential.
+No administrator or second user's deployed credentials were available. The
+checks covered:
+
+- Anonymous access to protected API routes, credential-type restrictions on
+  node artifacts, dotfile requests, an invalid preview capability, and encoded
+  or normalized auth-plugin paths.
+- A working current-pane credential, refusal on admin and cookie-only surfaces,
+  invalid credentials, and an invalid cookie taking precedence over a valid bearer.
+- Refusal to mint unbound or foreign-pane terminal tickets; refusal of foreign
+  and opaque origins on terminal upgrades; refusal of pane credentials on the
+  node socket; and terminal-ticket binding, single use, and rejection on the
+  instance live feed.
+
+Two initial SSH-identity probes supplied an incomplete query and returned 400.
+The corrected `?node=local` request returned the expected 403. Those two attempts
+are retained with their correction in the local evidence and excluded from the
+49 passing checks. A random absent pane id returned 404; cross-account ownership
+was tested with known resources in the disposable stack below, not inferred
+from that response.
+
+The deployed checks minted and consumed two short-lived tickets for this pane.
+They sent no terminal input and changed no accounts, shares, nodes, files, or
+deployment settings. The endpoint remained available after the probes.
+
+### Disposable running stack
+
+[`e2e/verify-live-security.ts`](../e2e/verify-live-security.ts) passed **58 checks**
+using real HTTP, terminal WebSockets, Chromium, tmux shells, a newly enrolled
+node, and an nginx container. It boots the existing E2E stack with test mode
+disabled and an isolated database and configuration; it imports no server
+internals and uses no test-only application endpoints. Three disposable accounts
+exercise administrator, owner, and unrelated-user authority.
+
+| Boundary | Observed result |
+| --- | --- |
+| Ownership and privilege | Foreign pane reads, logs, input and deletion refused; admin had no private-pane override; self-promotion and ordinary-user key minting refused |
+| Restricted credentials | Read-scoped system key could list but could not execute, mint terminal access or enroll; disabling it invalidated the next request |
+| Sharing and terminal input | View access allowed reading and rejected input/forwarding; the same terminal accepted input after an edit grant; share changes closed the old socket and revoked issued preview links |
+| Browser isolation | Embedded and directly opened previews had opaque origins; parent DOM, cookies, storage, dashboard API access and service-worker registration were blocked |
+| Browser request forgery | Same-site foreign-origin POST and WebSocket attempts failed; an authenticated HTTP positive control reached the shell |
+| Proxy credentials and cookies | Dashboard authorization, cookies and edge assertions were absent at the target; target cookies stayed in the server-side jar |
+| Reverse-proxy instructions | All tested file-serving headers were removed; direct nginx forwarding served a private canary through `X-Accel-Redirect`, while forwarding through Subshell returned the ordinary preview without the canary |
+| Local upload writes | Planted directory link refused without an outside write; a hard-linked Git exclude file retained its bytes and mode; ordinary uploads succeeded |
+| Node upload writes | Directory escape refused over the enrolled-node link; planted symlink and hard-link temporaries left victim bytes and modes untouched; normal upload and ignore-file creation succeeded |
+| Node previews and revocation | Preview isolation survived the encrypted node link; deleting its subshell invalidated the capability |
+| Disabled accounts | Existing cookie access and preview capability failed; the auth session cache did not resurrect the disabled account |
+
+The node temporary-file probes target the fixed-name `.gitignore` seed sent
+before an upload. Its best-effort refusal does not fail the upload itself;
+the assertions inspect the outside victim and verify that no ignore file was
+published through the planted link. Removing the link restores normal creation.
+
+The nginx fixture used `nginx/1.31.8`, pinned to
+`nginx@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606`.
+Its canary and internal location were disposable. Two initial runs stopped at
+fixture startup: first a response-property error in the runner, then nginx's
+default temporary-directory location on a read-only filesystem. Both were fixed;
+the final run completed all checks and cleanup.
+
+### Evidence and limits
+
+The redacted local reports are `/tmp/subshell-live-audit/deployed.json` and
+`/tmp/subshell-live-audit/isolated.json`; the latter can be regenerated with the
+checked-in runner. They contain outcomes, not credentials or response bodies.
+The E2E package type check and three helper tests passed. Lint passed with three
+existing warnings outside the new runner. The test plan selected the E2E package;
+this pass ran the targeted live runner rather than the entire browser suite.
+All fixture processes, containers, tmux sessions, accounts and temporary data
+were removed, and their listening ports were released.
+
+Deployed browser/account-to-account behavior, native macOS consent, mobile
+clients, compiled release artifacts, Apache/lighttpd interpretation, and denial
+of service were not exercised. Successful branch tests do not establish the
+deployed revision or prove the absence of other vulnerabilities.
+
+## Adversarial follow-up: 2026-10-29
+
+This second pass continued on `security/codebase-audit-2026-10-29` after the
+audit below. It traced restricted credentials through derived tokens and
+resource access, then tested filesystem and preview-response inputs that can
+redirect an otherwise authorized operation. All attack fixtures used temporary
+files, isolated test databases, or test listeners. The running instance was
+not targeted.
+
+### Confirmed findings and fixes
+
+1. **Medium: planted workspace links redirected local upload writes.**
+   The local upload service sanitized the filename and used exclusive creation,
+   but followed directory symlinks at `.subshell` and `.subshell/uploads`.
+   A prepared workspace could therefore send an upload and its ignore-file
+   creation outside the documented working-directory boundary. This requires
+   control over workspace contents and a subsequent authorized upload; the
+   uploaded filename remains sanitized and timestamp-prefixed, so this is not
+   an arbitrary existing-file overwrite. Both directory components now have to
+   be real directories before any upload or ignore-file write.
+
+   The same operation's optional Git bookkeeping followed `.git` and
+   `.git/info` directory links and appended through an `exclude` symlink or
+   hard link. That could modify an unrelated file with the fixed ignore line.
+   It now rejects directory links, opens the leaf without following links,
+   verifies a regular inode with one link, and reads/appends through that
+   descriptor. Six service regressions failed before the fix and pass after it;
+   they verify that outside directories stay empty and victim bytes and modes
+   stay unchanged. A route regression verifies a 400 `BAD_REQUEST` without an
+   outside write. Ordinary uploads, name collisions, concurrent writes, and
+   best-effort ignore handling still pass. Hostile OS-user races remain outside
+   the threat model; these checks do not provide a filesystem sandbox.
+
+2. **Medium, with deployment-dependent impact: preview targets could still
+   emit file-serving directives for an outer proxy.** The first pass stripped
+   nginx's `X-Accel-*` family, but `X-Sendfile`, `X-Sendfile-Temporary`,
+   `X-Sendfile2`, and `X-LIGHTTPD-send-file` still escaped. The composed-app
+   test returned the target's `/private/instance.db` directive before this fix;
+   all four are now removed while the ordinary response remains intact.
+   An outer proxy configured to honor them could replace the response with a
+   file from its own host. Apache's optional temporary-file variant can also
+   delete the file when its configured path permits deletion. These semantics
+   are documented by the [mod_xsendfile author](https://github.com/nmaier/mod_xsendfile)
+   and [lighttpd](https://redmine.lighttpd.net/projects/lighttpd/wiki/Mod_fastcgi).
+   This extends the first pass's reverse-proxy finding. No live Apache or
+   lighttpd deployment was used, and installations that don't enable those
+   features don't have that file-serving exposure.
+
+### Other paths examined
+
+Source review covered provider-policy hooks and better-auth's account-linking
+inputs; session-cache handling after revocation; versioned system-key checks,
+derived-token ceilings and restart intersection; node-management actor gates
+and setup-key disclosure; preview opening/revocation coordination; SSH native-key
+session ownership; MCP path construction; and transfer/archive confinement.
+No additional reproducible authorization bypass was established in those paths.
+That is a bounded review result, not evidence that those subsystems are free of
+defects. The documented same-account execution authority, preview capability
+links, and lifetime of independently issued credentials remain unchanged.
+
+The working security summary had drifted from the implementation on system-key
+scopes and node management. It now describes explicit grants and the remaining
+cookie-only actions instead of claiming that all system keys have full access
+or that all bearer node-management requests are refused.
+
+### Validation and limits
+
+The affected server package passed **4,942 tests across 386 files**, including
+HTTP/WS preview integration and CLI backup subprocess tests. Its type check
+passed; lint passed with 39 existing warnings outside the changed code. The
+new regressions demonstrated the defects before the fixes. A changeset covers
+the server CLI and the desktop server that bundles it.
+
+This pass did not rerun the node/runtime/protocol suites from the first audit
+because their implementation did not change. It did not perform browser E2E,
+native macOS testing, a full release build, an external penetration test, or
+continuous fuzzing. Neither audit is a guarantee that every security defect
+has been found.
+
+## Codebase security audit: 2026-10-29
+
+Work was isolated on `security/codebase-audit-2026-10-29`, starting from a clean
+tree. This was a risk-based source review with local exploit regressions, not
+an exhaustive review of every file or an external penetration test. No checks
+targeted the running instance, and no release or deployment was performed.
+
+### Confirmed findings and fixes
+
+1. **Medium: a read-only pane credential could acquire terminal write access.**
+   `POST /api/auth/ws-token` checked the pane binding and inherited system-key
+   ceiling, but omitted the pane's own `subshells.write` permission check. A
+   valid, row-linked pane key narrowed to `subshells: ["read"]` received a
+   token that the attach resolver treated as its pane owner's terminal access.
+   This does not require a forged key or a foreign pane. The route now calls
+   `requirePerm` before minting. The regression in `ws-token-route.test.ts`
+   returned 200 before the fix and now returns 403 without a token. Existing
+   cookie, writable-pane, system-key, foreign-pane, and capacity tests pass.
+   Ordinary newly issued pane keys already carry write permission; the defect
+   affected enforcement of narrowed permission maps.
+
+2. **Medium, potentially high with protected nginx locations: preview targets
+   could issue instructions to the deployment's reverse proxy.**
+   `/pv/:session/*` forwarded target-controlled `X-Accel-*` response headers.
+   A target returning `X-Accel-Redirect: /private/instance.db` could therefore
+   ask an outer nginx proxy to perform an internal redirect. Exposure depends
+   on that proxy's configuration and accessible internal locations; this is
+   not an unconditional file-read vulnerability in Bun. `X-Accel-Expires` can
+   also influence caching of capability responses. The HTTP proxy now strips
+   the whole family before returning the response. The composed-app regression
+   demonstrated the redirect header escaping before the fix and checks its
+   removal alongside cache, buffering, charset, and rate directives. Ordinary
+   response bytes and isolation headers still pass through correctly.
+   The nginx behavior is documented in its
+   [proxy module reference](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_ignore_headers).
+   A live nginx deployment was not used in this audit.
+
+3. **Medium: linked upload temporaries bypassed the intended file boundary.**
+   The node's shared `write_file` / `transfer_write` receiver checked the final
+   destination but wrote and chmodded its predictable `.<name>.part` path
+   using operations that followed links. A pre-existing symlink could redirect
+   the first write; a hard link could modify an unrelated inode even though
+   its pathname remained inside the allowed directory. Replacing the temp
+   between chunks also redirected append operations before the eof check.
+   The receiver now gates temporary and final paths before writes, opens with
+   `O_NOFOLLOW`, checks that the opened inode is regular and has one link, and
+   only then truncates, chmods, or writes through that descriptor. Publication
+   preserves the descriptor-set mode instead of chmodding the destination by
+   name. Tests verify unchanged victim contents and permissions, no published
+   destination, and discarded stream state. Both upload and unrestricted
+   transfer paths are covered, as are replacements between chunks. The four
+   original upload attack cases failed before the fix. This closes planted
+   links; it does not claim to sandbox a hostile local OS user racing ancestor
+   replacement between filesystem calls, which remains outside the threat model.
+
+### Review coverage
+
+The detailed review concentrated on REST credential derivation, permission
+ceilings, the auth-provider passthrough, terminal token mint/redemption, pane
+ownership and sharing resolution, preview open authorization and HTTP/WS
+forwarding, and node chunked writes. Additional source inspection sampled
+channel identity/envelope handling, upload/transfer gates, node event routing,
+command signing and replay checks, path confinement, archive extraction and
+backup capture, registry integrity, signed-release verification, and the desktop
+client's committed-origin/native-key boundary. Existing tests exercise more
+paths than were manually inspected; their passing is not a claim that those
+entire subsystems received a line-by-line audit.
+
+The review retained the documented trust decisions: same-OS-user execution,
+trusted administrators and in-process plugins, configured filesystem browsing,
+capability-bearing preview links, and the loopback dashboard's local-user
+exposure. Already-issued terminal tickets and connections surviving system-key
+revocation are explicitly documented behavior, not an overlooked fix here.
+
+The live dependency gate reported one allowlisted advisory, for `deepmerge`.
+Its checked-in patch is covered by the dependency-security test, including the
+installed Expo consumer. The audit did not add an exception or change a dependency.
+
+### Validation and remaining scope
+
+Validation used isolated test databases and temporary files:
+
+| Check | Result |
+| --- | --- |
+| Server package | 4,935 passed |
+| Node package | 1,293 passed; two non-Linux cases skipped on Linux |
+| Pane runtime package | 598 passed |
+| Protocol package | 573 passed |
+| Dependency-security regression file | Four passed |
+| Live dependency audit | One advisory, already patched and allowlisted |
+
+Server and node type checks passed. Their lint
+checks passed with existing warnings outside the modified code. Each confirmed
+finding has an executable regression; a four-app patch changeset includes the
+desktop bundles that ship the affected CLIs.
+
+No macOS native execution, full browser E2E run, compiled release matrix,
+live reverse-proxy penetration test, fuzz campaign, or comprehensive mobile/CI
+audit was performed. Native OS consent, installed updater behavior, deployment
+configuration, and dependency advisories outside the Bun audit feed remain
+separate validation work. The normal release gates still apply before shipping.
+
 ## Preview reliability PR audit: 2026-10-28
 
 Reviewed PR #467's discovery probes, CDP fallback and handshake, capability URL

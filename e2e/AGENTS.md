@@ -17,6 +17,27 @@ inside `e2e/` directly. Never part of `turbo test`, `bun run test`, or the
 pre-push hook; CI runs it in the selected integration job. The workspace
 `test` script covers only the capture helpers, not browser scenarios.
 
+### Standalone live security probes
+
+`bun e2e/verify-live-security.ts` boots its own disposable stack and checks
+HTTP/WS authorization, Chromium preview isolation, sharing revocation, uploads,
+and a real enrolled node. It never targets `SUBSHELL_BASE_URL`. Build workspace
+dependencies and the SPA first, and install Playwright Chromium. Choose unused
+`E2E_PORT_BACKEND`, `E2E_PORT_FAKE_REGISTRY` and `E2E_PORT_FAKE_IDP` values;
+the runner checks those ports before booting. Unset inherited `SUBSHELL_API_KEY`,
+`SUBSHELL_BASE_URL`, `SUBSHELL_ID`, `SUBSHELL_DATA_DIR`, `SUBSHELL_NAME`, `TMUX`
+and `TMUX_PANE` when invoking it from an agent pane.
+
+`LIVE_SECURITY_REPORT` selects the redacted JSON output (default
+`/tmp/subshell-live-security.json`). `LIVE_SECURITY_NGINX_IMAGE` adds a real
+nginx positive control and proxy-directive attack using a disposable private
+canary; use an immutable image digest. This optional fixture requires Docker
+with Linux host networking and binds loopback port 43293, overridable through
+`LIVE_SECURITY_NGINX_PORT`. Without that variable, the nginx checks do not run.
+The runner removes its accounts, processes, container and scratch data on exit;
+it returns nonzero if a probe or cleanup fails. The completed audit and its
+scope are recorded in [the security history](../docs/security-actionable.md).
+
 ## How the stack boots
 
 `global-setup.ts` calls `stack.ts`, which spawns `bun src/index.ts` (the real
@@ -168,6 +189,12 @@ loudly naming the missing binaries where they are not.
 Run all SSH specs together with `01-setup-wizard.spec.ts` (which seeds the account for spec 24).
 CI runs integration checks on a bare Ubuntu runner, so Testcontainers uses
 the host Docker daemon and its mapped ports directly.
+
+Spec `27-ssh-security` adds live adversarial checks for cookie-only SSH routes,
+destination injection, account-bound host-key confirmation, conflicting pins,
+and local-key preparation ownership, replay and concurrency. It uses the shared
+stack's admin from spec 01 and its own temporary sshd; it sends no private keys
+to the server. The successful browser signer remains covered by spec 25.
 
 ## SSH documentation screenshots
 

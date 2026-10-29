@@ -78,7 +78,8 @@ function isIdentityHeader(name: string): boolean {
 }
 
 // A target may describe its document, but cannot clear dashboard storage,
-// install transport policy, or request HTTP authentication for our host.
+// install transport policy, request HTTP authentication, or tell an outer
+// reverse proxy to serve or delete files on its own host.
 const OUTBOUND_DROP = new Set([
   ...HOP_BY_HOP,
   "set-cookie",
@@ -93,6 +94,10 @@ const OUTBOUND_DROP = new Set([
   "reporting-endpoints",
   "accept-ch",
   "critical-ch",
+  "x-sendfile",
+  "x-sendfile-temporary",
+  "x-sendfile2",
+  "x-lighttpd-send-file",
 ]);
 
 /** The 404 text. Deliberately about the link, never about the pane behind it. */
@@ -193,7 +198,10 @@ function outHeadersToWeb(pairs: [string, string][], jar: Map<string, string>, re
   const headers = new Headers();
   const setCookies = setCookieValues(pairs);
   for (const [name, value] of pairs) {
-    if (OUTBOUND_DROP.has(name)) continue;
+    // An outer nginx proxy interprets these as trusted upstream instructions,
+    // including internal redirects and caching. A preview target must not
+    // inherit the control plane's authority over that proxy.
+    if (OUTBOUND_DROP.has(name) || name.startsWith("x-accel-")) continue;
     if (name === "content-security-policy" || name === "content-security-policy-report-only") {
       headers.append(name, stripFrameAncestors(value));
     } else if (name === "location") {

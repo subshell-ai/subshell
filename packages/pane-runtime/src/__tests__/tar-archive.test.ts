@@ -1,11 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
   chmodSync,
+  closeSync,
+  constants,
   createWriteStream,
   existsSync,
   linkSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   rmSync,
   statSync,
@@ -421,6 +424,47 @@ describe("extractor destination-containment refusals (PR review)", () => {
     const arc = writeArchive("hard", makeTgz([{ path: "victim", content: "BAD" }]));
     await expect(extractTarGz(arc, destRoot, LIMITS)).rejects.toThrow(/refusing hard-linked destination/);
     expect(readFileSync(outside, "utf8")).toBe("original"); // the shared inode was never touched
+  });
+
+  it("refuses pre-existing FIFOs without blocking the extractor or changing their permissions", async () => {
+    const destRoot = join(dir, "fifo-dest");
+    mkdirSync(destRoot);
+    const fifo = join(destRoot, "victim");
+    expect(Bun.spawnSync(["mkfifo", fifo]).exitCode).toBe(0);
+    chmodSync(fifo, 0o600);
+    const arc = writeArchive("fifo", makeTgz([{ path: "victim", content: "BAD", mode: "777" }]));
+    const moduleUrl = new URL("../tar-extractor.ts", import.meta.url).href;
+    // Keep a watchdog outside the process doing synchronous open(): a timer
+    // inside the extractor could never fire while opening an unread FIFO.
+    for (const withReader of [false, true]) {
+      const reader = withReader ? openSync(fifo, constants.O_RDONLY | constants.O_NONBLOCK) : undefined;
+      const child = Bun.spawn(
+        [
+          process.execPath,
+          "--eval",
+          `
+        import { extractTarGz } from ${JSON.stringify(moduleUrl)};
+        try {
+          await extractTarGz(${JSON.stringify(arc)}, ${JSON.stringify(destRoot)}, ${JSON.stringify(LIMITS)});
+          process.exit(2);
+        } catch (error) { console.log(error.message); }
+      `,
+        ],
+        { stdout: "pipe", stderr: "pipe" },
+      );
+      const timer = setTimeout(() => child.kill("SIGKILL"), 2000);
+      try {
+        const output = new Response(child.stdout).text();
+        expect(await child.exited).toBe(0);
+        expect(await output).toMatch(/ENXIO|nonregular/);
+        expect(statSync(fifo).isFIFO()).toBe(true);
+        expect(statSync(fifo).mode & 0o777).toBe(0o600);
+      } finally {
+        clearTimeout(timer);
+        child.kill();
+        if (reader !== undefined) closeSync(reader);
+      }
+    }
   });
 
   it("still enforces the per-file cap on an entry whose NAME came from a pax override", async () => {

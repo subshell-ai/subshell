@@ -9,6 +9,9 @@
  * bytes match what the SAME registry announced, never more than that.
  */
 import { createHash } from "node:crypto";
+import { readResponseBounded } from "./bounded-response.js";
+
+const MAX_REGISTRY_BYTES = 20 * 1024 * 1024;
 
 /**
  * npm's package-name grammar, anchored, scoped | plain. The leading classes
@@ -87,8 +90,9 @@ async function getPackument(name: string, registryUrl: string): Promise<Packumen
     );
   }
   if (!res.ok) throw new Error(`the registry at ${url} answered ${res.status} for '${name}'`);
+  const bytes = await readResponseBounded(res, MAX_REGISTRY_BYTES);
   try {
-    return (await res.json()) as Packument;
+    return JSON.parse(new TextDecoder().decode(bytes)) as Packument;
   } catch (err) {
     // An HTML proxy or captive-portal body answers 200 with no JSON at all —
     // a bare `SyntaxError` naming no URL is not a refusal a caller can act on.
@@ -159,11 +163,10 @@ export async function fetchVerifiedTarball(
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    bytes = new Uint8Array(await res.arrayBuffer());
+    bytes = await readResponseBounded(res, MAX_REGISTRY_BYTES);
   } catch (err) {
     throw new Error(`could not download ${url}: ${err instanceof Error ? err.message : String(err)}`);
   }
-  if (bytes.byteLength > 20 * 1024 * 1024) throw new Error(`tarball for ${resolved.version} exceeds 20 MiB`);
   const seen = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
   if (seen !== resolved.integrity) {
     throw new Error(

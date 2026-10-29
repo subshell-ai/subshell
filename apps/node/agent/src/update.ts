@@ -1,6 +1,7 @@
 import { access, chmod, copyFile, link, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { readResponseBounded } from "@internal/pane-runtime";
 import {
   DEFAULT_RELEASE_API,
   hostReleaseTarget,
@@ -1073,7 +1074,7 @@ export async function resolveNodeRelease(want?: string): Promise<NodeReleaseOffe
       signal: AbortSignal.timeout(METADATA_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`answered ${response.status}`);
-    payload = await response.json();
+    payload = JSON.parse(new TextDecoder().decode(await readResponseBounded(response, 8 * 1024 * 1024)));
   } catch (err) {
     throw new Error(`could not read the releases from ${api}: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -1133,8 +1134,12 @@ export async function resolveNodeRelease(want?: string): Promise<NodeReleaseOffe
     ]);
     if (!manifestRes.ok) throw new Error(`${RELEASE_MANIFEST_NAME} answered ${manifestRes.status}`);
     if (!sigRes.ok) throw new Error(`${RELEASE_MANIFEST_SIG_NAME} answered ${sigRes.status}`);
-    bytes = await manifestRes.text();
-    sig = await sigRes.text();
+    const [manifestBody, signatureBody] = await Promise.all([
+      readResponseBounded(manifestRes, 1024 * 1024),
+      readResponseBounded(sigRes, 64 * 1024),
+    ]);
+    bytes = new TextDecoder().decode(manifestBody);
+    sig = new TextDecoder().decode(signatureBody);
   } catch (err) {
     throw new Error(
       `could not read the release manifest from ${chosen.tag}: ${err instanceof Error ? err.message : String(err)}`,
