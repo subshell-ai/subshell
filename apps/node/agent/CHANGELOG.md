@@ -1,5 +1,13 @@
 # @internal/node
 
+## 3.1.4
+
+### Patch Changes
+
+- [#474](https://github.com/subshell-ai/subshell/pull/474) [`f143860`](https://github.com/subshell-ai/subshell/commit/f14386041ce528501f8c1875bc468861cb7812a4) Thanks [@theogravity](https://github.com/theogravity)! - Bound registry downloads, plugin archive decompression, and release metadata before buffering or verification. Refuse named pipes and other nonregular transfer destinations without blocking the node daemon.
+
+- [#474](https://github.com/subshell-ai/subshell/pull/474) [`f143860`](https://github.com/subshell-ai/subshell/commit/f14386041ce528501f8c1875bc468861cb7812a4) Thanks [@theogravity](https://github.com/theogravity)! - Require subshell write permission when issuing terminal attach tokens, strip reverse-proxy control headers from preview responses, and refuse linked temporary files during node uploads and transfers.
+
 ## 3.1.3
 
 ### Patch Changes
