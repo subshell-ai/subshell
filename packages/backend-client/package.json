@@ -26,7 +26,7 @@
   "devDependencies": {
     "@internal/server": "workspace:*",
     "@internal/tsconfig": "workspace:*",
-    "hash-runner": "4.0.0",
+    "hash-runner": "5.0.0",
     "tsdown": "0.22.14"
   }
 }

@@ -91,7 +91,6 @@
   },
   "engineStrict": true,
   "overrides": {
-    "hash-runner>glob": "11.1.0",
     "xcode>uuid": "11.1.1",
     "decode-uri-component": "0.5.0",
     "image-size": "2.0.4",
