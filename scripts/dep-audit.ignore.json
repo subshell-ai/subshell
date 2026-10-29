@@ -1,16 +1,9 @@
 [
   {
-    "package": "node-forge",
-    "advisories": [
-      "GHSA-86w9-cpqp-85rv"
-    ],
-    "reason": "Expo mobile build/dev tooling only. node-forge 1.4.0 has no published fixed release (checked 2026-10-25). patches/node-forge@1.4.0.patch backports the nested DigestAlgorithm element-count check proposed in https://github.com/digitalbazaar/forge/pull/1152. scripts/__tests__/dependency-security.test.ts checks the installed copies used by Expo CLI and code-signing-certificates: malformed signatures are rejected while valid signatures and certificates work. bun audit still matches the original version; replace the patch and remove this exception when a fixed release ships."
-  },
-  {
     "package": "deepmerge",
     "advisories": [
       "GHSA-gcqx-w48m-w2h4"
     ],
-    "reason": "Expo configuration build/dev tooling. deepmerge 4.3.1 has no published fixed release (checked 2026-10-27). patches/deepmerge@4.3.1.patch blocks __proto__ in both target and source copy loops, including both distributed bundles. scripts/__tests__/fixtures/deepmerge-consumers.cjs exercises the installed Expo consumer under Node, reproducing null-prototype, nested-placeholder and target-copy poisoning while verifying ordinary configuration merges. The regression fails without the patch. bun audit matches the original version; remove this patch and exception when a fixed release ships."
+    "reason": "Expo configuration build/dev tooling. deepmerge 4.3.1 has no published fixed release (checked 2026-10-28). patches/deepmerge@4.3.1.patch blocks __proto__ in both target and source copy loops, including both distributed bundles. scripts/__tests__/fixtures/deepmerge-consumers.cjs exercises the installed Expo consumer under Node, reproducing null-prototype, nested-placeholder and target-copy poisoning while verifying ordinary configuration merges. The regression fails without the patch. bun audit matches the original version; remove this patch and exception when a fixed release ships."
   }
 ]
