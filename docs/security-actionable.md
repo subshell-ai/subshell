@@ -1,5 +1,91 @@
 # Security follow-ups and audit history
 
+## Live SSH follow-up: 2026-10-29
+
+The SSH-specific pass continued on `security/codebase-audit-2026-10-29` at
+application revision `d2673ee11`. No additional vulnerability was reproduced,
+and no application fix or deployment was needed in this pass.
+
+### Deployed endpoint
+
+Ten read-only checks against `https://subshell.ein.disaresta.com` passed:
+readiness, aliases, public agent identities, saved host pins, and recent
+destinations each returned 401 anonymously and 403 with the current pane's
+credential. These checks neither connected to an SSH destination nor changed
+trust or SSH settings on the deployed instance. The redacted results are in
+`/tmp/subshell-live-audit/ssh-deployed.json` on the audit machine.
+
+### Live connections and adversarial probes
+
+Six new scenarios in
+[`27-ssh-security.spec.ts`](../e2e/tests/27-ssh-security.spec.ts) exercise the
+running server and a real disposable OpenSSH destination:
+
+- Thirteen SSH discovery, launch, trust, setup and signing routes rejected
+  anonymous and valid system-key requests. The key could access its permitted
+  non-SSH endpoint, so the refusal did not depend on an invalid credential.
+- Option injection, newline injection and shell-substitution destinations
+  could not launch a pane or create a command canary. A changed canonical
+  destination also failed against the supplied approval.
+- Destination confirmation belonged to its account, could be consumed once,
+  and saved no pin before acceptance. Another account could neither see nor
+  delete it; a conflicting replacement preserved the original pin.
+- Confirmation rechecked outgoing-SSH permission after preparation. Turning
+  SSH off refused acceptance and consumed that challenge; turning it back on
+  did not make the refused challenge reusable.
+- A local-key handle could not be consumed, read or cancelled by another
+  account or another login session of the same account. Changing the username
+  failed, the original session could still launch, and replay failed. A
+  sequence-mismatched agent reply closed the bridge.
+- Two simultaneous launches using one preparation produced exactly one pane;
+  closing the preparation ended subsequent agent exchanges.
+
+The existing SSH E2E files `22`, `23-connect-flow`, `23-ssh-relay`, `25` and
+`26` also completed their ten scenarios. They verified owner-only SSH input
+despite an edit share; real password login and retry without passwords in the
+checked HTTP bodies, terminal history, presets or database bytes; browser-key
+login without uploading the key or passphrase; selected-key relay scoping,
+encrypted relay envelopes, expiry, revocation, destination enrollment, and
+changed-host-key refusal and explicit recovery. Actual TCP/SOCKS traffic
+verified local, remote and dynamic forwarding, loopback defaults, and refusal
+of wide binds until the owner enabled them.
+
+The native signer additionally passed its two explicit real-OpenSSH tests on
+Linux, covering Ed25519 and encrypted RSA keys with SHA-256/SHA-512 host proofs
+and one-signature consumption. Seventeen native signer unit tests and 44
+browser signer/lifecycle tests passed, including wrong host/user/session/key,
+forged bindings, unbound signing, replay, concurrency, expiry and SHA-1 refusals.
+Those unit tests supplement the live connections; they are not GUI tests.
+
+### Validation and limits
+
+Sixteen distinct SSH E2E scenarios and the setup scenario passed across the
+selected runs. The first run had one login-page failure before its SSH assertions:
+Chromium reported `ERR_NETWORK_CHANGED` while loading JavaScript, leaving a
+blank page. The trace is retained at
+`/tmp/subshell-live-audit/ssh-network-failure.zip`; the complete five-scenario
+connection-flow file passed on the follow-up run. This was not an observed
+authentication bypass, and the intermittent browser/network failure is not
+claimed fixed. Run logs are `ssh-e2e.log` and `ssh-adversarial.log` in that
+same audit directory. A final setup-plus-adversarial run passed all seven tests
+after making the disposable account unique across worker restarts; its log is
+`ssh-final.log`.
+
+The changed E2E package passed its type and lint checks; lint retained three
+existing warnings. The affected test plan selected setup plus the new SSH
+file, both exercised above. Temporary SSH daemons, agents, containers, node
+processes and data were cleaned up, and the test control-plane ports were
+released. No personal SSH configuration, keys or known-hosts files were changed.
+
+This does not establish deployed SSH login behavior: authenticated connections
+used the disposable branch instances. Native Tauri approval windows, origin
+navigation on macOS, and remote infrastructure were not exercised. Existing
+trust limits still apply: direct SSH uses `accept-new` on first contact;
+browser-selected private keys require trusting the served page; password
+keystrokes traverse the control plane; and connecting-account SSH configuration
+is trusted executable input. The detailed boundaries remain in
+[the security model](security.md#ssh-surfaces-and-credential-boundaries).
+
 ## Live penetration checks: 2026-10-29
 
 This pass exercised the deployed HTTPS instance and a separate running copy of

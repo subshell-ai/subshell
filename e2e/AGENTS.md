@@ -190,6 +190,12 @@ Run all SSH specs together with `01-setup-wizard.spec.ts` (which seeds the accou
 CI runs integration checks on a bare Ubuntu runner, so Testcontainers uses
 the host Docker daemon and its mapped ports directly.
 
+Spec `27-ssh-security` adds live adversarial checks for cookie-only SSH routes,
+destination injection, account-bound host-key confirmation, conflicting pins,
+and local-key preparation ownership, replay and concurrency. It uses the shared
+stack's admin from spec 01 and its own temporary sshd; it sends no private keys
+to the server. The successful browser signer remains covered by spec 25.
+
 ## SSH documentation screenshots
 
 After building `@internal/server-web`, run `bun e2e/capture-ssh-docs.ts` from
