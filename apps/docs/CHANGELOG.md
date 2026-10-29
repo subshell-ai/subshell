@@ -1,5 +1,11 @@
 # @internal/docs
 
+## 0.11.6
+
+### Patch Changes
+
+- [#476](https://github.com/subshell-ai/subshell/pull/476) [`c3c650d`](https://github.com/subshell-ai/subshell/commit/c3c650d353c5a593d1abef93076dd452596c4c3c) Thanks [@theogravity](https://github.com/theogravity)! - Explain how web previews run in an iframe, document limitations for local services and browser features, and give application compatibility guidance. Align the architecture and security guides with the explicit sandbox opt-out.
+
 ## 0.11.5
 
 ### Patch Changes
