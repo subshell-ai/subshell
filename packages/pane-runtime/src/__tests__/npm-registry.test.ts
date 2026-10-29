@@ -130,3 +130,42 @@ describe("fetchVerifiedTarball", () => {
     }
   });
 });
+
+describe("registry response limits", () => {
+  for (const kind of ["metadata", "tarball"] as const) {
+    it(`stops an oversized ${kind} response before the server finishes sending it`, async () => {
+      // A real chunked HTTP response with no Content-Length. Leave it open
+      // after crossing the limit: buffering the complete body would hang.
+      const fixture = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        fetch() {
+          let sent = 0;
+          return new Response(
+            new ReadableStream({
+              pull(controller) {
+                if (sent++ < 21) controller.enqueue(new Uint8Array(1024 * 1024));
+                else return new Promise<void>(() => {});
+              },
+            }),
+          );
+        },
+      });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const url = `http://127.0.0.1:${fixture.port}`;
+        const request =
+          kind === "metadata"
+            ? resolvePackageVersion("thing", undefined, url)
+            : fetchVerifiedTarball({ version: "1.0.0", tarball: `${url}/archive.tgz`, integrity: SRI });
+        const deadline = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("still waiting for the oversized response to finish")), 2000);
+        });
+        await expect(Promise.race([request, deadline])).rejects.toThrow(/exceeds.*bytes/);
+      } finally {
+        clearTimeout(timer);
+        fixture.stop(true);
+      }
+    });
+  }
+});

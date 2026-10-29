@@ -1,5 +1,107 @@
 # Security follow-ups and audit history
 
+## Archive, update and account follow-up: 2026-10-29
+
+This pass continued from `7b3004974` on `security/codebase-audit-2026-10-29`.
+It inspected plugin ingestion, signed release downloads, node archive transfers,
+backup/restore staging and downloads, and OAuth/account lifecycle policy. Three
+additional availability weaknesses were reproduced and fixed. These changes
+have not been deployed.
+
+### Findings and fixes
+
+1. **Unbounded HTTP buffering before validation.** Registry metadata used
+   `Response.json()` without a byte ceiling; tarballs used `arrayBuffer()` and
+   checked their 20 MiB ceiling only after the complete download. Server and
+   node release lists, manifests and signatures also buffered complete bodies
+   before parsing or signature verification. A hostile response source could
+   consume memory before any integrity check ran. A shared reader now counts
+   delivered bytes and cancels oversized responses: 20 MiB for registry
+   responses, 8 MiB for release lists, 1 MiB for manifests, and 64 KiB for
+   signatures. Content-Length is an early refusal only; chunked bodies face the
+   same running limit. Real loopback HTTP tests left oversized responses open;
+   the old calls waited for completion and the fixed calls refused immediately
+   after crossing the ceiling. Padded release fixtures separately proved that
+   both production callers apply the bounds before offering an update.
+2. **Plugin decompression preceded every archive limit.** The npm tar reader
+   expanded the whole gzip stream before counting regular-file payloads.
+   Directory and extended-metadata entries escaped the entry counter, and even
+   trailing zeros after the tar terminator were fully inflated. A small fixture
+   expanded beyond an injected ceiling and was accepted before the fix. Inflation
+   now has an output ceiling derived from the file/entry budgets plus bounded
+   metadata and padding overhead. Directory and metadata headers count toward
+   the entry cap, metadata has an aggregate ceiling, and directory bodies are
+   refused. Existing valid npm archives and installation tests still pass.
+3. **A transfer destination FIFO could block the node's event loop.** The
+   extractor opened existing leaves synchronously for writing before checking
+   the descriptor. Opening an unread named pipe never reached the check. A
+   disposable child process reproduced the hang and required its watchdog to
+   kill it. Leaf opens now use `O_NONBLOCK`, and `fstat().isFile()` rejects
+   nonregular files before truncation, chmod or writing. Tests with and without
+   a FIFO reader both finish promptly and preserve the pipe's permissions.
+
+These are availability findings, not demonstrated authentication bypasses or
+code execution. The HTTP findings require control over a contacted registry,
+release source, or its response channel. Plugin installation remains a trusted,
+administrator-only action that permits code execution once loading begins;
+decompression limits do not sandbox that code. The FIFO case requires a special
+file already present in a selected transfer destination and a transfer naming
+it. No process was deliberately exhausted on the deployed instance.
+
+### Other boundaries examined
+
+Backup download jobs and restore stages bind to the initiating administrator,
+expire, and refuse foreign ownership. The mounted backup routes require a
+cookie administrator. Archive ingestion uses streamed stored/expanded limits,
+allowlisted logical paths, duplicate/link refusal and SQLite schema validation.
+Recovery gating checks revoked sessions rather than trusting copied cookie
+caches. The covering server tests exercised malformed and encrypted archives,
+restore staging, schema attacks, ownership and recovery credentials without
+restoring the operator's instance.
+
+The OAuth review traced provider closure, verified-email linking, issuer-bound
+subjects, pending/disabled session creation, and the installed Better Auth link
+hooks. The release review traced publisher verification, component/version and
+asset binding, redirect restrictions and artifact digest checks. No additional
+authorization, archive escape or signature bypass was reproduced in those
+paths. This is a scoped source and fixture review, not a claim that every
+account transition, restore deployment mode or third-party component is safe.
+
+### Validation
+
+The new regression cases failed against the preceding implementation, then
+passed with the fixes. The server suite passed 4,945 tests; the node suite
+passed 1,296 with two existing skips; pane-runtime passed 603. The affected
+web, desktop TypeScript and E2E-helper suites also passed, along with 346
+repository-script checks (three macOS-only skips). The affected build/type/lint
+plan completed all 48 tasks with existing warnings; package, lockfile, license,
+design and prose checks passed.
+
+Eleven Chromium scenarios passed on an isolated running stack: initial setup,
+real node enrollment and launch, built-in and registry plugin installation,
+update refusal without a source, OAuth sign-in and approval, and encrypted
+backup download/inspection. Attack-specific networking tests used real loopback
+HTTP servers, while the FIFO regression used an isolated subprocess with an
+external watchdog. A separately compiled probe confirmed that the gzip output
+ceiling works in the compiled Bun runtime as well as source execution.
+
+Compiled server smoke passed. The CLI suite passed origin, headless
+server/node and installer scenarios, then stopped at the server-update safety
+guard because this host has an installed per-user server service. That scenario
+could select the operator's binary and was not bypassed. The isolated node
+update scenario was run separately and passed, including unsigned refusal,
+acceptance under a disposable signing key and refusal of tampered signed bytes.
+The server-update scenario and later scenarios in the interrupted full CLI run
+remain for an appropriate CI host; this was not a complete local CLI-suite pass.
+No production update or restore was performed. Source files and publisher-key
+artifacts temporarily changed by the CLI fixture were restored.
+
+Logs are under `/tmp/subshell-live-audit/` on the audit machine, named
+`followup-server-focused.log` (the package runner selected its whole suite),
+`followup-unit.log`, `followup-static.log`, `followup-e2e.log`,
+`followup-cli.log`, `followup-node-cli.log`, `followup-smoke.log` and
+`followup-compiled-archive.log`. The test stack released its listeners.
+
 ## Live SSH follow-up: 2026-10-29
 
 The SSH-specific pass continued on `security/codebase-audit-2026-10-29` at

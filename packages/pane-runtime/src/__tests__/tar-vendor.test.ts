@@ -52,6 +52,21 @@ describe("extractTgz", () => {
     ).toThrow(/entries/i);
   });
 
+  it("bounds decompression even when tar stops at the first zero block", () => {
+    // No file entry contributes to the old payload counter. The compressed
+    // input is tiny, but its trailing padding still has to be inflated.
+    const tgz = Bun.gzipSync(new Uint8Array(4 * 1024 * 1024));
+    expect(() => extractTgz(tgz, { maxTotalBytes: 1024, maxEntries: 4 })).toThrow(/size|limit/i);
+  });
+
+  it("refuses directory bodies and counts metadata and directories toward the entry cap", () => {
+    expect(() => extractTgz(makeTgz([{ path: "package/dir", type: "5", content: "hidden" }]))).toThrow(/directory/i);
+    for (const type of ["5", "x"] as const) {
+      const tgz = makeTgz(Array.from({ length: 4 }, (_, i) => ({ path: `package/d${i}`, type, content: "" })));
+      expect(() => extractTgz(tgz, { maxEntries: 3 })).toThrow(/entries/i);
+    }
+  });
+
   it("refuses a truncated archive (header past the end)", () => {
     const tgz = makeTgz([{ path: "package/a", content: "hello" }]);
     expect(() => extractTgz(tgz.subarray(0, tgz.length - 258))).toThrow();

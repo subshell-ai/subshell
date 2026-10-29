@@ -54,6 +54,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { readResponseBounded } from "@internal/pane-runtime";
 import {
   MIN_NODE_VERSION,
   NODE_PROTOCOL_VERSION,
@@ -257,7 +258,7 @@ export async function resolveReleases(): Promise<ReleaseIndex> {
       signal: AbortSignal.timeout(METADATA_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`${api} answered ${response.status}`);
-    payload = await response.json();
+    payload = JSON.parse(new TextDecoder().decode(await readResponseBounded(response, 8 * 1024 * 1024)));
   } catch (error) {
     // Every failure names the URL it tried, the way the registry client does:
     // "could not reach the release source" with no address is unactionable.
@@ -515,8 +516,12 @@ export async function checkReleaseManifest(release: ResolvedRelease): Promise<Ma
       return remember(release, { kind: "failed", reason: `${RELEASE_MANIFEST_NAME} answered ${manifestRes.status}` });
     if (!sigRes.ok)
       return remember(release, { kind: "failed", reason: `${RELEASE_MANIFEST_SIG_NAME} answered ${sigRes.status}` });
-    const bytes = await manifestRes.text();
-    const sig = await sigRes.text();
+    const [manifestBody, signatureBody] = await Promise.all([
+      readResponseBounded(manifestRes, 1024 * 1024),
+      readResponseBounded(sigRes, 64 * 1024),
+    ]);
+    const bytes = new TextDecoder().decode(manifestBody);
+    const sig = new TextDecoder().decode(signatureBody);
     const checked = await releaseSeams.verifyManifest(bytes, sig, RELEASE_PUBKEY, {
       component: release.component,
       version: release.version,

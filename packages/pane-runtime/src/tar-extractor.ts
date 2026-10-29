@@ -284,7 +284,9 @@ export async function extractTarGz(
   async function writeBody(leaf: string, size: number, mode: number, mtime: number): Promise<void> {
     let fd: number;
     try {
-      fd = openSync(leaf, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
+      // A pre-existing FIFO can block synchronous open before fstat runs.
+      // Nonblocking open lets us refuse special files without freezing the daemon.
+      fd = openSync(leaf, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o600);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ELOOP")
         throw new Error(`tar: refusing symlinked destination '${leaf}'`);
@@ -295,7 +297,9 @@ export async function extractTarGz(
       // two names shares its inode with the other one, and everything written
       // here would land there too. Freshly created files are nlink 1; only a
       // pre-existing hard link trips this.
-      if (fstatSync(fd).nlink > 1) throw new Error(`tar: refusing hard-linked destination '${leaf}'`);
+      const info = fstatSync(fd);
+      if (!info.isFile()) throw new Error(`tar: refusing nonregular destination '${leaf}'`);
+      if (info.nlink > 1) throw new Error(`tar: refusing hard-linked destination '${leaf}'`);
       ftruncateSync(fd, 0); // the truncation O_TRUNC used to do blindly, now after the guard
       // Both create and overwrite adopt the recorded mode: the write-stream
       // `mode` option only bites at CREATION, which silently left an
