@@ -12,3 +12,5 @@ Keep the preview icon neutral until discovery finds a live item the viewer can s
 Configure discovered apps in a second step, optionally save them by name, and edit custom services with the same options. Add an explicit browser-only sandbox opt-out with a gold explanation of the account access it grants.
 
 Refresh the documentation and website alongside the app release.
+
+Add explicit Ctrl+Home and Ctrl+End mobile controls for conversation jumps in Codex, alongside ordinary Home and End.

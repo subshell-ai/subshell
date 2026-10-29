@@ -248,6 +248,23 @@ export function TerminalKeyBar({
           {altScreen ? "End" : <ArrowDownToLine className="mx-auto size-4" aria-hidden="true" />}
         </KeyBarControl>
       )}
+      {altScreen &&
+        [
+          { label: "Ctrl+Home", bytes: "\x1b[1;5H" },
+          { label: "Ctrl+End", bytes: "\x1b[1;5F" },
+        ].map(({ label, bytes }) => (
+          <KeyBarControl
+            key={label}
+            type="button"
+            disabled={historyDisabled}
+            disabledReason={historyDisabledReason}
+            aria-label={`Send ${label}`}
+            onClick={() => onBytes(bytes)}
+            className={BUTTON_CLASS}
+          >
+            {label}
+          </KeyBarControl>
+        ))}
     </fieldset>
   );
   const trailingActions: ReactNode = (

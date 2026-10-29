@@ -87,7 +87,10 @@ without sending a key.
 
 The history controls are grouped between dividers: top, Page Up, Page Down,
 and bottom. In the normal buffer they scroll local terminal history. In the
-alternate screen, the controls visibly switch to Home, PgUp, PgDn, and End.
+alternate screen, the controls visibly switch to Home, PgUp, PgDn, and End,
+with explicit Ctrl+Home and Ctrl+End controls alongside them. Codex uses those
+modified keys to jump to the beginning and latest message of its conversation;
+plain Home and End retain their input-line behavior.
 Their accessible names say "Send", because they send keys through the regular
 input path. The program decides what those keys do; they are not independent
 history scrolling and can change the shared app state for other viewers. That requires

@@ -538,7 +538,7 @@ describe("TerminalKeyBar", () => {
           {...props}
         />,
       );
-      for (const name of HISTORY_ARIA) {
+      for (const name of [...HISTORY_ARIA, "Send Ctrl+Home", "Send Ctrl+End"]) {
         const button = screen.getByRole("button", { name }) as HTMLButtonElement;
         expect(button.matches(":disabled, [aria-disabled=true]"), `${name} under ${JSON.stringify(props)}`).toBe(true);
         expect(button.getAttribute("aria-description")).toMatch(/full-screen app owns this screen/);
@@ -575,6 +575,26 @@ describe("TerminalKeyBar", () => {
       fireEvent.click(button);
     }
     expect(actions).toEqual(["top", "up", "down", "bottom"]);
+  });
+
+  it("offers explicit conversation-jump keys without changing ordinary Home and End", () => {
+    const sent: string[] = [];
+    const actions: string[] = [];
+    const props = {
+      disabled: false,
+      onBytes: (bytes: string) => sent.push(bytes),
+      onScrollTop: () => actions.push("home"),
+      onScrollBottom: () => actions.push("end"),
+    };
+    const { rerender } = render(<TerminalKeyBar {...props} />);
+    expect(screen.queryByRole("button", { name: "Send Ctrl+Home" })).toBeNull();
+    rerender(<TerminalKeyBar {...props} altScreen />);
+    fireEvent.click(screen.getByRole("button", { name: "Send Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send End" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send Ctrl+Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send Ctrl+End" }));
+    expect(actions).toEqual(["home", "end"]);
+    expect(sent).toEqual(["\x1b[1;5H", "\x1b[1;5F"]);
   });
 
   it("copy mode keeps the row and scroll position while disabling all input controls", () => {
