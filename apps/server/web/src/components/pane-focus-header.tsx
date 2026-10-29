@@ -170,8 +170,8 @@ export function PaneFocusHeader({
             <VirtualDisplayEntry subshell={subshell} unsavedCount={unsavedPreview} onOpen={openVirtualDisplay} />
           )}
           {isPane && subshell && <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />}
-          {isPane && <TrustIndicators notices={trustNotices} />}
           {devices && <SubshellDevices key={focusedPane?.id} state={devices.state} onSizing={devices.onSizing} />}
+          {isPane && <TrustIndicators notices={trustNotices} />}
           {focusedPane && (
             <FocusedPaneActions
               key={focusedPane.subshellId}

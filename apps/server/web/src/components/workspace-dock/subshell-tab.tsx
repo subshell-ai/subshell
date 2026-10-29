@@ -2,13 +2,14 @@ import { ExplainedButton } from "@internal/node-admin";
 import type { IDockviewPanelHeaderProps } from "dockview-react";
 import { AppWindow, Bell, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PreviewLabel } from "@/components/preview/preview-label";
 import { SubshellDot } from "@/components/subshell-dot";
 import { ContextMenuRoot, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useWorkspaceDockContext } from "@/components/workspace-dock/context";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { isPaneWaiting } from "@/lib/subshell-order";
-import { previewParentId } from "@/lib/workspace-preview";
+import { parseWorkspacePreviewId, previewParentId } from "@/lib/workspace-preview";
 
 /**
  * Compact in-tab form of the "waiting for you" chip: the full Badge does not
@@ -76,6 +77,8 @@ export function SubshellTab(props: IDockviewPanelHeaderProps) {
   const { detail, onRemovePane } = useWorkspaceDockContext();
   const title = useTitle(props.api);
   const pane = detail.panes.find((p) => p.id === props.api.id);
+  const preview = parseWorkspacePreviewId(props.api.id);
+  const previewOwner = preview ? detail.panes.find((p) => p.id === preview.paneId) : undefined;
   const waiting = pane ? isPaneWaiting(pane) : false;
   // The rail's dot, on the tab: the SAME list-cache row (`useSubshellRow`)
   // the rail rows and the narrow strip's tabs read, so working/waiting/dead/
@@ -123,7 +126,17 @@ export function SubshellTab(props: IDockviewPanelHeaderProps) {
           >
             {previewParentId(props.api.id) && <AppWindow className="mr-1.5 size-3.5" aria-hidden />}
             {subshell && <SubshellDot subshell={subshell} className="mt-0 mr-1.5" />}
-            <span className="dv-default-tab-content">{title}</span>
+            <span className="dv-default-tab-content">
+              {preview && previewOwner ? (
+                <PreviewLabel
+                  subshellId={previewOwner.subshellId}
+                  view={preview.view}
+                  suffix={previewOwner.subshellName}
+                />
+              ) : (
+                title
+              )}
+            </span>
             {waiting && <TabWaitingMarker />}
             <ExplainedButton
               type="button"

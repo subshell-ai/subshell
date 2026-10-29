@@ -5,6 +5,7 @@ import { type JSX, useEffect, useRef, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { PaneFocusHeader } from "@/components/pane-focus-header";
 import { PreviewChooserDialog } from "@/components/preview/preview-chooser-dialog";
+import { PreviewLabel } from "@/components/preview/preview-label";
 import { PreviewTabContent } from "@/components/preview/preview-tab-content";
 import { SubshellDot } from "@/components/subshell-dot";
 import { SubshellPane } from "@/components/subshell-pane";
@@ -235,11 +236,11 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
   // changes, scroll its tab into view. `nearest` on both axes keeps a visible
   // tab from bouncing to the edge and stops the page taking a vertical jump,
   // and there is no smooth option: on a phone the move wants to be instant.
-  // Pane ids are uuids, so the quoted attribute selector needs no escaping.
+  // Pane and preview ids contain no quotes, so the attribute selector is safe.
   // The strip is already exempt from the terminal's foreign-scroll pin
   // (`data-terminal-controls-scroller`), so this scroll survives its resets.
   const stripRef = useRef<HTMLDivElement>(null);
-  const selectedPaneId = selected?.id;
+  const selectedPaneId = selectedPreview?.id ?? selected?.id;
   useEffect(() => {
     if (!selectedPaneId) return;
     const tab = stripRef.current?.querySelector<HTMLElement>(`[data-pane-id="${selectedPaneId}"]`);
@@ -408,7 +409,7 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
                 className="min-h-9 px-4"
                 onClick={() => setSelectedId(pane.id)}
               >
-                {workspacePreviewLabel(pane.view)} · {pane.subshellName}
+                <PreviewLabel subshellId={pane.subshellId} view={pane.view} suffix={pane.subshellName} />
               </Button>
               <ExplainedButton
                 type="button"

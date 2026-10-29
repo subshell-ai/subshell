@@ -47,6 +47,19 @@ describe("SubshellDevices", () => {
     expect(screen.getByRole("button", { name: "2 devices watching this subshell" })).toBeDefined();
   });
 
+  it("announces the count the badge paints", () => {
+    // The chip caps at `9+` and is aria-hidden, so the trigger's name is the
+    // only number a screen reader hears: a raw count there would have twelve
+    // devices announced beside a chip claiming nine-plus.
+    const many: ViewersState = {
+      you: "30",
+      viewers: Array.from({ length: 12 }, (_, i) => viewer(`3${i}`, `Device ${i}`, 100, 30)),
+      sizing: { mode: "auto", pinnedViewerId: null },
+    };
+    render(<SubshellDevices state={many} />);
+    expect(screen.getByRole("button", { name: "9+ devices watching this subshell" })).toBeDefined();
+  });
+
   it("says how big the pane is and why", async () => {
     render(<SubshellDevices state={TWO} />);
     await openMenu();

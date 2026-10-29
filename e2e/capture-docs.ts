@@ -63,7 +63,7 @@ const PANE_SCRIPT =
   `return new Response("upgrade refused",{status:426})}return new Response("nope",{status:404})},` +
   `websocket:{open(){},message(){},close(){}},error(){return new Response("nope",{status:400})}});` +
   `Bun.serve({hostname:"127.0.0.1",port:${HTTP_PORT},reuseAddress:true,fetch(){` +
-  `return new Response("ok",{headers:{"set-cookie":"t=1"}})}});`;
+  `return new Response("ok",{headers:{"set-cookie":"t=1","content-type":"text/html"}})}});`;
 
 async function capture(page: Page, name: string, first: Locator, last = first) {
   dimensions[name] = await captureScreenshot(page, path.join(output, `${name}.png`), first, last);

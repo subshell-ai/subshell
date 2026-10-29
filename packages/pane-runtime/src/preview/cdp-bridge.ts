@@ -8,7 +8,7 @@ import {
   type PreviewCloseReason,
   previewDimensionsAllowed,
 } from "@internal/subshell-protocol";
-import { fetchCdpJson } from "./cdp-http.js";
+import { CDP_LOOPBACK_FAMILIES, fetchCdpJson } from "./cdp-http.js";
 import { type LaneTimers, realTimers } from "./forward.js";
 
 /**
@@ -54,8 +54,20 @@ export type PreviewClosedEvent = Extract<NodeEvent, { type: "preview_closed" }>;
 /** The handshake covers `/json/list` plus the websocket reaching open; this is its whole budget. */
 export const BRIDGE_HANDSHAKE_BUDGET_MS = 3000;
 
+/**
+ * What one loopback family may take of that budget for its `/json/list`.
+ *
+ * A listener that accepts on `127.0.0.1` and never answers would otherwise spend
+ * the entire handshake there, and the abort that follows kills the IPv6 fetch the
+ * moment it is asked, so a browser reachable only on `::1` would be refused as
+ * `not-cdp` because of a stall on a socket it never had to meet. Silence is an
+ * answer about one socket only, exactly as in discovery; two slices of this leave
+ * the rest of the budget for the websocket.
+ */
+export const BRIDGE_LIST_FAMILY_BUDGET_MS = 900;
+
 /** The `http://127.0.0.1:<port>/json/list` answer, narrowed to what a bridge reads. */
-interface BridgeFetchResponse {
+export interface BridgeFetchResponse {
   ok: boolean;
   status: number;
   json(): Promise<unknown>;
@@ -340,16 +352,67 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
 
   // Step 1: the target list. Non-200, a throw, junk JSON, or no usable target
   // are all "this port is not answering CDP", which is what `not-cdp` names.
+  // Both loopback spellings get asked, in the lane's order, because a browser
+  // bound to `::1` only is routine and discovery now lists such a port: the
+  // bridge that refuses to ask it would call a watchable browser `not-cdp`.
   void (async () => {
-    let response: BridgeFetchResponse;
-    try {
-      response = await fetchImpl(`http://127.0.0.1:${args.cdpPort}/json/list`);
-    } catch (err: unknown) {
-      handshakeFail(`list fetch threw (${String(err)})`);
-      return;
+    /** One family's `/json/list`, bounded by its own slice so a stall cannot eat the handshake. */
+    const fetchListFrom = (host: string): Promise<{ response: BridgeFetchResponse } | { why: string }> =>
+      new Promise((resolve) => {
+        let answered = false;
+        const settle = (outcome: { response: BridgeFetchResponse } | { why: string }): void => {
+          if (answered) return;
+          answered = true;
+          timer.clearTimeout(slice);
+          resolve(outcome);
+        };
+        const slice = timer.setTimeout(
+          () => settle({ why: `list said nothing on ${host}` }),
+          BRIDGE_LIST_FAMILY_BUDGET_MS,
+        );
+        Promise.resolve()
+          .then(() => fetchImpl(`http://${host}:${args.cdpPort}/json/list`))
+          .then(async (candidate) => {
+            if (!candidate.ok) {
+              settle({ why: `list answered ${candidate.status}` });
+              return;
+            }
+            const targets: unknown = await candidate.json();
+            if (
+              !Array.isArray(targets) ||
+              !targets.some(
+                (row) =>
+                  row &&
+                  typeof row === "object" &&
+                  !Array.isArray(row) &&
+                  typeof row.webSocketDebuggerUrl === "string" &&
+                  row.webSocketDebuggerUrl.length > 0,
+              )
+            ) {
+              settle({ why: "list carried no usable targets" });
+              return;
+            }
+            settle({ response: { ok: true, status: candidate.status, json: async () => targets } });
+          })
+          .catch((err: unknown) => settle({ why: `list fetch failed (${String(err)})` }));
+      });
+    let response: BridgeFetchResponse | null = null;
+    let answeredHost: string = "127.0.0.1";
+    let refusal: string | null = null;
+    for (const host of CDP_LOOPBACK_FAMILIES) {
+      const outcome = await fetchListFrom(host);
+      if ("response" in outcome) {
+        response = outcome.response;
+        answeredHost = host;
+        break;
+      }
+      refusal = outcome.why;
+      // The handshake is already over (cancelled, dead, or out of budget):
+      // asking the next family could only add a fetch nobody will read.
+      if (discovery.signal.aborted) break;
     }
-    if (!response.ok) {
-      handshakeFail(`list answered ${response.status}`);
+    if (!response) {
+      handshakeFail(refusal ?? "list found no loopback answer");
       return;
     }
     let targets: unknown;
@@ -365,7 +428,14 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
     }
     // Newest first per CDP's own ordering; a page target wins, else the first
     // row stands (a worker-only list still means this port answers CDP).
-    const rows = targets as CdpTarget[];
+    const rows = targets.filter(
+      (row): row is CdpTarget =>
+        typeof row === "object" &&
+        row !== null &&
+        !Array.isArray(row) &&
+        typeof row.webSocketDebuggerUrl === "string" &&
+        row.webSocketDebuggerUrl.length > 0,
+    );
     const target = rows.find((t) => t.type === "page") ?? rows[0];
     const url = typeof target?.webSocketDebuggerUrl === "string" ? target.webSocketDebuggerUrl : "";
     if (!url) {
@@ -396,10 +466,10 @@ export async function startBridge(args: StartBridgeArgs): Promise<{ subscribers:
       return;
     }
     // Resolve the loopback alias ourselves; the target cannot choose a DNS lookup.
-    if (host === "localhost") destination.hostname = "127.0.0.1";
+    if (host === "localhost") destination.hostname = answeredHost;
     if (settled) return;
     attachSocket(destination.href);
-  })();
+  })().catch((err: unknown) => handshakeFail(`target discovery failed (${String(err)})`));
 
   return handshake;
 }

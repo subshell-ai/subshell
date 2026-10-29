@@ -69,6 +69,11 @@ function SubshellPage() {
   const scrollToBottomRef = useRef<(() => void) | null>(null);
   const [search, setSearch] = useState<SearchAddon | null>(null);
   const [connected, setConnected] = useState(false);
+  // Whether a full-screen app owns the screen (the terminal's alternate
+  // buffer). The key bar's history buttons reach that app only by sending it
+  // keys, so they gray out with a reason when input is not on offer; the
+  // terminal publishes every switch and this page clears it on dispose.
+  const [altScreen, setAltScreen] = useState(false);
   const [injectTarget, setInjectTarget] = useState<string | null>(null);
   useEffect(() => setInjectTarget((target) => (target === id ? target : null)), [id]);
   /**
@@ -206,6 +211,7 @@ function SubshellPage() {
     scrollToTopRef.current = null;
     scrollToBottomRef.current = null;
     setSizingRef.current = null;
+    setAltScreen(false);
     setSearch(null);
   }
 
@@ -347,10 +353,6 @@ function SubshellPage() {
                     same rows and reasons and the preview opens as a tab. */}
                 <VirtualDisplayEntry subshell={subshell} unsavedCount={unsavedPreview} onOpen={openVirtualDisplay} />
                 <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />
-                {/* Permanent disclosure: whose machine this runs on, and who
-                    else can read it. Never suppressible — see
-                    components/trust-indicators.tsx. */}
-                <TrustIndicators notices={trustNotices} />
                 {/* The way to a workspace, and the way back: split this
                     subshell into one, or return to the one it is already on
                     (renders itself away when there is none). */}
@@ -368,6 +370,10 @@ function SubshellPage() {
                   state={viewers}
                   onSizing={(mode, viewerId) => setSizingRef.current?.(mode, viewerId)}
                 />
+                {/* Permanent disclosure: whose machine this runs on, and who
+                    else can read it. Never suppressible — see
+                    components/trust-indicators.tsx. */}
+                <TrustIndicators notices={trustNotices} />
                 {subshell && (
                   <SubshellActionsMenu
                     subshell={subshell}
@@ -420,6 +426,7 @@ function SubshellPage() {
               setClosed(status.closed);
             }}
             onViewers={setViewers}
+            onAltScreenChange={setAltScreen}
             onRestart={() => void restart()}
             restarting={restarting}
             onDelete={() => void remove()}
@@ -449,7 +456,10 @@ function SubshellPage() {
       {/* The accessory key bar is an input affordance — a `view` grantee
           (spec §4.1) gets the reading half only: no byte keys, no image
           picker, just the scroll-to-top/bottom jumps (which drive the LOCAL
-          xterm scrollback, so they work for any audience). */}
+          xterm scrollback, so they work for any audience while the normal
+          buffer has one; when a full-screen app owns the screen they can
+          only send it keys, and the bar says so on the buttons instead of
+          swallowing the taps). */}
       {/* The image button doubles as the touch upload gesture: dropping or
         clipboard-pasting files has no equivalent on a phone. */}
       {coarse && subshell && (
@@ -458,8 +468,11 @@ function SubshellPage() {
           disabled={!connected}
           readOnly={subshell.access === "view"}
           // Copy mode's "typing yields to selecting" holds for the bar too:
-          // in the mode its input controls stay visible but disabled.
+          // in the mode its input controls stay visible but disabled. The
+          // history buttons follow the same rule while a full-screen app
+          // owns the screen, since there they are keys too.
           suppressInput={coarse && copyOn}
+          altScreen={altScreen}
           onBytes={handleKeyBarBytes}
           onPaste={(text) => pasteInputRef.current?.(text)}
           onInjectPrompt={subshell.alive && subshell.access !== "view" ? () => setInjectTarget(id) : undefined}

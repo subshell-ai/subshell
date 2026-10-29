@@ -1,15 +1,7 @@
 import { AppWindow, Globe } from "lucide-react";
+import { badgeText, CountBadge } from "@/components/count-badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { SubshellView } from "@/types/subshell";
-
-/** Above this the badge says `9+`; the exact list is the picker's job. */
-const BADGE_CAP = 9;
-
-/** The count's one spelling: `9+` past the cap, so the painted chip and the
- *  announced name can never disagree about how many there are. */
-export function badgeText(count: number): string {
-  return count > BADGE_CAP ? "9+" : String(count);
-}
 
 export function VirtualDisplayIndicator({
   display,
@@ -41,7 +33,7 @@ export function VirtualDisplayIndicator({
     return (
       <span role="img" aria-label={label} className="relative inline-flex shrink-0 text-primary">
         <AppWindow className="size-3.5" aria-hidden="true" />
-        {unsavedCount > 0 && <PreviewBadge count={unsavedCount} />}
+        {unsavedCount > 0 && <CountBadge count={unsavedCount} />}
       </span>
     );
   const count = unsavedCount > 0 ? `; ${badgeText(unsavedCount)} to open${canSave ? " or save" : ""}` : "";
@@ -58,7 +50,7 @@ export function VirtualDisplayIndicator({
         ) : (
           <Globe className="size-3.5" aria-hidden="true" />
         )}
-        {unsavedCount > 0 && <PreviewBadge count={unsavedCount} />}
+        {unsavedCount > 0 && <CountBadge count={unsavedCount} />}
       </TooltipTrigger>
       <TooltipContent>
         {display ? "Virtual display enabled - click to activate" : "Open web preview or screen"}
@@ -95,17 +87,5 @@ export function VirtualDisplayEntry({
       canSave={subshell?.access !== "view"}
       onOpen={onOpen}
     />
-  );
-}
-
-/** The count chip. Decorative: the trigger's aria-label already carries it. */
-function PreviewBadge({ count }: { count: number }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 font-strong text-detail text-primary-foreground"
-    >
-      {badgeText(count)}
-    </span>
   );
 }

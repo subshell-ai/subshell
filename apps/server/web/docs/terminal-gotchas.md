@@ -86,8 +86,17 @@ highlight during a hold and briefly after a tap; cancellation clears the highlig
 without sending a key.
 
 The history controls are grouped between dividers: top, Page Up, Page Down,
-and bottom. Page buttons scroll local terminal history by one screen, without
-sending Page Up/Down keystrokes to the program in the pane.
+and bottom. In the normal buffer they scroll local terminal history. In the
+alternate screen, the controls visibly switch to Home, PgUp, PgDn, and End.
+Their accessible names say "Send", because they send keys through the regular
+input path. The program decides what those keys do; they are not independent
+history scrolling and can change the shared app state for other viewers. That requires
+input access and input mode; when the screen belongs to a full-screen app and
+the connection cannot send keys (copy mode, view-only access, or no socket
+yet), the four buttons gray out and name the reason at the control, on the
+same disabled-reason tooltip as the rest of the bar, rather than swallowing
+taps. The terminal publishes the buffer mode through `onAltScreenChange`, and
+the callers that draw the bar reset it to the normal buffer on dispose.
 
 Insert prompt opens the same picker and confirmation as the action menu. It
 types the selected text without submitting it; the operator presses Enter when

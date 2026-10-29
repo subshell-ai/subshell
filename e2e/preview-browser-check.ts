@@ -62,6 +62,70 @@ export async function verifyPreviewBrowser(frame: Frame | Page, dashboardOrigin:
           reject(new Error("Preview websocket failed"));
         };
       });
+      // EventSource takes an http(s) URL by spec. If the shim's socket rewrite
+      // ever leaked onto this constructor the URL would arrive as ws: and throw,
+      // which is how every server-sent stream inside a preview would die.
+      const eventStream = await new Promise<string>((resolve) => {
+        let source: EventSource;
+        try {
+          source = new EventSource(new URL("./events", location.href).href);
+        } catch {
+          // The failure this leg exists to catch: a ws: URL handed to EventSource
+          // throws at once. Named apart from "error" so a transport hiccup on the
+          // held-open stream can never be mistaken for it, or hide it.
+          resolve("threw");
+          return;
+        }
+        const timeout = setTimeout(() => {
+          source.close();
+          resolve("timed out");
+        }, 5000);
+        source.onopen = () => {
+          clearTimeout(timeout);
+          source.close();
+          resolve("open");
+        };
+        source.onerror = () => {
+          clearTimeout(timeout);
+          source.close();
+          resolve("error");
+        };
+      });
+      // The shim rewrites URL attributes, so it must leave the ones that are not
+      // URLs alone. A rel that reached the mapper would come back as a proxied
+      // path: "noopener" silently stops being a security property, and a
+      // stylesheet declared after its href must still get its cache-busting
+      // revision, which is the same branch of the same function.
+      const anchor = document.createElement("a");
+      anchor.setAttribute("rel", "noopener noreferrer");
+      const relKept = anchor.getAttribute("rel") === "noopener noreferrer";
+      const link = document.createElement("link");
+      link.href = "/assets/app.css";
+      link.rel = "Stylesheet";
+      const linkRelKept = link.getAttribute("rel") === "Stylesheet";
+      const linkHrefProxied = link.href.includes("/pv/");
+      // The chunk base is writable by the app. Blank/foreign bases must not
+      // let the Next workaround mutate unrelated sheets or parse broken URLs.
+      const runtime = globalThis as typeof globalThis & { TURBOPACK_CHUNK_BASE_PATH?: string };
+      const savedBase = runtime.TURBOPACK_CHUNK_BASE_PATH;
+      const oldSheet = document.createElement("link");
+      oldSheet.rel = "stylesheet";
+      oldSheet.href = "http://[";
+      document.head.append(oldSheet);
+      let unrelatedStylesKept = true;
+      try {
+        for (const base of ["", "https://external.invalid/_next/"]) {
+          runtime.TURBOPACK_CHUNK_BASE_PATH = base;
+          const sheet = document.createElement("link");
+          sheet.rel = "stylesheet";
+          sheet.href = "/assets/app.css";
+          unrelatedStylesKept &&= !new URL(sheet.href).searchParams.has("ts");
+        }
+      } finally {
+        oldSheet.remove();
+        runtime.TURBOPACK_CHUNK_BASE_PATH = savedBase;
+      }
+
       return {
         origin: self.origin,
         parentBlocked,
@@ -72,6 +136,11 @@ export async function verifyPreviewBrowser(frame: Frame | Page, dashboardOrigin:
         moduleLoaded: typeof module.filterProjects === "function",
         post: post.method,
         websocket,
+        eventStream,
+        relKept,
+        linkRelKept,
+        linkHrefProxied,
+        unrelatedStylesKept,
       };
     },
     { dashboardOrigin, embedded },
@@ -86,5 +155,10 @@ export async function verifyPreviewBrowser(frame: Frame | Page, dashboardOrigin:
     moduleLoaded: true,
     post: "POST",
     websocket: "preview-echo",
+    eventStream: "open",
+    relKept: true,
+    linkRelKept: true,
+    linkHrefProxied: true,
+    unrelatedStylesKept: true,
   });
 }

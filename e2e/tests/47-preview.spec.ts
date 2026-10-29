@@ -55,8 +55,9 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 
 /**
  * The pane's one command, typed verbatim through `POST /:id/exec`. Two
- * loopback `Bun.serve`s: the HTTP server (body `ok` plus a `set-cookie` so
- * browser cookie isolation is observable on the proxied response) and the CDP fake
+ * loopback `Bun.serve`s: the HTTP server (body `ok`, `text/html` so discovery
+ * lists it at all, plus a `set-cookie` so browser cookie isolation is
+ * observable on the proxied response) and the CDP fake
  * the watch bridge can actually shake hands with: `/json/version` answers
  * the `Browser` field that makes the ports scan call it CDP, `/json/list`
  * carries a `page` target whose `webSocketDebuggerUrl` is loopback, and the
@@ -83,7 +84,7 @@ const PANE_SCRIPT =
   `return new Response("upgrade refused",{status:426})}return new Response("nope",{status:404})},` +
   `websocket:{open(){},message(){},close(){}},error(){return new Response("nope",{status:400})}});` +
   `Bun.serve({hostname:"127.0.0.1",port:${HTTP_PORT},reuseAddress:true,fetch(){` +
-  `return new Response("ok",{headers:{"set-cookie":"t=1"}})}});`;
+  `return new Response("ok",{headers:{"set-cookie":"t=1","content-type":"text/html"}})}});`;
 
 /** Registry row fragment (GET /api/nodes). */
 interface NodeRow {
@@ -250,9 +251,10 @@ test("preview: real node + terminal pane serve the proxy round trip and the watc
     await typeServers();
 
     // ── 5. Discovery. One /proc pass per ask behind the plane's 5 s cache,
-    // so the poll is throttle-respecting at a comfortable interval. The
-    // fake's two ports must appear, and the CDP probe must name 9423 (the
-    // watch fallback depends on exactly this field). A typed line that the
+    // so the poll is throttle-respecting at a comfortable interval. The two
+    // fakes show up on different fields now: the website is a `ports` row
+    // (only a port the document probe accepts is listed), and devtools is the
+    // `cdpPort` the watch fallback depends on, never a row of its own. A typed line that the
     // shell never read (bash still mid-rc when the bytes landed) gets ONE
     // retype at the halfway mark; the deadline is unchanged.
     const typedAt = Date.now();
@@ -268,7 +270,7 @@ test("preview: real node + terminal pane serve the proxy round trip and the watc
         const found =
           info.nodeEnabled === true &&
           info.ports.some((p) => p.port === HTTP_PORT) &&
-          info.ports.some((p) => p.port === CDP_PORT) &&
+          !info.ports.some((p) => p.port === CDP_PORT) &&
           info.cdpPort === CDP_PORT;
         if (!found && !retyped && Date.now() - typedAt > PORTS_DEADLINE_MS / 2) {
           retyped = true;
@@ -292,7 +294,13 @@ test("preview: real node + terminal pane serve the proxy round trip and the watc
 
     const proxied = await request.get(proxyBase);
     expect(proxied.ok(), await proxied.text()).toBe(true);
-    expect(await proxied.text()).toBe("ok");
+    // The pane's server answers `text/html` (that is what makes discovery list
+    // it), so the proxy returns the app's own bytes WITH the compat shim every
+    // document gets: the tagless body keeps its shape at the tail, and the
+    // shim's presence is the proof the rewrite ran on this lane.
+    const proxiedBody = await proxied.text();
+    expect(proxiedBody.endsWith("ok")).toBe(true);
+    expect(proxiedBody).toContain("installPreviewCompat");
     // Upstream cookies stay in the server-side session jar. A preview must
     // never write into the dashboard browser's cookie store.
     expect(proxied.headers()["set-cookie"]).toBeUndefined();
@@ -307,7 +315,7 @@ test("preview: real node + terminal pane serve the proxy round trip and the watc
     const manual = await request.post(`/api/subshells/${paneId}/views/open`, { data: { serviceId } });
     expect(manual.ok(), await manual.text()).toBe(true);
     const manualPath = (await manual.json()).proxyBase;
-    expect(await request.get(manualPath).then((response) => response.text())).toBe("ok");
+    expect(await request.get(manualPath).then((response) => response.text())).toMatch(/ok$/);
     expect((await request.delete(`/api/subshells/${paneId}/services/${serviceId}`)).ok()).toBe(true);
     expect((await request.get(manualPath)).status()).toBe(404);
 

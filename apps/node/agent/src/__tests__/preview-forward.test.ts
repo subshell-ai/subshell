@@ -617,7 +617,7 @@ describe("(h) closeAll", () => {
 /* (i) the oversized-read guard                                        */
 /* ------------------------------------------------------------------ */
 
-describe("(i) over-cap", () => {
+describe("(i) the byte caps, both directions", () => {
   it("closes a stalled target before its TCP write queue exceeds the lane budget", () => {
     const h = makeHarness("stalled-writer", { deps: { laneBufferMaxBytes: 64 } });
     h.forward.openLane({
@@ -643,8 +643,8 @@ describe("(i) over-cap", () => {
     expect(h.forward.laneCount()).toBe(0);
   });
 
-  it("one oversized read sends zero preview_data and closes over-cap exactly once", () => {
-    const h = makeHarness("over-cap");
+  it("splits large TCP reads into bounded frames without losing bytes", () => {
+    const h = makeHarness("large-read");
     h.forward.openLane({
       ref: refFor(1),
       port: 4321,
@@ -653,13 +653,15 @@ describe("(i) over-cap", () => {
       hooks: { emit: (ev) => h.events.push(ev) },
     });
     h.sockets[0]?.fire("connect");
-    // A fake socket can hand any chunk it likes; net's 64 KiB default is
-    // production behavior, not the harness's. The task names ONE read over cap.
-    h.sockets[0]?.fire("data", Buffer.alloc(PREVIEW_FRAME_MAX_BYTES + 1, 9));
-    expect(dataEvents(h.events)).toHaveLength(0); // the blob never reaches the parser
-    expect(closeEvents(h.events)).toEqual([{ ref: refFor(1), reason: "over-cap" }]);
-    expect(h.sockets[0]?.destroyed).toBe(true);
-    expect(h.forward.laneCount()).toBe(0);
+    const bytes = Buffer.alloc(PREVIEW_FRAME_MAX_BYTES * 2 + 17);
+    for (let i = 0; i < bytes.length; i++) bytes[i] = i % 251;
+    h.sockets[0]?.fire("data", bytes);
+    const frames = dataEvents(h.events).map((event) => Buffer.from(event.blob, "base64"));
+    expect(frames.map((frame) => frame.length)).toEqual([PREVIEW_FRAME_MAX_BYTES, PREVIEW_FRAME_MAX_BYTES, 17]);
+    expect(Buffer.concat(frames).equals(bytes)).toBe(true);
+    expect(closeEvents(h.events)).toEqual([]);
+    expect(h.forward.laneCount()).toBe(1);
+    h.forward.closeLane(refFor(1), "viewer-left");
   });
 });
 

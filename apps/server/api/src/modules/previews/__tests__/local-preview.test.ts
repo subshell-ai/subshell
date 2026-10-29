@@ -90,7 +90,13 @@ describe("the server's machine-local preview runtime", () => {
 
   it("discovers this process's real listening port without a node connection", async () => {
     if (process.platform !== "linux") return;
-    const server = createServer();
+    const server = createServer((socket) =>
+      socket.once("data", () =>
+        socket.end(
+          "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 13\r\nConnection: close\r\n\r\n<h1>Site</h1>",
+        ),
+      ),
+    );
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     try {
       const address = server.address();

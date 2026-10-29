@@ -32,6 +32,7 @@ import {
   isDegenerateGrid,
   scrollbarReserve,
 } from "@/lib/terminal-geometry";
+import { scrollTerminalHistory } from "@/lib/terminal-history-scroll";
 import { isPasteChord } from "@/lib/terminal-keys";
 import { attachNativeCopyJoin } from "@/lib/terminal-native-copy";
 import {
@@ -232,13 +233,13 @@ export interface SubshellTerminalHandles {
   openImagePicker: () => void;
   /**
    * Jumps the client scrollback to the oldest row / back to the live bottom
-   * (xterm `scrollToTop`/`scrollToBottom`). Local-only — works with the
-   * socket down and for `view` grantees.
+   * locally, or sends Home/End when a full-screen app owns the history.
+   * Application scrolling requires input access and input mode.
    */
   scrollToTop: () => void;
   /** See {@link SubshellTerminalHandles.scrollToTop}. */
   scrollToBottom: () => void;
-  /** Move through local terminal history one screen at a time. */
+  /** Move one page through local history or the full-screen app. */
   scrollPageUp: () => void;
   scrollPageDown: () => void;
   /** Redraw every visible row from xterm's current buffer. */
@@ -290,6 +291,14 @@ export interface SubshellTerminalProps {
    */
   onViewers?: (state: ViewersState | null) => void;
   /**
+   * Called whenever a full-screen app takes or releases the screen (xterm's
+   * alternate buffer). The key bar's history buttons need this: the
+   * alternate buffer has no local scrollback, so their only path there is
+   * sending the app keys, and they must explain themselves when the
+   * connection cannot send any. Fires on each switch only; a fresh terminal
+   * starts in the normal buffer, and callers drop their copy on dispose.
+   */
+  onAltScreenChange?: (alt: boolean) => void;
   /** Invoked by the exited panel's Restart button */
   onRestart?: () => void;
   /** True while a restart is in flight; disables the exited panel's button */
@@ -387,6 +396,7 @@ export function SubshellTerminal({
   onDispose,
   onStatusChange,
   onViewers,
+  onAltScreenChange,
   onRestart,
   restarting = false,
   onDelete,
@@ -562,6 +572,11 @@ export function SubshellTerminal({
   onStatusChangeRef.current = onStatusChange;
   const onViewersRef = useRef(onViewers);
   onViewersRef.current = onViewers;
+  // Same ref-sync pattern: the buffer subscription lives with the terminal,
+  // which is created once per activation, but the caller's callback changes
+  // with its render.
+  const onAltScreenRef = useRef(onAltScreenChange);
+  onAltScreenRef.current = onAltScreenChange;
   // Current status, readable from the WS callbacks without closing over the
   // render they were created in.
   const statusRef = useRef(status);
@@ -711,6 +726,15 @@ export function SubshellTerminal({
     // xterm's own listener left un-prevented, which outside copy mode the
     // `user-select` CSS never lets a native selection reach.
     const detachNativeCopy = attachNativeCopyJoin(term, containerRef.current);
+    // The screen-owner signal for the caller's history buttons: in the
+    // alternate buffer a full-screen app owns the screen, the pane has no
+    // local scrollback, and those buttons reach the app only by sending it
+    // keys. Consumers clear their copy on dispose, and a freshly built
+    // terminal starts in the normal buffer, so this never needs an initial
+    // publish.
+    const bufferModeSubscription = term.buffer.onBufferChange((buffer) =>
+      onAltScreenRef.current?.(buffer.type === "alternate"),
+    );
 
     // Shift+Enter must insert a newline at the harness prompt (Claude Code
     // reads ESC+CR — the very sequence its /terminal-setup keybinding emits
@@ -885,10 +909,10 @@ export function SubshellTerminal({
         term.focus();
       },
       openImagePicker: () => openImagePickerRef.current(),
-      scrollToTop: () => term.scrollToTop(),
-      scrollToBottom: () => term.scrollToBottom(),
-      scrollPageUp: () => term.scrollPages(-1),
-      scrollPageDown: () => term.scrollPages(1),
+      scrollToTop: () => scrollTerminalHistory(term, "top", !readOnlyRef.current && !copyModeRef.current),
+      scrollToBottom: () => scrollTerminalHistory(term, "bottom", !readOnlyRef.current && !copyModeRef.current),
+      scrollPageUp: () => scrollTerminalHistory(term, "page-up", !readOnlyRef.current && !copyModeRef.current),
+      scrollPageDown: () => scrollTerminalHistory(term, "page-down", !readOnlyRef.current && !copyModeRef.current),
       setSizing: (mode, viewerId) => setSizingRef.current(mode, viewerId),
     });
 
@@ -899,6 +923,7 @@ export function SubshellTerminal({
       detachTouchKeyboard();
       detachCopyShield();
       detachNativeCopy();
+      bufferModeSubscription.dispose();
       if (vv) {
         vv.removeEventListener("resize", repairCursorVisibility);
         vv.removeEventListener("scroll", repairCursorVisibility);

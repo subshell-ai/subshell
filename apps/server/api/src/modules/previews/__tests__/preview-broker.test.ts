@@ -1004,6 +1004,34 @@ describe("closeForPane and the node/user sweeps", () => {
 });
 
 describe("getPorts: the 5 second cache and the screenLost marker", () => {
+  it("joins a scan already on its way instead of starting a second sweep", async () => {
+    // The cache only fills on completion, and a probe sweep can take seconds on a
+    // crowded pane, so without this the header poll and an opened picker each
+    // fire their own sweep at the node, and the later one can overwrite the cache
+    // with a less complete rotation.
+    let rpcs = 0;
+    let release: (() => void) | undefined;
+    makeHarness({
+      ack: (cmd) => {
+        if (cmd.type !== "preview_ports_get") return {};
+        rpcs += 1;
+        const answer = portsAnswer();
+        // Held open until the test says so: this is the window a second reader
+        // must ride along in rather than duplicate.
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return gate.then(() => answer);
+      },
+    });
+    const first = broker().getPorts(NODE, PANE);
+    const second = broker().getPorts(NODE, PANE);
+    release?.();
+    const [a, b] = await Promise.all([first, second]);
+    expect(rpcs).toBe(1);
+    expect(a).toEqual(b);
+  });
+
   it("caches for the window per pane, then re-RPCs", async () => {
     let rpcs = 0;
     makeHarness({
@@ -1066,6 +1094,58 @@ describe("getPorts: the 5 second cache and the screenLost marker", () => {
     await expect(broker().getPorts(NODE, PANE)).rejects.toBeInstanceOf(NodeRpcError);
     await expect(broker().getPorts(NODE, PANE)).rejects.toBeInstanceOf(Error);
     expect(rpcs).toBe(2); // neither failure left a cache entry
+  });
+
+  it("a sweep whose pane closed mid-RPC cannot repopulate the cache", async () => {
+    // Joining drops the in-flight entry on a close; this pins the other half.
+    // A scan that asked before the close and answers after it describes the
+    // pane as it was, and writing that into the cache would serve the next
+    // reader (the header poll, an opened picker) stale ports for the whole
+    // five-second window. The reader that asked still gets its answer.
+    let asks = 0;
+    const h = makeHarness({
+      hold: (cmd) => cmd.type === "preview_ports_get" && asks === 0,
+      ack: (cmd) => {
+        if (cmd.type !== "preview_ports_get") return {};
+        asks += 1;
+        return asks === 1
+          ? portsAnswer({ ports: [{ proto: "tcp", port: 4100, pid: 11, title: "Stale" }] })
+          : portsAnswer();
+      },
+    });
+    const first = broker().getPorts(NODE, PANE);
+    await broker().closeForPane(PANE, "pane-gone");
+    releaseHeld(h);
+    const answered = await first;
+    expect(answered.ports[0]?.title).toBe("Stale");
+    const second = await broker().getPorts(NODE, PANE);
+    // Without the guard this stays 1: the dropped scan's answer would have
+    // cached itself and the second read would never have asked again.
+    expect(asks).toBe(2);
+    expect(second.ports[0]?.title).toBeUndefined();
+  });
+
+  it("a node drop clears cached and flying port answers for that node", async () => {
+    // The sweep walked only the panes holding sessions, so a sessionless pane
+    // (a header poll before anyone opened anything) kept a five-second-old
+    // answer from a node whose link had just died, and a scan already on its
+    // way wrote in afterwards. A dead link makes everything from that node
+    // untrustworthy, whichever pane asked for it.
+    let asks = 0;
+    const h = makeHarness({
+      hold: (cmd) => cmd.type === "preview_ports_get" && asks === 0,
+      ack: (cmd) => {
+        if (cmd.type !== "preview_ports_get") return {};
+        asks += 1;
+        return portsAnswer();
+      },
+    });
+    const first = broker().getPorts(NODE, PANE);
+    await broker().closeAllForNode(NODE, "node-dropped");
+    releaseHeld(h);
+    await first;
+    await broker().getPorts(NODE, PANE);
+    expect(asks).toBe(2);
   });
 });
 

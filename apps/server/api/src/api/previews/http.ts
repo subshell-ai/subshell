@@ -2,6 +2,7 @@ import { serviceAuthority } from "@internal/subshell-protocol";
 import { Elysia } from "elysia";
 import { LaneDuplex } from "@/modules/previews/lane-duplex.js";
 import { LaneClosedError, LaneProtocolError, sendLaneRequest } from "@/modules/previews/lane-http.js";
+import { previewRefusalPage, strandingNavigationReason } from "@/modules/previews/navigation-guard.js";
 import { getPreviewBroker, PreviewRefusal } from "@/modules/previews/preview-broker.js";
 import { previewUrl } from "@/modules/previews/preview-url.js";
 import { DEFAULT_PREVIEW_PROXY_SETTINGS } from "@/modules/previews/proxy-settings.js";
@@ -168,10 +169,26 @@ export function rewriteLocation(location: string, ref: string): string {
   return `/pv/${ref}${location}`;
 }
 
-/** Transform the raw lane answer's header pairs into the browser-facing `Headers`. */
+/**
+ * The upstream's `Set-Cookie` values, in the shape the jar takes.
+ *
+ * Both the pass-through path and the refusal path fill the same jar, and they
+ * must keep doing so identically: two copies of this filter is how one of them
+ * ends up case-sensitive and the other does not.
+ */
+function setCookieValues(pairs: [string, string][]): string[] {
+  return pairs.filter(([name]) => name === "set-cookie").map(([, value]) => value);
+}
+
+/**
+ * Transform the raw lane answer's header pairs into the browser-facing
+ * `Headers`: drop the transport framing and everything that would act on our
+ * host, keep the target's cookies in the jar rather than the browser, and
+ * finish with the isolation headers.
+ */
 function outHeadersToWeb(pairs: [string, string][], jar: Map<string, string>, ref: string): Headers {
   const headers = new Headers();
-  const setCookies = pairs.filter(([n]) => n === "set-cookie").map(([, v]) => v);
+  const setCookies = setCookieValues(pairs);
   for (const [name, value] of pairs) {
     if (OUTBOUND_DROP.has(name)) continue;
     if (name === "content-security-policy" || name === "content-security-policy-report-only") {
@@ -292,6 +309,27 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
         releaseLane();
       },
     );
+    // What counts as a stranding navigation, and the page that says so, live in
+    // modules/previews/navigation-guard.ts. What stays here is the session's own
+    // bookkeeping.
+    const refusal = strandingNavigationReason(request, rest, res);
+    if (refusal) {
+      // Refusing to paint the response is right; forgetting the cookies it carried
+      // is not. A download endpoint's CSRF or session token belongs to this
+      // preview's jar, or the app wakes up half signed out on the next request.
+      const refusedCookies = setCookieValues(res.headers);
+      if (refusedCookies.length > 0) storeCookiesInJar(session.cookieJar, refusedCookies);
+      await res.body?.cancel();
+      duplex.destroy();
+      releaseLane();
+      // 502, the same status the lane-failure paths below raise: which of them
+      // happened is the page's own words, not the number, and nothing retries a
+      // /pv read on 502, so the two need no separate code.
+      return new Response(isHead ? null : previewRefusalPage(sessionRef, url.origin, refusal), {
+        status: 502,
+        headers: isolatedPreviewHeaders(new Headers({ "content-type": "text/html; charset=utf-8" })),
+      });
+    }
     const headersOut = outHeadersToWeb(res.headers, session.cookieJar, sessionRef);
     const location = res.headers.find(([name]) => name === "location")?.[1];
     if (location) {

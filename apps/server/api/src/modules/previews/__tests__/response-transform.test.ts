@@ -16,6 +16,8 @@ describe("preview resource compatibility", () => {
     expect(map("data:image/png;base64,aa")).toBe("data:image/png;base64,aa");
     expect(map("#x")).toBe("#x");
     expect(map(`${proxy}a`)).toBe(`${proxy}a`);
+    expect(map("/pv/secret/a?v=1#x")).toBe(`${proxy}a?v=1#x`);
+    expect(map("/pv/secret/../../api/auth")).toBe(`${proxy}api/auth`);
     expect(map("ws://127.0.0.1:3401/hmr")).toBe("wss://plane.test/pv/secret/hmr");
     expect(map("/../../api/auth")).toBe(`${proxy}api/auth`);
     expect(map("https://foreign.test/pv/secret/a")).toBe("https://foreign.test/pv/secret/a");
@@ -85,6 +87,42 @@ describe("preview resource compatibility", () => {
     expect(text).toContain(`url("${proxy}a.png")`);
     expect(response.headers.get("etag")).toBeNull();
   });
+  it("aligns Turbopack's chunk registry with rewritten script URLs before its first script", async () => {
+    const response = await transformPreviewResponse(
+      new Response(
+        '<head><script async src="/app/_next/static/chunks/runtime.js"></script><script async src="/app/_next/static/chunks/page.js"></script></head>',
+        { headers: { "content-type": "text/html" } },
+      ),
+      target,
+      proxy,
+      "/app/",
+    );
+    const text = await response.text();
+    const bootstrap = `globalThis.TURBOPACK_CHUNK_BASE_PATH="${proxy}app/_next/";`;
+    expect(text.split(bootstrap)).toHaveLength(2);
+    expect(text.indexOf(bootstrap)).toBeLessThan(text.indexOf(`src="${proxy}app/_next/static/chunks/runtime.js"`));
+  });
+
+  it("ignores a chunk marker that only appears in a script's query", async () => {
+    // A page serving its scripts through a proxy route carries the token in the
+    // query. Slicing there would set the runtime's base to a path no chunk ever
+    // matches, which is the exact breakage the injection exists to prevent, so
+    // only the pathname may name a chunk, while the src itself is still rewritten.
+    const response = await transformPreviewResponse(
+      new Response('<head><script async src="/proxy?url=/app/_next/static/chunks/page.js"></script></head>', {
+        headers: { "content-type": "text/html" },
+      }),
+      target,
+      proxy,
+      "/app/",
+    );
+    const text = await response.text();
+    // The shim's own source mentions the global, so the assertion is against the
+    // assignment the injection makes, the same shape the positive test uses.
+    expect(text).not.toContain('globalThis.TURBOPACK_CHUNK_BASE_PATH="');
+    expect(text).toContain(`src="${proxy}proxy?url=/app/_next/static/chunks/page.js"`);
+  });
+
   it("resolves a relative base once for static and runtime resources", async () => {
     const response = await transformPreviewResponse(
       new Response('<head><base href="assets/"></head><img src="a.png">', { headers: { "content-type": "text/html" } }),

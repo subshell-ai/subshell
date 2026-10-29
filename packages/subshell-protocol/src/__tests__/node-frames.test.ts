@@ -418,7 +418,16 @@ describe("parseNodeCommandBody", () => {
     // mirrors a per-machine owner switch, and a launch may carry a `screen`
     // request. A pre-23 agent understands none of it, and the exact-match gate
     // refuses pairing before any of it is sent.
-    expect(NODE_PROTOCOL_VERSION).toBe(25);
+    // 24 is a saved destination on a forward lane: `service: { host, protocol }`
+    // lets a manually saved browser be dialed by name. An older node discards
+    // it and dials plaintext loopback, which is a different machine.
+    // 25 is `ssh_exec_stdin`: setup scripts travel on stdin to a fixed shell
+    // command, because an older executor put the setup key in process argv.
+    // 26 is what a preview picker shows: a `preview_ports_get` row gains the
+    // page's `title`, and only ports the document probe accepts are listed at
+    // all. An older node answers the pre-26 shape, and the same pane would
+    // offer a different picker depending on which host ran it.
+    expect(NODE_PROTOCOL_VERSION).toBe(26);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {

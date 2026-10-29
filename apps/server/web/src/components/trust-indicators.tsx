@@ -1,6 +1,7 @@
 import { cn } from "@internal/node-admin";
 import { Eye, ServerCog, Users } from "lucide-react";
-import type { JSX } from "react";
+import { type JSX, useEffect, useState } from "react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { TrustNotice, TrustNoticeKind } from "@/lib/trust-notices";
 
@@ -37,6 +38,16 @@ export interface TrustIndicatorsProps {
 }
 
 export function TrustIndicators({ notices, className }: TrustIndicatorsProps): JSX.Element | null {
+  const [selected, setSelected] = useState<TrustNotice | null>(null);
+  const shown = selected ? (notices.find((notice) => notice.kind === selected.kind) ?? null) : null;
+  // The row unmounts the dialog when the last notice goes away, and an unmount
+  // never calls onOpenChange, so the click that opened it would still be held:
+  // the next share to arrive would reopen the person's dialog by itself. Clearing
+  // the selection when it no longer resolves is what keeps an opened-by-tap dialog
+  // closed until the next tap.
+  useEffect(() => {
+    if (selected && !notices.some((notice) => notice.kind === selected.kind)) setSelected(null);
+  }, [notices, selected]);
   if (notices.length === 0) return null;
   return (
     // One Provider for the row: Base UI batches open/close across the
@@ -48,22 +59,39 @@ export function TrustIndicators({ notices, className }: TrustIndicatorsProps): J
           const Icon = ICONS[notice.kind];
           return (
             <Tooltip key={notice.kind}>
-              <TooltipTrigger className="inline-flex items-center">
+              <TooltipTrigger
+                className="inline-flex size-7 items-center justify-center text-warning"
+                aria-label={notice.label}
+                aria-haspopup="dialog"
+                onClick={() => setSelected(notice)}
+              >
                 {/* The label is on the icon's own element, not only in the
                     tooltip: a screen reader that never fires a hover still has
                     to be able to reach the disclosure. */}
-                <Icon
-                  className="size-3.5 text-amber-600 dark:text-amber-400"
-                  aria-label={notice.label}
-                  role="img"
-                  focusable="false"
-                />
+                <Icon className="size-3.5" aria-label={notice.label} role="img" focusable="false" />
               </TooltipTrigger>
               <TooltipContent>{notice.tooltip}</TooltipContent>
             </Tooltip>
           );
         })}
       </span>
+      {/* The open notice is resolved against the CURRENT list rather than shown
+          from the click: a share revoked while the dialog is open must stop being
+          explained by it, or a permanent disclosure turns into a claim about an
+          exposure that no longer exists. */}
+      <Dialog
+        open={selected !== null && shown !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelected(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Subshell access</DialogTitle>
+            <DialogDescription>{shown?.tooltip}</DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   );
 }

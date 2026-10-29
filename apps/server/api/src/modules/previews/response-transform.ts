@@ -1,9 +1,10 @@
 import { pipeline, Readable } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
+import { isPreviewDocumentContentType, isPreviewXmlDocumentContentType } from "@internal/subshell-protocol";
 import { init, parse } from "es-module-lexer";
 import valueParser from "postcss-value-parser";
 import { HttpError } from "@/shared/errors.js";
-import { previewCompatScript } from "./browser-compat.js";
+import { previewCompatScript, previewInlineScript } from "./browser-compat.js";
 import { previewSrcset, previewUrl } from "./preview-url.js";
 
 const MAX_TRANSFORM_BYTES = 16 * 1024 * 1024;
@@ -11,6 +12,29 @@ const MAX_TRANSFORM_BYTES = 16 * 1024 * 1024;
 // of tiny modules merely because their upstream streams are still open.
 const MAX_BUFFERED_BYTES = 128 * 1024 * 1024;
 let bufferedBytes = 0;
+
+/**
+ * The proxied base a Turbopack chunk URL registers against, or null when the
+ * mapped URL is not one of its chunks.
+ *
+ * Only the pathname may carry the marker. A page that loads a script through a
+ * proxy route (`/proxy?url=/app/_next/static/x.js`) has the token in its query,
+ * and slicing at that occurrence would publish a base no chunk ever matches, so
+ * the runtime's registry would be keyed against a path that does not exist:
+ * precisely the breakage this injection exists to prevent.
+ */
+function turbopackChunkBase(mappedSrc: string, proxy: string): string | null {
+  if (!mappedSrc.startsWith(proxy)) return null;
+  let url: URL;
+  try {
+    url = new URL(mappedSrc);
+  } catch {
+    return null;
+  }
+  const marker = url.pathname.indexOf("/_next/static/");
+  if (marker < 0) return null;
+  return `${url.origin}${url.pathname.slice(0, marker)}/_next/`;
+}
 
 /** Quote a JS literal that can also safely appear inside an HTML script. */
 function scriptString(value: string): string {
@@ -141,7 +165,10 @@ export async function transformPreviewResponse(
   path: string,
 ): Promise<Response> {
   const type = response.headers.get("content-type") ?? "";
-  const html = /^text\/html\b/i.test(type);
+  const html = isPreviewDocumentContentType(type);
+  // Which parser the page will meet decides how the shim goes in: inline script
+  // is markup to an XML parser, so XHTML gets a CDATA wrapper.
+  const xml = isPreviewXmlDocumentContentType(type);
   const css = /^text\/css\b/i.test(type);
   const js = /^(?:text|application)\/(?:javascript|ecmascript)\b/i.test(type);
   if (!response.body || (!html && !css && !js)) return response;
@@ -210,8 +237,9 @@ export async function transformPreviewResponse(
     if (css) output = rewriteCss(source, map);
     else if (js) output = await rewriteModule(source, map, base);
     else {
-      const script = `<script>${previewCompatScript(target, proxy)}</script>`;
+      const script = previewInlineScript(previewCompatScript(target, proxy), xml);
       let injected = false;
+      let nextChunkBaseInjected = false;
       let baseSeen = false;
       await new HTMLRewriter()
         .on("base[href]", {
@@ -239,11 +267,37 @@ export async function transformPreviewResponse(
               el.before(script, { html: true });
               injected = true;
             }
+            // Turbopack matches registered script URLs against its chunk base.
+            // Rewriting src alone leaves its runtime waiting for unproxied keys.
+            // One map() per src, shared by the chunk-base test below and the
+            // attribute loop: rewriting is not free (each mapped value is charged
+            // against the expansion budget), and a Next page carries hundreds of
+            // chunk tags, so mapping them twice would halve the document a page can
+            // afford before the rewrite even starts.
+            const src = el.tagName === "script" ? el.getAttribute("src") : null;
+            const mappedSrc = src === null ? null : map(src);
+            // The raw attribute is tested for the marker first: mapping only ever
+            // prepends the proxy path, so a mapped URL cannot contain it unless the
+            // raw one does, and non-Turbopack pages pay nothing for the check.
+            if (src !== null && mappedSrc !== null && !nextChunkBaseInjected && src.includes("/_next/static/")) {
+              const chunkBase = turbopackChunkBase(mappedSrc, proxy);
+              if (chunkBase) {
+                el.before(
+                  previewInlineScript(`globalThis.TURBOPACK_CHUNK_BASE_PATH=${scriptString(chunkBase)};`, xml),
+                  { html: true },
+                );
+                nextChunkBaseInjected = true;
+              }
+            }
             for (const name of ["src", "href", "action", "formaction", "poster", "data"]) {
               const value = el.getAttribute(name);
               if (value === null) continue;
               const mapped =
-                el.tagName === "base" && name === "href" ? previewUrl(value, base, target, proxy) : map(value);
+                name === "src" && mappedSrc !== null
+                  ? mappedSrc
+                  : el.tagName === "base" && name === "href"
+                    ? previewUrl(value, base, target, proxy)
+                    : map(value);
               el.setAttribute(name, mapped);
               if (mapped !== value && (el.tagName === "script" || el.tagName === "link"))
                 el.removeAttribute("integrity");
@@ -298,7 +352,12 @@ export async function transformPreviewResponse(
         });
       }
       output = await rewriter.transform(new Response(source)).text();
-      if (!injected) output = script + output;
+      // The last resort for a document with neither head nor script is to put the
+      // shim in front of everything. An XML-parsed page cannot survive that:
+      // markup before the prolog or doctype is precisely what "Content is not
+      // allowed in prolog" means, and the person gets a blank page. So that shape
+      // keeps its rewritten attributes and loses only the dynamic-URL patch.
+      if (!injected && !xml) output = script + output;
     }
     const headers = new Headers(response.headers);
     for (const name of [
@@ -312,7 +371,11 @@ export async function transformPreviewResponse(
       "accept-ranges",
     ])
       headers.delete(name);
-    headers.set("content-type", `${html ? "text/html" : css ? "text/css" : "text/javascript"}; charset=utf-8`);
+    // A rewritten document keeps the type it arrived with: an XHTML app must not
+    // leave the proxy announcing plain HTML, which would be a claim about what the
+    // page IS rather than about what we did to its URLs.
+    const documentType = type.split(";", 1)[0].trim().toLowerCase();
+    headers.set("content-type", `${html ? documentType : css ? "text/css" : "text/javascript"}; charset=utf-8`);
     return new Response(output, { status: response.status, statusText: response.statusText, headers });
   } finally {
     bufferedBytes -= retainedBytes;

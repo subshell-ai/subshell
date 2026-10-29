@@ -346,6 +346,53 @@ describe("preview results (protocol 23)", () => {
   });
 
   it("ports_get reports ports, a nullable CDP hint, a nullable screen, and an optional screenLost", () => {
+    const titled = {
+      ports: [{ proto: "tcp" as const, port: 3000, pid: 7, title: "My website" }],
+      cdpPort: null,
+      screen: null,
+    };
+    expect(parseNodePreviewPortsResult(titled)).toEqual(titled);
+    // A title over the cap is the one field where refusing the whole answer would
+    // cost the person every well-formed row in the pane: the probe already caps
+    // what it sends, so length is a defect to recover from, not a shape violation.
+    const overLong = parseNodePreviewPortsResult({
+      ...titled,
+      ports: [{ ...titled.ports[0], title: "x".repeat(201) }],
+    });
+    expect(overLong?.ports[0]?.title).toBe("x".repeat(200));
+    expect(parseNodePreviewPortsResult({ ...titled, ports: [{ ...titled.ports[0], title: 7 }] })).toBeNull();
+    // The route that serializes this counts UTF-16 units while the label cap
+    // counts code points, so an emoji-heavy title has to be trimmed in the units
+    // the consumer measures, and never by splitting a pair in half.
+    const astral = parseNodePreviewPortsResult({
+      ...titled,
+      ports: [{ ...titled.ports[0], title: "🚀".repeat(150) }],
+    });
+    const cappedTitle = astral?.ports[0]?.title ?? "";
+    expect(cappedTitle.length).toBeLessThanOrEqual(200);
+    expect([...cappedTitle].join("")).toBe(cappedTitle);
+    expect(cappedTitle).toBe("🚀".repeat(100));
+    // A page authors its own title, and it renders for every viewer, so the
+    // boundary takes the NAME path: combining marks compose, invisible format
+    // characters and lone surrogates go, a control becomes a space. And a title
+    // with nothing left in it is absent rather than empty, so the picker falls
+    // back to "Web preview" instead of offering a blank row.
+    expect(
+      parseNodePreviewPortsResult({
+        ...titled,
+        ports: [{ proto: "tcp", port: 3000, pid: 7, title: " cafe\u0301 \u200e\u202ex\ud800\u0007y " }],
+      }),
+    ).toEqual({
+      ports: [{ proto: "tcp", port: 3000, pid: 7, title: "caf\u00e9 x y" }],
+      cdpPort: null,
+      screen: null,
+    });
+    expect(
+      parseNodePreviewPortsResult({
+        ...titled,
+        ports: [{ proto: "tcp", port: 3000, pid: 7, title: "\u0000\u001f \u200e" }],
+      }),
+    ).toEqual({ ports: [{ proto: "tcp", port: 3000, pid: 7 }], cdpPort: null, screen: null });
     const ports: NodePreviewPortWire[] = [{ proto: "tcp", port: 5173, pid: 42 }];
     expect(parseNodePreviewPortsResult({ ports, cdpPort: null, screen: null })).toEqual({
       ports,

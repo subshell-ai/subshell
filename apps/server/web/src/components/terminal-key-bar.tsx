@@ -71,20 +71,28 @@ export interface TerminalKeyBarProps {
   /** Shares the terminal's copy/input mode with the action menu. */
   copyMode?: { on: boolean; onToggle: () => void };
   /**
-   * Jump the client terminal's scrollback to the oldest row (xterm
-   * `scrollToTop`). Purely local — the bytes are already on the device — so
-   * unlike the byte keys these are NOT gated on {@link disabled}: scrolling
-   * history works before the socket is up, and for a `view` grantee it is
-   * the whole point.
+   * Scroll local history even while disconnected or view-only. The terminal
+   * routes alternate-screen scrolling to the program only when input is allowed,
+   * and {@link TerminalKeyBarProps.altScreen} says when that route is the only
+   * one there is.
    */
   onScrollTop?: () => void;
   /** Jump the client terminal's scrollback to the live bottom. */
   onScrollBottom?: () => void;
-  /** Scroll the local history by one screen at a time. */
+  /** Scroll history by one screen at a time. */
   onScrollPageUp?: () => void;
   onScrollPageDown?: () => void;
   /** Reload the entire page. */
   onRefresh?: () => void;
+  /**
+   * A full-screen app owns the screen (xterm's alternate buffer): there is
+   * no local scrollback to jump through, so the history buttons reach the app
+   * only by sending it navigation keys. While set, they stand down with a
+   * reason exactly like the input controls whenever this connection cannot
+   * send keys (view access, copy mode, or no socket yet), instead of
+   * swallowing taps in silence.
+   */
+  altScreen?: boolean;
   /**
    * A `view` grantee (spec 2026-08-31 §4.1): keystrokes would be dropped
    * server-side anyway, so the bar ships only the reading controls — the
@@ -138,17 +146,27 @@ export function TerminalKeyBar({
   onScrollPageUp,
   onScrollPageDown,
   onRefresh,
+  altScreen = false,
   readOnly = false,
   suppressInput = false,
 }: TerminalKeyBarProps) {
   // The input half stands down for either reason: a permission (`view`) or
-  // the copy-mode flag. The scroll row is reading, so it always stays.
+  // the copy-mode flag. The scroll row is reading, so it stays whenever the
+  // normal buffer has history to jump through; while a full-screen app owns
+  // the screen its only path is keys, so it stands down with the input
+  // controls instead of swallowing taps.
   const inputless = readOnly || suppressInput;
   const inputDisabledReason = readOnly
     ? "You have view-only access to this subshell."
     : suppressInput
       ? "Leave copy mode to type in this subshell."
       : "Wait for the terminal to connect.";
+  const historyDisabled = altScreen && (disabled || inputless);
+  const historyDisabledReason = readOnly
+    ? "A full-screen app owns this screen, so scrolling means sending it keys. View access can't send keys."
+    : suppressInput
+      ? "A full-screen app owns this screen, so scrolling means sending it keys. Leave copy mode to scroll its history."
+      : "A full-screen app owns this screen, so scrolling means sending it keys. Wait for the terminal to reconnect.";
   const [pasting, setPasting] = useState(false);
   const pasteTarget = useRef(onPaste);
   pasteTarget.current = disabled || inputless ? undefined : onPaste;
@@ -178,25 +196,56 @@ export function TerminalKeyBar({
     }
   }
   const scrollButtons = (onScrollTop || onScrollPageUp || onScrollPageDown || onScrollBottom) && (
-    <fieldset aria-label="Terminal history" className="mx-1 flex shrink-0 items-stretch border-border/60 border-x">
+    <fieldset
+      aria-label={altScreen ? "Application navigation keys" : "Terminal history"}
+      className="mx-1 flex shrink-0 items-stretch border-border/60 border-x"
+    >
       {onScrollTop && (
-        <KeyBarControl type="button" aria-label="Scroll to top" onClick={onScrollTop} className={BUTTON_CLASS}>
-          <ArrowUpToLine className="mx-auto size-4" aria-hidden="true" />
+        <KeyBarControl
+          type="button"
+          disabled={historyDisabled}
+          disabledReason={historyDisabledReason}
+          aria-label={altScreen ? "Send Home" : "Scroll to top"}
+          onClick={onScrollTop}
+          className={BUTTON_CLASS}
+        >
+          {altScreen ? "Home" : <ArrowUpToLine className="mx-auto size-4" aria-hidden="true" />}
         </KeyBarControl>
       )}
       {onScrollPageUp && (
-        <KeyBarControl type="button" aria-label="Scroll page up" onClick={onScrollPageUp} className={BUTTON_CLASS}>
-          <ChevronsUp className="mx-auto size-4" aria-hidden="true" />
+        <KeyBarControl
+          type="button"
+          disabled={historyDisabled}
+          disabledReason={historyDisabledReason}
+          aria-label={altScreen ? "Send Page Up" : "Scroll page up"}
+          onClick={onScrollPageUp}
+          className={BUTTON_CLASS}
+        >
+          {altScreen ? "PgUp" : <ChevronsUp className="mx-auto size-4" aria-hidden="true" />}
         </KeyBarControl>
       )}
       {onScrollPageDown && (
-        <KeyBarControl type="button" aria-label="Scroll page down" onClick={onScrollPageDown} className={BUTTON_CLASS}>
-          <ChevronsDown className="mx-auto size-4" aria-hidden="true" />
+        <KeyBarControl
+          type="button"
+          disabled={historyDisabled}
+          disabledReason={historyDisabledReason}
+          aria-label={altScreen ? "Send Page Down" : "Scroll page down"}
+          onClick={onScrollPageDown}
+          className={BUTTON_CLASS}
+        >
+          {altScreen ? "PgDn" : <ChevronsDown className="mx-auto size-4" aria-hidden="true" />}
         </KeyBarControl>
       )}
       {onScrollBottom && (
-        <KeyBarControl type="button" aria-label="Scroll to bottom" onClick={onScrollBottom} className={BUTTON_CLASS}>
-          <ArrowDownToLine className="mx-auto size-4" aria-hidden="true" />
+        <KeyBarControl
+          type="button"
+          disabled={historyDisabled}
+          disabledReason={historyDisabledReason}
+          aria-label={altScreen ? "Send End" : "Scroll to bottom"}
+          onClick={onScrollBottom}
+          className={BUTTON_CLASS}
+        >
+          {altScreen ? "End" : <ArrowDownToLine className="mx-auto size-4" aria-hidden="true" />}
         </KeyBarControl>
       )}
     </fieldset>

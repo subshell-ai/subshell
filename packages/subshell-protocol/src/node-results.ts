@@ -25,6 +25,7 @@
  * validators stand on live in `guards.ts` (shared with `node-frames.ts`).
  */
 
+import { normalizeLabel } from "./frames.js";
 import { BASE64_RE, isBool, isInt, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import { MAX_ARCHIVE_BYTES, MAX_MANIFEST_PAGE_ENTRIES } from "./node-frames.js";
 import { parseSshConnectionSnapshot } from "./ssh-config.js";
@@ -850,8 +851,12 @@ export function parseNodePreviewCloseResult(data: unknown): NodePreviewCloseResu
   return { ref: data.ref, closed: data.closed };
 }
 
+export const PREVIEW_PAGE_TITLE_MAX_LENGTH = 200;
+
 /** One listening socket of the pane's process tree (spec §4's ports answer rows). */
 export interface NodePreviewPortWire {
+  /** Bounded page title, when the website provides one. */
+  title?: string;
   /** Socket family, as the walker found it; the proxy dials both spellings of loopback. */
   proto: "tcp" | "tcp6";
   /** Listening port. */
@@ -881,6 +886,26 @@ export interface NodePreviewPortsResult {
 }
 
 /**
+ * Trim to a UTF-16 budget without ever splitting a surrogate pair.
+ *
+ * The route that serializes this title counts UTF-16 units, so a cap measured in
+ * code points lets an emoji-heavy title through at twice the length and the
+ * response then fails its own validation, on a read that promises never to error.
+ * Iterating code points keeps an astral character whole rather than leaving a
+ * lone half of a pair at the cut.
+ */
+function capUtf16(value: string, maxUnits: number): string {
+  let units = 0;
+  let out = "";
+  for (const ch of value) {
+    units += ch.length;
+    if (units > maxUnits) break;
+    out += ch;
+  }
+  return out;
+}
+
+/**
  * Validates and narrows a `preview_ports_get` answer. The hand-rolled style
  * REBUILDS what it validates, so `screenLost` is copied explicitly here: a
  * validator that never names the member would strip it silently between
@@ -895,7 +920,28 @@ export function parseNodePreviewPortsResult(data: unknown): NodePreviewPortsResu
     if (!isRecord(p) || (p.proto !== "tcp" && p.proto !== "tcp6")) return null;
     if (!isInt(p.port) || (p.port as number) < 1 || (p.port as number) > 65_535) return null;
     if (!isInt(p.pid) || (p.pid as number) < 0) return null;
-    ports.push({ proto: p.proto, port: p.port as number, pid: p.pid as number });
+    // A title of the wrong type is a malformed answer, so the whole result is
+    // refused like any other shape violation. An over-long one is not: the probe
+    // caps what it sends, so length is the only field where a strict refusal would
+    // cost the person every well-formed row in the pane for one bad string. Cap it
+    // and keep the answer.
+    if (p.title !== undefined && typeof p.title !== "string") return null;
+    // The probe sanitizes what it reads out of a document, but this is the
+    // boundary every answer crosses and the only gate that always runs: a page
+    // title renders for every viewer, in the picker row and the tab, so it
+    // takes the NAME path every other label follows: NFC, controls to spaces,
+    // format characters and lone surrogates gone. Nothing usable left is no
+    // title at all, rather than an empty one.
+    const title =
+      p.title === undefined
+        ? ""
+        : capUtf16(normalizeLabel(p.title as string, PREVIEW_PAGE_TITLE_MAX_LENGTH), PREVIEW_PAGE_TITLE_MAX_LENGTH);
+    ports.push({
+      proto: p.proto,
+      port: p.port as number,
+      pid: p.pid as number,
+      ...(title ? { title } : {}),
+    });
   }
   if (
     !(

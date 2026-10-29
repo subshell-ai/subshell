@@ -1,5 +1,45 @@
 # Security follow-ups and audit history
 
+## Preview reliability PR audit: 2026-10-28
+
+Reviewed PR #467's discovery probes, CDP fallback and handshake, capability URL
+rewriting, XHTML injection, navigation refusals, frame messages, title handling,
+and terminal input controls against the boundaries in security §11.15.
+
+1. **Medium, availability: malformed CDP target lists escaped the handshake.**
+   A local endpoint returning an array containing `null` could throw in the
+   detached discovery task and reach the process's unhandled-rejection path.
+   Target rows are now narrowed before use, malformed lists are rejected, and
+   the task's terminal catch closes the handshake through its normal refusal.
+   Tests cover malformed-only lists and malformed rows alongside a valid target.
+2. **Low, dashboard disruption: refusal notifications were unbounded.**
+   The embedded app knows its capability ref and can send the same message as
+   the refusal document. Source-window checking prevents other windows from
+   impersonating this frame; it does not authenticate a server-generated page.
+   A panel now emits at most one fixed-copy notice per capability/reload. The
+   channel remains informational and grants no action or permission.
+3. **Low, compatibility: a page-controlled chunk base could widen URL rewriting.**
+   A blank Turbopack base matched unrelated stylesheet URLs and could throw on a
+   malformed existing URL. Cache-busting now requires a Next.js chunk base inside
+   this preview's own capability path. A real-browser regression covers blank
+   and foreign bases, malformed links, and unchanged unrelated stylesheet URLs.
+
+The review also corrected IPv6 CDP fallback when IPv4 returned non-CDP JSON and
+resolved advertised `localhost` against the family that supplied the target
+list. Explicit non-loopback, cross-port, credential-bearing, and fragment-bearing
+WebSocket URLs remain refused, and a real-socket test pins that upgrade redirects
+do not dial a different loopback port. The terminal's existing edit-access checks remain:
+normal-buffer scrolling is local, while alternate-buffer navigation sends input
+and affects the shared program. Those controls now display the keys they send.
+
+Validation includes focused regressions, affected package tests and type checks,
+and the Chromium preview isolation check: embedded and direct opaque documents,
+blocked parent/storage/cookie/API access and service-worker registration, working
+modules, POST, WebSocket and EventSource traffic. This is a source audit with
+local regressions, not an independent penetration test. The iPad desktop-UA gap,
+older WebKit fetch-metadata gap, and bearer-link and execution-account risks
+remain explicit limitations; no sandbox or permission boundary was relaxed.
+
 ## Display provider refactor audit: 2026-10-25
 
 This review covered the provider registry, Xvfb lifecycle, signed node settings,

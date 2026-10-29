@@ -25,7 +25,9 @@ import {
 import { PREVIEW_NODE_OFF } from "../commands/preview-ports-exec.js";
 import {
   BRIDGE_HANDSHAKE_BUDGET_MS,
+  BRIDGE_LIST_FAMILY_BUDGET_MS,
   type BridgeDeps,
+  type BridgeFetchResponse,
   type BridgeWs,
   bridgeCloseAll,
   bridgeCount,
@@ -81,6 +83,8 @@ afterAll(() => {
 /* ------------------------------------------------------------------ */
 
 interface FakeCdpOpts {
+  hostname?: string;
+  redirectWsTo?: () => string;
   /** HTTP status for /json/list (default 200). */
   listStatus?: number;
   /** The targets array answered on /json/list. */
@@ -95,11 +99,12 @@ class FakeCdp {
   readonly server: Server<WsData>;
   readonly sockets: ServerWebSocket<WsData>[] = [];
   listRequests = 0;
+  websocketRequests = 0;
 
   constructor(opts: FakeCdpOpts = {}) {
     this.server = Bun.serve<WsData>({
       port: 0,
-      hostname: "127.0.0.1",
+      hostname: opts.hostname ?? "127.0.0.1",
       fetch: (req, srv) => {
         const path = new URL(req.url).pathname;
         if (path === "/json/list") {
@@ -111,6 +116,8 @@ class FakeCdp {
             opts.targets ?? (() => [{ type: "page", url: "about:blank", webSocketDebuggerUrl: this.wsUrl("T1") }]);
           return Response.json(targets());
         }
+        if (path.startsWith("/devtools/")) this.websocketRequests++;
+        if (path.startsWith("/devtools/") && opts.redirectWsTo) return Response.redirect(opts.redirectWsTo());
         if (path.startsWith("/devtools/") && srv.upgrade(req, { data: { messages: [] } })) {
           return undefined as unknown as Response;
         }
@@ -494,6 +501,95 @@ describe("(c) not-cdp", () => {
     }
   });
 
+  it("ignores malformed target rows and refuses an entirely malformed list cleanly", async () => {
+    let valid = false;
+    const cdp = new FakeCdp({
+      targets: () => [
+        null,
+        7,
+        "page",
+        [],
+        { type: "page" },
+        { type: "page", webSocketDebuggerUrl: "" },
+        ...(valid ? [{ type: "page", webSocketDebuggerUrl: cdp.wsUrl("T1") }] : []),
+      ],
+    });
+    const args = {
+      ref: refFor(950),
+      cdpPort: cdp.port(),
+      fps: 5,
+      lifetimeMs: 60000,
+      emitStream: () => undefined,
+      emitClosed: () => {},
+    };
+    try {
+      await expect(startBridge(args)).rejects.toThrow("not-cdp");
+      expect(bridgeCount()).toBe(0);
+      valid = true;
+      await expect(startBridge(args)).resolves.toEqual({ subscribers: 1 });
+    } finally {
+      bridgeCloseAll("viewer-left");
+      cdp.stop();
+    }
+  });
+
+  it("skips non-CDP JSON and resolves localhost against the answering IPv6 family", async () => {
+    const asked: string[] = [];
+    const cdp = new FakeCdp({ hostname: "::1" });
+    try {
+      await startBridge({
+        ref: refFor(951),
+        cdpPort: cdp.port(),
+        fps: 5,
+        lifetimeMs: 60000,
+        emitStream: () => {},
+        emitClosed: () => {},
+        deps: {
+          fetch: async (url) => {
+            asked.push(url);
+            return {
+              ok: true,
+              status: 200,
+              json: async () =>
+                url.includes("[::1]")
+                  ? [{ type: "page", webSocketDebuggerUrl: `ws://localhost:${cdp.port()}/devtools/page/T1` }]
+                  : { status: "ok" },
+            };
+          },
+        },
+      });
+      expect(asked).toHaveLength(2);
+      expect(cdp.sockets).toHaveLength(1);
+    } finally {
+      bridgeCloseAll("viewer-left");
+      cdp.stop();
+    }
+  });
+
+  it("does not follow a WebSocket upgrade redirect to a different loopback port", async () => {
+    const foreign = new FakeCdp();
+    const cdp = new FakeCdp({ redirectWsTo: () => foreign.wsUrl("T1").replace("ws:", "http:") });
+    try {
+      await expect(
+        startBridge({
+          ref: refFor(952),
+          cdpPort: cdp.port(),
+          fps: 5,
+          lifetimeMs: 60000,
+          emitStream: () => {},
+          emitClosed: () => {},
+        }),
+      ).rejects.toThrow("not-cdp");
+      expect(foreign.sockets).toHaveLength(0);
+      expect(foreign.websocketRequests).toBe(0);
+      expect(bridgeCount()).toBe(0);
+    } finally {
+      bridgeCloseAll("viewer-left");
+      cdp.stop();
+      foreign.stop();
+    }
+  });
+
   it("a webSocketDebuggerUrl on a non-loopback host is refused without a dial", async () => {
     const cdp = new FakeCdp({
       targets: () => [{ type: "page", webSocketDebuggerUrl: "ws://9.9.9.9:9222/devtools/page/T1" }],
@@ -512,6 +608,81 @@ describe("(c) not-cdp", () => {
       expect(bridgeCount()).toBe(0);
       // The URL came from /proc's port, answered by a socket: distrusted, never dialed.
       expect(cdp.sockets).toHaveLength(0);
+    } finally {
+      bridgeCloseAll("viewer-left");
+      cdp.stop();
+    }
+  });
+
+  it("walks to ::1 for the target list when IPv4 has no socket, and still dials the page", async () => {
+    // Discovery now reports a devtools endpoint bound to `::1` (the same ladder
+    // in cdp-http.ts), so a bridge that knew only 127.0.0.1 would call that very
+    // browser `not-cdp`: listed, watchable in principle, and refused on the
+    // open. The list is asked on both spellings; the target it names still dials
+    // whatever loopback the answer carries.
+    const cdp = new FakeCdp();
+    const h = makeHarness("v6-list");
+    const asked: string[] = [];
+    try {
+      await startTestBridge(cdp, refFor(906), {
+        emitStream: () => {},
+        emitClosed: () => {},
+        deps: {
+          timer: new FakeClock(),
+          fetch: async (url: string) => {
+            asked.push(url);
+            if (!url.includes("[::1]")) throw new TypeError("connect ECONNREFUSED 127.0.0.1");
+            return {
+              ok: true,
+              status: 200,
+              json: async () => [{ type: "page", url: "about:blank", webSocketDebuggerUrl: cdp.wsUrl("T1") }],
+            };
+          },
+        },
+      });
+      expect(asked).toEqual([`http://127.0.0.1:${cdp.port()}/json/list`, `http://[::1]:${cdp.port()}/json/list`]);
+      expect(cdp.sockets.length).toBeGreaterThan(0);
+    } finally {
+      bridgeCloseAll("viewer-left");
+      cdp.stop();
+      void h;
+    }
+  });
+
+  it("does not spend the whole handshake on a stalled IPv4 listener before asking ::1", async () => {
+    // The failure this pins: a wedged process holds `127.0.0.1:9222` (accepts,
+    // never answers) while Chrome's devtools answers on `::1`. Without a
+    // per-family slice the stalled fetch owns the entire 3 s budget, the abort
+    // that follows kills the IPv6 fetch as it is asked, and a watchable browser
+    // is refused as `not-cdp` because of a stall on a socket it never met.
+    const cdp = new FakeCdp();
+    const clock = new FakeClock();
+    const asked: string[] = [];
+    try {
+      const starting = startBridge({
+        ref: refFor(907),
+        cdpPort: cdp.port(),
+        fps: 5,
+        lifetimeMs: 60_000,
+        emitStream: () => {},
+        emitClosed: () => {},
+        deps: {
+          timer: clock,
+          fetch: async (url: string) => {
+            asked.push(url);
+            if (url.includes("127.0.0.1")) return new Promise<BridgeFetchResponse>(() => {});
+            return {
+              ok: true,
+              status: 200,
+              json: async () => [{ type: "page", url: "about:blank", webSocketDebuggerUrl: cdp.wsUrl("T1") }],
+            };
+          },
+        },
+      });
+      // The stalled family gets its own slice, and only its own.
+      expect(clock.fire(BRIDGE_LIST_FAMILY_BUDGET_MS)).toBeGreaterThan(0);
+      await expect(starting).resolves.toEqual({ subscribers: 1 });
+      expect(asked).toEqual([`http://127.0.0.1:${cdp.port()}/json/list`, `http://[::1]:${cdp.port()}/json/list`]);
     } finally {
       bridgeCloseAll("viewer-left");
       cdp.stop();

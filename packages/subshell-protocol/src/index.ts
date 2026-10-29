@@ -172,6 +172,7 @@ export {
   type NodeStatDirResult,
   type NodeTreeManifestPage,
   type NodeWriteFileResult,
+  PREVIEW_PAGE_TITLE_MAX_LENGTH,
   type PreviewDisplayReadiness,
   parseNodeAgentLogSlice,
   parseNodeArchiveCreateResult,
@@ -268,6 +269,20 @@ export {
   parsePresetPromptBlocks,
   presetLaunchRequirementsMet,
 } from "./preset-prompt.js";
+export {
+  acceptsPreviewDocument,
+  isPreviewAttachmentDisposition,
+  isPreviewDocumentContentType,
+  isPreviewPaintableNavigation,
+  isPreviewRefusalReason,
+  isPreviewStrandingClient,
+  isPreviewXmlDocumentContentType,
+  PREVIEW_DOCUMENT_ACCEPT,
+  PREVIEW_DOCUMENT_TYPES,
+  PREVIEW_REFUSAL_MESSAGE,
+  PREVIEW_REFUSAL_REASONS,
+  type PreviewRefusalReason,
+} from "./preview-document.js";
 export {
   PREVIEW_IMAGE_MAX_DIMENSION,
   PREVIEW_IMAGE_MAX_PIXELS,

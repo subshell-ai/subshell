@@ -109,6 +109,9 @@ export function readLaneHead(duplex: Duplex): Promise<LaneHead> {
           acc = tail;
           continue;
         }
+        // Removing a data listener does not stop a flowing Node stream.
+        // Keep later packets buffered until the body/WS reader takes over.
+        duplex.pause();
         cleanup();
         resolve({ statusLine: lines[0], headers: parsed, tail });
         return;

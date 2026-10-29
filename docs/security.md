@@ -4206,6 +4206,12 @@ dashboard API and dashboard WebSocket origin gates. The WS capability must
 still exist before a tunnel opens. This exception does not add `null` to the
 instance's trusted-origin registry.
 
+Preview refusal notifications are untrusted frame status, not authenticated
+server messages. The parent checks the source window and capability ref, accepts
+only fixed reason values, and emits at most one toast per capability/reload. The
+app itself knows that ref and can forge a status; no status grants authority or
+renders app-authored text.
+
 The sandbox deliberately prevents same-origin storage and service-worker use.
 Sites requiring those browser capabilities, JavaScript-managed cookies, or a
 full browser login should run in the node's browser and be checked through a
@@ -4417,6 +4423,7 @@ don't replace those checks or an audit of Apple's or BetterDisplay's internals.
 
 See [Preview architecture](preview-architecture.md) for protocol shapes, limits,
 and lifecycle, and the [2026-10-24 audit](security-actionable.md#preview-feature-audit-2026-10-24)
+and [2026-10-28 follow-up](security-actionable.md#preview-reliability-pr-audit-2026-10-28)
 for the findings, fixes, and verification scope.
 
 ## 12. Hardening checklist for a wider deployment

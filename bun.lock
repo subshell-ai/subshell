@@ -128,7 +128,7 @@
     },
     "apps/node/agent": {
       "name": "@internal/node",
-      "version": "3.0.1",
+      "version": "3.1.0",
       "dependencies": {
         "@clack/prompts": "1.8.1",
         "@internal/backend-errors": "workspace:*",
@@ -499,6 +499,7 @@
         "@subshell-ai/plugin-ssh": "workspace:*",
         "@subshell-ai/plugin-tailscale": "workspace:*",
         "@subshell-ai/plugin-terminal": "workspace:*",
+        "entities": "7.0.1",
       },
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",

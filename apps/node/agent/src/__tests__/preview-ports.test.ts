@@ -132,30 +132,171 @@ function writeNet(file: string, rows: { addr: string; port: number; inode: numbe
 
 describe.skipIf(process.platform !== "linux")("scanPanePorts over fixture /proc trees", () => {
   it("attributes a listening socket to the deepest descendant that owns it", async () => {
-    const r = await scanPanePorts({ procRoot: tinyProcRoot, panePid: 100, probe: async () => false });
+    const r = await scanPanePorts({
+      procRoot: tinyProcRoot,
+      panePid: 100,
+      websiteProbe: async () => ({}),
+      probe: async () => false,
+    });
     expect(r.ports).toEqual([{ proto: "tcp", port: 3000, pid: 102 }]);
   });
 
+  it("lists only websites while retaining CDP separately", async () => {
+    const r = await scanPanePorts({
+      procRoot,
+      panePid: 100,
+      probe: async (port) => port === 9222,
+      websiteProbe: async (port) => (port === 3000 ? { title: "My app" } : null),
+    });
+    expect(r.ports).toEqual([{ proto: "tcp", port: 3000, pid: 102, title: "My app" }]);
+    expect(r.cdpPort).toBe(9222);
+  });
+
   it("cdpPort is the LISTEN port whose /json/version probe answers", async () => {
-    const r = await scanPanePorts({ procRoot, panePid: 100, probe: async (p) => p === 9222 });
+    const r = await scanPanePorts({
+      procRoot,
+      panePid: 100,
+      websiteProbe: async () => ({}),
+      probe: async (p) => p === 9222,
+    });
     expect(r.cdpPort).toBe(9222);
   });
 
   it("a socket owned by an outsider never appears", async () => {
-    const r = await scanPanePorts({ procRoot, panePid: 100, probe: async () => false });
+    const r = await scanPanePorts({ procRoot, panePid: 100, websiteProbe: async () => ({}), probe: async () => false });
     expect(r.ports.some((p) => p.port === 8080)).toBe(false);
   });
 
   it("no listeners answers with empty arrays, not an error", async () => {
-    const r = await scanPanePorts({ procRoot: emptyProcRoot, panePid: 100, probe: async () => false });
+    const r = await scanPanePorts({
+      procRoot: emptyProcRoot,
+      panePid: 100,
+      websiteProbe: async () => ({}),
+      probe: async () => false,
+    });
     expect(r.ports).toEqual([]);
     expect(r.cdpPort).toBeNull();
     expect(r.screen).toBeNull();
   });
 
   it("an IPv6 loopback listener parses", async () => {
-    const r = await scanPanePorts({ procRoot, panePid: 100, probe: async () => false });
+    const r = await scanPanePorts({ procRoot, panePid: 100, websiteProbe: async () => ({}), probe: async () => false });
     expect(r.ports).toContainEqual({ proto: "tcp6", port: 4321, pid: 102 });
+  });
+
+  it("a tree of hang-prone listeners does not starve the real website", async () => {
+    // The shape this pins: a port the scan never reached reads exactly like a
+    // port that is not a website, so the probe budget has to grow with the
+    // number of listeners, and the two probes have to share a port's window
+    // rather than queue behind each other. Forty sockets that accept and never
+    // answer (a language server, a leftover bind), each costing the worst-case
+    // probe time, with the dev server LAST in the row order: too small a budget
+    // leaves the picker saying this pane serves no website at all.
+    const crowdRoot = join(base, "crowd-proc");
+    mkdirSync(join(crowdRoot, "net"), { recursive: true });
+    const WEBSITE_PORT = 4500;
+    const rows = [...Array.from({ length: 40 }, (_, i) => 4001 + i), WEBSITE_PORT].map((port, i) => ({
+      addr: "0100007F",
+      port,
+      inode: 700_001 + i,
+    }));
+    mkPidTree(crowdRoot, [
+      { pid: 100, ppid: 1 },
+      { pid: 102, ppid: 100, fds: rows.map((row, i) => ({ name: String(3 + i), inode: row.inode })) },
+    ]);
+    writeNet(join(crowdRoot, "net", "tcp"), rows);
+    writeNet(join(crowdRoot, "net", "tcp6"), []);
+    // The two budgets the real probes carry, in the order they run: devtools
+    // first, then the document probe for anything that did not answer it.
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const r = await scanPanePorts({
+      procRoot: crowdRoot,
+      panePid: 100,
+      probe: async () => {
+        await wait(280);
+        return false;
+      },
+      websiteProbe: async (port) => {
+        if (port !== WEBSITE_PORT) await wait(420);
+        return port === WEBSITE_PORT ? { title: "Dev server" } : null;
+      },
+    });
+    expect(r.ports).toEqual([{ proto: "tcp", port: WEBSITE_PORT, pid: 102, title: "Dev server" }]);
+    // Deliberately no wall-clock assertion here: the scan's own deadline is
+    // production code and these are real timers, so a bound measured in
+    // milliseconds would fail on a loaded runner rather than on a discovery
+    // regression. What is pinned is the promise the budget exists to keep.
+  });
+
+  it("the scan's deadline bounds the devtools probe too, not just the document one", async () => {
+    // Both probes per port are promised to the same window. A CDP probe that
+    // answers only to its own timer keeps a worker running after the deadline
+    // fires, and on a crowded pane that overrun is what pushes the whole command
+    // past the plane's 10 s, where discovery answers NOTHING instead of dropping
+    // a tail. This is a cancellation test with real timers on purpose: the
+    // behavior under test is that the probe stops when told.
+    let longestProbeMs = 0;
+    const started = Date.now();
+    const r = await scanPanePorts({
+      procRoot: tinyProcRoot,
+      panePid: 100,
+      websiteProbe: async () => null,
+      probe: async (_port, signal) => {
+        const at = Date.now();
+        await new Promise<void>((resolve) => {
+          const stop = (): void => {
+            clearTimeout(unbounded);
+            resolve();
+          };
+          const unbounded = setTimeout(stop, 8_000);
+          if (signal.aborted) stop();
+          else signal.addEventListener("abort", stop, { once: true });
+        });
+        longestProbeMs = Math.max(longestProbeMs, Date.now() - at);
+        return false;
+      },
+    });
+    expect(r.cdpPort).toBeNull();
+    expect(r.ports).toEqual([]);
+    // The window for one candidate is the sized allowance, so a probe that
+    // respects it returns within seconds; one that ignores the signal would sit
+    // at the 8 s ceiling and this assert would fail on the probe, not the clock.
+    expect(longestProbeMs).toBeLessThan(4_000);
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it("rotates where the probe budget starts, so one tail is not always the loser", async () => {
+    // The kernel lists listeners in a stable order, so a scan that always drains
+    // from the first row spends its budget on the same leading ports every poll
+    // and a dev server behind them never appears. Two scans of one tree have to
+    // start at different places.
+    const rotateRoot = join(base, "rotate-proc");
+    mkdirSync(join(rotateRoot, "net"), { recursive: true });
+    const ports = Array.from({ length: 6 }, (_, i) => 4301 + i);
+    const rows = ports.map((port, i) => ({ addr: "0100007F", port, inode: 800_001 + i }));
+    mkPidTree(rotateRoot, [
+      { pid: 100, ppid: 1 },
+      { pid: 102, ppid: 100, fds: rows.map((row, i) => ({ name: String(3 + i), inode: row.inode })) },
+    ]);
+    writeNet(join(rotateRoot, "net", "tcp"), rows);
+    writeNet(join(rotateRoot, "net", "tcp6"), []);
+    const firstProbed = async (): Promise<number> => {
+      const asked: number[] = [];
+      await scanPanePorts({
+        procRoot: rotateRoot,
+        panePid: 100,
+        probe: async (port) => {
+          asked.push(port);
+          return false;
+        },
+        websiteProbe: async () => null,
+      });
+      return asked[0];
+    };
+    const first = await firstProbed();
+    const second = await firstProbed();
+    expect(ports).toContain(second);
+    expect(second).not.toBe(first);
   });
 
   it("a process tree past 512 pids refuses preview-ports-overcap", async () => {
@@ -168,15 +309,16 @@ describe.skipIf(process.platform !== "linux")("scanPanePorts over fixture /proc 
     mkPidTree(capRoot, pids);
     writeNet(join(capRoot, "net", "tcp"), []);
     writeNet(join(capRoot, "net", "tcp6"), []);
-    await expect(scanPanePorts({ procRoot: capRoot, panePid: 1000, probe: async () => false })).rejects.toThrow(
-      "preview-ports-overcap",
-    );
+    await expect(
+      scanPanePorts({ procRoot: capRoot, panePid: 1000, websiteProbe: async () => ({}), probe: async () => false }),
+    ).rejects.toThrow("preview-ports-overcap");
   });
 
   it("the screen handle rides through the scan untouched", async () => {
     const r = await scanPanePorts({
       procRoot,
       panePid: 100,
+      websiteProbe: async () => ({}),
       probe: async () => false,
       screen: { display: ":97", viewer: { protocol: "vnc", port: 5900 } },
     });
@@ -191,7 +333,12 @@ it.skipIf(process.platform === "linux")(
     // fs read, so a bad-path root cannot tell the refusal apart from an
     // ENOENT.
     await expect(
-      scanPanePorts({ procRoot: join(base, "no-such-proc"), panePid: 1, probe: async () => false }),
+      scanPanePorts({
+        procRoot: join(base, "no-such-proc"),
+        panePid: 1,
+        websiteProbe: async () => ({}),
+        probe: async () => false,
+      }),
     ).rejects.toThrow("preview-ports-unsupported");
   },
 );

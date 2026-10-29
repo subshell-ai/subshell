@@ -504,6 +504,79 @@ describe("TerminalKeyBar", () => {
     expect(jumps).toBe(2);
   });
 
+  const HISTORY_ARIA = ["Send Home", "Send Page Up", "Send Page Down", "Send End"];
+
+  it("explains the history buttons instead of swallowing taps when an app owns the screen and access cannot send keys", () => {
+    // The reviewed defect: a view grantee opens a full-screen app's preview,
+    // taps the jumps repeatedly, and nothing happens or says why. In the
+    // alternate buffer the buttons can only send the app keys, so a
+    // connection without input must gray them out and explain it at the
+    // control (hover/focus tooltip plus aria-description, per ExplainedButton).
+    const actions: string[] = [];
+    const scrollProps = {
+      onScrollTop: () => actions.push("top"),
+      onScrollPageUp: () => actions.push("up"),
+      onScrollPageDown: () => actions.push("down"),
+      onScrollBottom: () => actions.push("bottom"),
+    };
+    const cases: Array<{ props: object; reason: RegExp }> = [
+      { props: { readOnly: true }, reason: /View access can't send keys/ },
+      { props: { suppressInput: true }, reason: /Leave copy mode to scroll/ },
+      { props: { disabled: true }, reason: /Wait for the terminal to reconnect/ },
+    ];
+    for (const { props, reason } of cases) {
+      cleanup();
+      actions.length = 0;
+      render(
+        <TerminalKeyBar
+          disabled={false}
+          altScreen
+          onBytes={() => {
+            throw new Error("no byte was pressed");
+          }}
+          {...scrollProps}
+          {...props}
+        />,
+      );
+      for (const name of HISTORY_ARIA) {
+        const button = screen.getByRole("button", { name }) as HTMLButtonElement;
+        expect(button.matches(":disabled, [aria-disabled=true]"), `${name} under ${JSON.stringify(props)}`).toBe(true);
+        expect(button.getAttribute("aria-description")).toMatch(/full-screen app owns this screen/);
+        expect(button.getAttribute("aria-description")).toMatch(reason);
+        // Inert: the press must not reach the terminal's no-op path.
+        fireEvent.click(button);
+        fireEvent.pointerDown(button, { pointerType: "touch", button: 0, isPrimary: true });
+        fireEvent.pointerUp(button, { pointerType: "touch", button: 0, isPrimary: true });
+      }
+      expect(actions).toEqual([]);
+    }
+  });
+
+  it("keeps the history buttons live on an alternate-screen pane that can send keys", () => {
+    // The other half of the rule: a full-screen app owns the screen, and the
+    // buttons still work by driving that app. Refusing them here would break
+    // the one audience they exist for (and the e2e history-bytes check).
+    const actions: string[] = [];
+    render(
+      <TerminalKeyBar
+        disabled={false}
+        altScreen
+        onBytes={() => {}}
+        onScrollTop={() => actions.push("top")}
+        onScrollPageUp={() => actions.push("up")}
+        onScrollPageDown={() => actions.push("down")}
+        onScrollBottom={() => actions.push("bottom")}
+      />,
+    );
+    for (const name of HISTORY_ARIA) {
+      const button = screen.getByRole("button", { name }) as HTMLButtonElement;
+      expect(button.matches(":disabled, [aria-disabled=true]")).toBe(false);
+      expect(button.hasAttribute("aria-description")).toBe(false);
+      fireEvent.click(button);
+    }
+    expect(actions).toEqual(["top", "up", "down", "bottom"]);
+  });
+
   it("copy mode keeps the row and scroll position while disabling all input controls", () => {
     const sent: string[] = [];
     const props = {

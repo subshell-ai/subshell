@@ -3,6 +3,12 @@ export function previewUrl(value: string, base: string, target: string, proxy: s
   if (!value || value.startsWith("#")) return value;
   try {
     const proxyUrl = new URL(proxy);
+    // App runtimes sometimes reduce an already-mapped URL to its pathname.
+    // Recognize this before resolving against the upstream document base.
+    if (value.startsWith(proxyUrl.pathname)) {
+      const mapped = new URL(value, proxyUrl.origin);
+      if (mapped.pathname.startsWith(proxyUrl.pathname)) return mapped.href;
+    }
     const logicalBase = new URL(base);
     if (logicalBase.origin === proxyUrl.origin && logicalBase.pathname.startsWith(proxyUrl.pathname)) {
       base = target + logicalBase.pathname.slice(proxyUrl.pathname.length - 1) + logicalBase.search;

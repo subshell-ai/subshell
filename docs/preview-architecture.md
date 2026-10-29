@@ -46,7 +46,21 @@ displays. A built-in preview does not need an enrolled daemon or a node socket.
 `GET /api/subshells/:id/views` requires view access and returns ports, the
 first discovered CDP port, display metadata, and availability reasons. The
 Linux runtime walks `/proc` from the subshell's tmux PID, joining descendant
-socket inodes with listener tables. The broker caches answers for five seconds.
+socket inodes with listener tables. Bounded HTTP probes keep only ports that serve
+HTML, excluding browser debugging and display listeners from the website list.
+Probes try IPv4 loopback and then IPv6, in the order forwarding dials them. A
+website is offered from the IPv6 answer only when IPv4 was refused, not when it
+stalled: forwarding retries `::1` after a refused connect but not after a socket
+that accepts and never answers, so advertising such a port would offer a preview
+that can only hang. CDP probes and the screencast bridge, which dial loopback
+themselves rather than through a lane, ask both families whenever the first gives
+no usable answer, including well-formed JSON that is not a CDP response. The
+bridge validates target rows before choosing one and resolves an advertised
+`localhost` against the family that supplied that list, without a DNS lookup.
+Same-port redirects are followed; cross-origin redirects and download responses
+are excluded. A bounded document prefix supplies an optional page title for the
+picker and truncated tab labels; SVG accessibility titles are excluded.
+The broker caches answers for five seconds.
 Discovery is a UI aid, not an allowlist for edit-authorized raw forwarding.
 
 ### Display providers and viewer protocols
@@ -165,13 +179,24 @@ creates a session with a cryptographically random 128-bit reference. It returns
 `/pv/<ref>/`. That path is a bearer capability; later proxy requests do not use
 the viewer's browser cookie as their authorization boundary.
 
+Toward the browser, TCP reads are split into frames within the existing wire
+limit; a large read is not itself an oversized protocol message. Toward the
+pane, a single write larger than the frame cap is refused by name and the lane
+dies `over-cap`, the one lane-level audit row. The HTTP header reader pauses its
+stream until the body or WebSocket reader takes over, preserving packets that
+arrive during that handoff.
+
 Each HTTP request uses a fresh lane. The server strips dashboard cookies,
 HTTP authorization, API keys, and known edge-identity headers,
 sets `Host` to the saved destination (loopback for automatic views), frames the HTTP request over the lane, and releases it
 when the response completes or the browser aborts. It does not retry partial
 writes. Personal proxy settings default to rewriting app URLs and redirects,
 with preview-host forwarding off. Supported HTML attributes, CSS URLs/imports,
-and module import specifiers are mapped under the session path. An injected
+and module import specifiers are mapped under the session path. Next.js pages
+also receive Turbopack’s chunk-base override before their first script, keeping
+its chunk registry consistent with rewritten URLs. Replacing an active Turbopack
+stylesheet adds a fresh `ts` parameter so Chromium does not reuse the old CSS
+inside the opaque-origin frame. An injected
 browser script handles common dynamic request and DOM URL APIs; target CSP can
 block it. Text rewriting is bounded to 16 MiB decoded, while untransformed
 bodies stream. Rewriting preserves the opaque-origin sandbox, so storage,
@@ -196,6 +221,37 @@ remove the embedding boundary. Scripts and forms work in an opaque origin;
 preview-specific CORS allows modules and fetches under the capability URL.
 Opaque `Origin: null` is admitted only to preview HTTP preflight and preview
 WebSocket handshakes. Dashboard API and WebSocket gates still reject it.
+Document navigations are judged by what the phone does with the answer, not by
+whether it is a web page. A response the browser presents itself stays: a document,
+a chunk of text, an image, an audio or video clip, or JSON and XML rendered as text.
+What is answered with an inline
+error page is a file the server hands over (an `attachment`, whatever its type
+claims) or a binary the view cannot read, because on iOS that hand-off takes the
+whole presentation with no way back. A desktop browser downloads in its own UI and
+leaves the preview alone, so the same bytes go through there: the refusal is scoped
+to the clients that can be stranded. It covers only responses served through the
+preview capability; external redirects are not fetched or inspected by the proxy. A page that declares no type at all is left to
+the browser, which renders it as text. Subresource and fetch
+responses retain their content types either way, and the cookies a refused response
+carried still enter the session jar, so the app is not quietly signed out by the
+refusal.
+
+The refusal page also announces itself to the dashboard, which shows a toast so the
+person learns what happened where they were looking. The page runs in the same
+opaque-origin sandbox, so its `event.origin` reads `null` and proves nothing: the
+panel believes a message only when it comes from the window of the frame that panel
+created and names that session's own ref. This is untrusted status: app scripts
+in that same frame know the ref and can send an identical message. The words shown
+are fixed copy chosen from two known values, and a mounted panel emits at most one
+notification per capability/reload. No message grants access or runs an action.
+The parent checks the source window; it does not add `null` to an origin allowlist.
+
+Discovery and the guard ask the same question from one place, and the rewriter
+answers it slightly differently: a document served as `application/xhtml+xml` is
+listed, navigated and rewritten, but its injected script goes in as a CDATA section,
+because that document is parsed as strict XML where a raw `<` is a fatal error
+rather than JavaScript.
+
 Responses use `no-store` and `no-referrer`; request logging excludes `/pv/` paths.
 
 A WebSocket upgrade allocates a lane before accepting the browser. HTTP-mode

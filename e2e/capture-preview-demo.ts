@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync 
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, expect, request } from "@playwright/test";
-import { writePreviewProject } from "./fixtures/preview-site/project";
+import { PREVIEW_SITE_TITLE, writePreviewProject } from "./fixtures/preview-site/project";
 import { BASE_URL, PORTS } from "./ports";
 import { verifyPreviewBrowser } from "./preview-browser-check";
 import { captureScreenshot } from "./screenshot";
@@ -113,7 +113,7 @@ try {
   page.setDefaultTimeout(20000);
   await page.goto(`/workspaces/${workspace.id}`);
   await page.getByRole("button", { name: /^Open web preview or screen/ }).click();
-  await page.getByRole("button", { name: "Open web preview on port 3000" }).click();
+  await page.getByRole("button", { name: `Open ${PREVIEW_SITE_TITLE} on port 3000` }).click();
   await expect(page.locator("iframe")).toBeVisible();
   await expect(
     page.frameLocator("iframe").getByRole("heading", { name: "Small teams. Considered websites." }),
@@ -240,7 +240,7 @@ try {
       path.join(shots, "preview-picker.png"),
       page.getByRole("dialog"),
     );
-    await page.getByRole("button", { name: "Open web preview on port 3000" }).click();
+    await page.getByRole("button", { name: `Open ${PREVIEW_SITE_TITLE} on port 3000` }).click();
     await page.frameLocator("iframe").getByRole("button", { name: "Websites", exact: true }).waitFor();
     await hold(2);
     await page.frameLocator("iframe").getByRole("button", { name: "Websites", exact: true }).click();
