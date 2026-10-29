@@ -159,4 +159,33 @@ describe("the loopback family ladder", () => {
     await expect(fetchCdpJsonFromLoopback(9333, "/json/version", dead, { fetchImpl: f.fetchImpl })).rejects.toThrow();
     expect(f.asked).toEqual(["http://127.0.0.1:9333/json/version"]);
   });
+
+  it("carries the caller's abort into a family that is still stalled", async () => {
+    // The case the two slice tests leave open: the family's window is COMPOSED
+    // with the caller's signal, not a substitute for it. Replace the composition
+    // with a bare per-family timer and a scan that has already given up still
+    // waits out the whole slice before the early-out notices, so a dead scan
+    // keeps a socket in flight. The slice here is far longer than the bound, so
+    // only the caller's abort can end this quickly.
+    const asked: string[] = [];
+    const controller = new AbortController();
+    const fetchImpl = (async (input: string | URL, init?: RequestInit) => {
+      asked.push(String(input));
+      const familySignal = init?.signal;
+      if (!familySignal) throw new Error("a family must feel both its slice and its caller");
+      await new Promise<void>((_resolve, reject) => {
+        const stop = (): void => reject(familySignal.reason);
+        if (familySignal.aborted) stop();
+        else familySignal.addEventListener("abort", stop, { once: true });
+      });
+      throw new Error("unreachable: the caller gave up, not the family");
+    }) as unknown as typeof fetch;
+    const startedAt = Date.now();
+    setTimeout(() => controller.abort(), 30);
+    await expect(
+      fetchCdpJsonFromLoopback(9337, "/json/version", controller.signal, { perFamilyTimeoutMs: 3_000, fetchImpl }),
+    ).rejects.toThrow();
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(asked).toEqual(["http://127.0.0.1:9337/json/version"]);
+  });
 });
