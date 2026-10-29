@@ -1,5 +1,91 @@
 # Security follow-ups and audit history
 
+## Live penetration checks: 2026-10-29
+
+This pass exercised the deployed HTTPS instance and a separate running copy of
+`security/codebase-audit-2026-10-29`. No additional security defect was reproduced.
+The application under test in the disposable stack was revision `c650765c5`;
+the fixes below have not been deployed by this audit.
+
+### Deployed endpoint
+
+`https://subshell.ein.disaresta.com` passed **49 checks**, including availability
+controls. Requests were anonymous or used the current pane's existing credential.
+No administrator or second user's deployed credentials were available. The
+checks covered:
+
+- Anonymous access to protected API routes, credential-type restrictions on
+  node artifacts, dotfile requests, an invalid preview capability, and encoded
+  or normalized auth-plugin paths.
+- A working current-pane credential, refusal on admin and cookie-only surfaces,
+  invalid credentials, and an invalid cookie taking precedence over a valid bearer.
+- Refusal to mint unbound or foreign-pane terminal tickets; refusal of foreign
+  and opaque origins on terminal upgrades; refusal of pane credentials on the
+  node socket; and terminal-ticket binding, single use, and rejection on the
+  instance live feed.
+
+Two initial SSH-identity probes supplied an incomplete query and returned 400.
+The corrected `?node=local` request returned the expected 403. Those two attempts
+are retained with their correction in the local evidence and excluded from the
+49 passing checks. A random absent pane id returned 404; cross-account ownership
+was tested with known resources in the disposable stack below, not inferred
+from that response.
+
+The deployed checks minted and consumed two short-lived tickets for this pane.
+They sent no terminal input and changed no accounts, shares, nodes, files, or
+deployment settings. The endpoint remained available after the probes.
+
+### Disposable running stack
+
+[`e2e/verify-live-security.ts`](../e2e/verify-live-security.ts) passed **58 checks**
+using real HTTP, terminal WebSockets, Chromium, tmux shells, a newly enrolled
+node, and an nginx container. It boots the existing E2E stack with test mode
+disabled and an isolated database and configuration; it imports no server
+internals and uses no test-only application endpoints. Three disposable accounts
+exercise administrator, owner, and unrelated-user authority.
+
+| Boundary | Observed result |
+| --- | --- |
+| Ownership and privilege | Foreign pane reads, logs, input and deletion refused; admin had no private-pane override; self-promotion and ordinary-user key minting refused |
+| Restricted credentials | Read-scoped system key could list but could not execute, mint terminal access or enroll; disabling it invalidated the next request |
+| Sharing and terminal input | View access allowed reading and rejected input/forwarding; the same terminal accepted input after an edit grant; share changes closed the old socket and revoked issued preview links |
+| Browser isolation | Embedded and directly opened previews had opaque origins; parent DOM, cookies, storage, dashboard API access and service-worker registration were blocked |
+| Browser request forgery | Same-site foreign-origin POST and WebSocket attempts failed; an authenticated HTTP positive control reached the shell |
+| Proxy credentials and cookies | Dashboard authorization, cookies and edge assertions were absent at the target; target cookies stayed in the server-side jar |
+| Reverse-proxy instructions | All tested file-serving headers were removed; direct nginx forwarding served a private canary through `X-Accel-Redirect`, while forwarding through Subshell returned the ordinary preview without the canary |
+| Local upload writes | Planted directory link refused without an outside write; a hard-linked Git exclude file retained its bytes and mode; ordinary uploads succeeded |
+| Node upload writes | Directory escape refused over the enrolled-node link; planted symlink and hard-link temporaries left victim bytes and modes untouched; normal upload and ignore-file creation succeeded |
+| Node previews and revocation | Preview isolation survived the encrypted node link; deleting its subshell invalidated the capability |
+| Disabled accounts | Existing cookie access and preview capability failed; the auth session cache did not resurrect the disabled account |
+
+The node temporary-file probes target the fixed-name `.gitignore` seed sent
+before an upload. Its best-effort refusal does not fail the upload itself;
+the assertions inspect the outside victim and verify that no ignore file was
+published through the planted link. Removing the link restores normal creation.
+
+The nginx fixture used `nginx/1.31.8`, pinned to
+`nginx@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606`.
+Its canary and internal location were disposable. Two initial runs stopped at
+fixture startup: first a response-property error in the runner, then nginx's
+default temporary-directory location on a read-only filesystem. Both were fixed;
+the final run completed all checks and cleanup.
+
+### Evidence and limits
+
+The redacted local reports are `/tmp/subshell-live-audit/deployed.json` and
+`/tmp/subshell-live-audit/isolated.json`; the latter can be regenerated with the
+checked-in runner. They contain outcomes, not credentials or response bodies.
+The E2E package type check and three helper tests passed. Lint passed with three
+existing warnings outside the new runner. The test plan selected the E2E package;
+this pass ran the targeted live runner rather than the entire browser suite.
+All fixture processes, containers, tmux sessions, accounts and temporary data
+were removed, and their listening ports were released.
+
+Deployed browser/account-to-account behavior, native macOS consent, mobile
+clients, compiled release artifacts, Apache/lighttpd interpretation, and denial
+of service were not exercised. Successful branch tests do not establish the
+deployed revision or prove the absence of other vulnerabilities.
+
 ## Adversarial follow-up: 2026-10-29
 
 This second pass continued on `security/codebase-audit-2026-10-29` after the
