@@ -217,8 +217,11 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
  * worker that picked this port at the very end of the window cannot keep the
  * whole command past it. Every failure shape on every family (refused, slow,
  * non-JSON, not CDP, out of budget) answers false.
+ *
+ * Exported so the slice each family is given stays checkable without a live
+ * browser; production reaches it only as scanPanePorts' default probe.
  */
-async function defaultCdpProbe(port: number, signal: AbortSignal): Promise<boolean> {
+export async function defaultCdpProbe(port: number, signal: AbortSignal): Promise<boolean> {
   try {
     const body = await fetchCdpJsonFromLoopback(port, "/json/version", signal, {
       perFamilyTimeoutMs: CDP_PROBE_TIMEOUT_MS,

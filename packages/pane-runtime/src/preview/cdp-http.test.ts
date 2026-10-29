@@ -112,6 +112,37 @@ describe("the loopback family ladder", () => {
     expect(f.asked).toEqual(["http://127.0.0.1:9333/json/version"]);
   });
 
+  it("hands a stalled IPv4 family to IPv6 instead of letting it spend the caller's budget", async () => {
+    // The per-family slice is the whole reason an IPv6-only devtools endpoint
+    // behind a wedged IPv4 listener is still watchable: without it the stalled
+    // family drains the caller's deadline, the early-out treats that as the
+    // caller giving up, and `::1` is never asked at all. The outer signal is
+    // deliberately far longer than the slice, so only the slice can move this
+    // port along.
+    const asked: string[] = [];
+    const fetchImpl = (async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      asked.push(url);
+      if (!url.includes("[::1]")) {
+        const signal = init?.signal;
+        if (!signal) throw new Error("a family must be asked on its own slice");
+        await new Promise<void>((_resolve, reject) => {
+          const stop = (): void => reject(signal.reason);
+          if (signal.aborted) stop();
+          else signal.addEventListener("abort", stop, { once: true });
+        });
+        throw new Error("unreachable: a stalled family never answers");
+      }
+      return Response.json({ Browser: "v6 behind a stall" });
+    }) as unknown as typeof fetch;
+    const body = await fetchCdpJsonFromLoopback(9334, "/json/version", AbortSignal.timeout(4_000), {
+      perFamilyTimeoutMs: 150,
+      fetchImpl,
+    });
+    expect(body).toEqual({ Browser: "v6 behind a stall" });
+    expect(asked).toEqual(["http://127.0.0.1:9334/json/version", "http://[::1]:9334/json/version"]);
+  });
+
   it("reports the last failure when neither family answers", async () => {
     const f = scriptedFetch({});
     await expect(fetchCdpJsonFromLoopback(9333, "/json/version", signal(), { fetchImpl: f.fetchImpl })).rejects.toThrow(
