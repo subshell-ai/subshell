@@ -33,12 +33,12 @@ import { useOpenVirtualDisplay } from "@/hooks/use-open-virtual-display";
 import { useSwipeOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
 import { usePresets } from "@/hooks/use-presets";
+import { usePreviewAvailability } from "@/hooks/use-preview-availability";
 import { useSubshellData } from "@/hooks/use-subshell-data";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
 import { useSwipeNav } from "@/hooks/use-swipe-nav";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
-import { useUnsavedPreviewCount } from "@/hooks/use-unsaved-preview-count";
 import { invalidateAfterRename } from "@/hooks/use-workspaces";
 import { paneDiagnosticsIds, setPaneDiagnosticsIds, togglePaneDiagnostics } from "@/lib/pane-diagnostics-pref";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
@@ -126,7 +126,7 @@ function SubshellPage() {
   // names on a blip is the bug that shape caused once.
   const { data: nodesData } = useNodes();
   const openVirtualDisplay = useOpenVirtualDisplay(subshell);
-  const unsavedPreview = useUnsavedPreviewCount(id, subshell);
+  const unsavedPreview = usePreviewAvailability(id, subshell);
   const nodeLabel = useMemo(() => {
     if (!subshell) return null;
     const nodeId = subshell.nodeId || FALLBACK_NODE_ID;
@@ -351,7 +351,12 @@ function SubshellPage() {
                     which removed the section under the terminal): it carries this
                     pane into its workspace, where the dialog it raises lists the
                     same rows and reasons and the preview opens as a tab. */}
-                <VirtualDisplayEntry subshell={subshell} unsavedCount={unsavedPreview} onOpen={openVirtualDisplay} />
+                <VirtualDisplayEntry
+                  subshell={subshell}
+                  unsavedCount={unsavedPreview.unsavedCount}
+                  hasLiveItems={unsavedPreview.hasLiveItems}
+                  onOpen={openVirtualDisplay}
+                />
                 <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />
                 {/* The way to a workspace, and the way back: split this
                     subshell into one, or return to the one it is already on

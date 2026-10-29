@@ -162,25 +162,47 @@ describe("gated controls explain themselves", () => {
     expect(showScreen.getAttribute("aria-description")).toBe(SCREEN_VIEW_REASON);
   });
 
-  it.each([
-    { webPreviewsEnabled: false, virtualDisplayEnabled: true, reason: "Web previews are disabled" },
-    { webPreviewsEnabled: true, virtualDisplayEnabled: false, reason: "Virtual displays are disabled" },
-  ])("links the enablement guide for an individually disabled feature even with no discovered views: %j", (state) => {
-    mount({
-      info: info({
-        ports: [],
-        cdpPort: null,
-        screen: null,
-        nodeEnabled: true,
-        webPreviewsEnabled: state.webPreviewsEnabled,
-        virtualDisplayEnabled: state.virtualDisplayEnabled,
-      }),
-    });
-    expect(screen.getByText(new RegExp(state.reason)).matches(".text-warning")).toBe(true);
-    expect(screen.getByRole("link", { name: "How to enable web previews and screens" }).getAttribute("href")).toBe(
-      "https://docs.subshell.sh/previews/setup",
-    );
-  });
+  it.each([{ webPreviewsEnabled: false, virtualDisplayEnabled: true, reason: "Web previews are disabled" }])(
+    "links the enablement guide for an individually disabled feature even with no discovered views: %j",
+    (state) => {
+      mount({
+        info: info({
+          ports: [],
+          cdpPort: null,
+          screen: null,
+          nodeEnabled: true,
+          webPreviewsEnabled: state.webPreviewsEnabled,
+          virtualDisplayEnabled: state.virtualDisplayEnabled,
+        }),
+      });
+      expect(screen.getByText(new RegExp(state.reason)).matches(".text-warning")).toBe(true);
+      expect(screen.getByRole("link", { name: "How to enable web previews and screens" }).getAttribute("href")).toBe(
+        "https://docs.subshell.sh/previews/setup",
+      );
+    },
+  );
+
+  it.each([undefined, { kind: "service" as const, port: 8006, serviceId: "proxmox" }])(
+    "does not send web-preview users to virtual-display settings: %j",
+    async (initialView) => {
+      const calls: unknown[] = [];
+      await mountRouted({
+        subshell: row(),
+        initialView,
+        info: info({ ports: [], cdpPort: null, webPreviewsEnabled: true, virtualDisplayEnabled: false }),
+        controller: {
+          openPort: async (...args) => {
+            calls.push(args);
+            return { proxyBase: "/pv/proxmox/" };
+          },
+        },
+      });
+      if (initialView) await waitFor(() => expect(calls.length).toBe(1));
+      expect(screen.queryByText(/Virtual displays are disabled/)).toBeNull();
+      expect(screen.queryByRole("link", { name: "Open node settings" })).toBeNull();
+      expect(screen.queryByRole("link", { name: "How to enable web previews and screens" })).toBeNull();
+    },
+  );
 
   it("a node with the switch off answers with the switch's remedy, not a silent empty list", () => {
     mount({ info: info({ ports: [], cdpPort: null, nodeEnabled: false, reason: "preview-disabled" }) });

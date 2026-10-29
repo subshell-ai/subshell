@@ -1,93 +1,120 @@
 import { afterEach, expect, it } from "bun:test";
+import { DEFAULT_PREVIEW_CONFIGURATION } from "@internal/subshell-protocol";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { PreviewSettingsDialog } from "../preview-settings-dialog";
+import { PreviewConfigurationForm, UNSANDBOXED_WARNING } from "../preview-configuration-form";
 
 const originalFetch = globalThis.fetch;
 afterEach(() => {
   cleanup();
   globalThis.fetch = originalFetch;
 });
-it("loads personal settings and saves a saved-service target before opening", async () => {
-  const bodies: Record<string, unknown>[] = [];
-  const settings = { rewriteUrls: true, passHost: false, rewriteRedirects: true };
-  globalThis.fetch = (async (_url, init) => {
-    const body = JSON.parse(String(init?.body));
-    bodies.push(body);
-    return Response.json(body.action === "save" ? body.settings : settings);
-  }) as typeof fetch;
-  let opened = 0;
-  let closed = 0;
-  render(
-    <PreviewSettingsDialog
-      paneId="pane"
-      port={3000}
-      serviceId="service"
-      onClose={() => {
-        closed++;
-      }}
-      onOpen={() => {
-        opened++;
-      }}
-    />,
+function mount(props: Partial<Parameters<typeof PreviewConfigurationForm>[0]> = {}) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  globalThis.fetch = (async () => Response.json([])) as unknown as typeof fetch;
+  return render(
+    <QueryClientProvider client={client}>
+      <PreviewConfigurationForm subshellId="pane" port={8006} onBack={() => {}} onOpen={() => {}} {...props} />
+    </QueryClientProvider>,
   );
-  const host = await screen.findByRole("checkbox", { name: "Pass the preview host" });
-  expect(host.getAttribute("aria-checked")).toBe("false");
-  fireEvent.click(host);
-  await waitFor(() => expect(host.getAttribute("aria-checked")).toBe("true"));
-  fireEvent.click(screen.getByRole("button", { name: "Save and open" }));
-  await waitFor(() => expect(opened).toBe(1));
-  expect(closed).toBe(1);
-  expect(bodies.at(-1)).toEqual({
-    target: { serviceId: "service" },
-    action: "save",
-    settings: { ...settings, passHost: true },
+}
+it("opens a discovered item with explicit configuration without saving it", async () => {
+  let opened: unknown;
+  mount({
+    onOpen: (view) => {
+      opened = view;
+    },
   });
-});
-it("cancellation preserves the current preview without saving", async () => {
-  let writes = 0;
-  let opened = 0;
-  let closed = 0;
-  globalThis.fetch = (async (_url, init) => {
-    if (JSON.parse(String(init?.body)).action !== "read") writes++;
-    return Response.json({ rewriteUrls: true, passHost: false, rewriteRedirects: true });
-  }) as typeof fetch;
-  render(
-    <PreviewSettingsDialog
-      paneId="pane"
-      port={3000}
-      onClose={() => {
-        closed++;
-      }}
-      onOpen={() => {
-        opened++;
-      }}
-    />,
+  const sandbox = screen.getByRole("checkbox", { name: "Run outside the sandbox" });
+  expect(sandbox.getAttribute("aria-checked")).toBe("false");
+  fireEvent.click(sandbox);
+  expect(screen.getByText(UNSANDBOXED_WARNING).classList.contains("text-warning")).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Open preview" }));
+  await waitFor(() =>
+    expect(opened).toEqual({
+      kind: "app",
+      port: 8006,
+      configuration: { ...DEFAULT_PREVIEW_CONFIGURATION, sandbox: false },
+    }),
   );
-  await screen.findByRole("checkbox", { name: "Rewrite app URLs" });
-  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  expect(closed).toBe(1);
-  expect(opened).toBe(0);
-  expect(writes).toBe(0);
 });
-it("reset removes saved settings and opens defaults", async () => {
-  let action = "";
-  let opened = 0;
+it("saves the name and all chosen options before opening", async () => {
+  let body: Record<string, unknown> | undefined;
+  let opened: unknown;
+  mount({
+    onOpen: (view) => {
+      opened = view;
+    },
+  });
   globalThis.fetch = (async (_url, init) => {
-    action = JSON.parse(String(init?.body)).action;
-    return Response.json({ rewriteUrls: true, passHost: false, rewriteRedirects: true });
-  }) as typeof fetch;
-  render(
-    <PreviewSettingsDialog
-      paneId="pane"
-      port={3000}
-      onClose={() => {}}
-      onOpen={() => {
-        opened++;
-      }}
-    />,
-  );
-  await screen.findByRole("checkbox", { name: "Rewrite app URLs" });
-  fireEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
-  await waitFor(() => expect(opened).toBe(1));
-  expect(action).toBe("reset");
+    if (init?.method === "POST") {
+      body = JSON.parse(String(init.body));
+      return Response.json({ ...body, id: "service" });
+    }
+    return Response.json([]);
+  }) as unknown as typeof fetch;
+  fireEvent.click(screen.getByRole("checkbox", { name: "Save this configuration" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Name (optional)" }), { target: { value: "Proxmox" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "Rewrite app URLs" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save and open" }));
+  await waitFor(() => expect(body?.name).toBe("Proxmox"));
+  expect(body?.configuration).toEqual({ ...DEFAULT_PREVIEW_CONFIGURATION, rewriteUrls: false });
+  await waitFor(() => expect(opened).toMatchObject({ kind: "service", serviceId: "service" }));
+});
+it("edits a saved service in place and does not open on cancel", async () => {
+  let method = "";
+  let body: Record<string, unknown> | undefined;
+  let saved = false;
+  mount({
+    mode: "edit",
+    service: { id: "svc", name: "Old", host: "localhost", protocol: "http", port: 3000 },
+    onSaved: () => {
+      saved = true;
+    },
+  });
+  globalThis.fetch = (async (_url, init) => {
+    if (init?.method === "PUT") {
+      method = init.method;
+      body = JSON.parse(String(init.body));
+      return Response.json({ ...body, id: "svc" });
+    }
+    return Response.json([]);
+  }) as unknown as typeof fetch;
+  fireEvent.change(screen.getByRole("textbox", { name: "Name (optional)" }), { target: { value: "New" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(saved).toBe(true));
+  expect(method).toBe("PUT");
+  expect(body?.name).toBe("New");
+});
+
+it("opens a changed saved destination as a one-off preview", async () => {
+  let opened: unknown;
+  mount({
+    service: { id: "svc", name: "Saved", host: "localhost", port: 3000, protocol: "http", revision: 4 },
+    onOpen: (view) => {
+      opened = view;
+    },
+  });
+  fireEvent.change(screen.getByRole("spinbutton", { name: "Port" }), { target: { value: "3001" } });
+  fireEvent.click(screen.getByRole("button", { name: "Open preview" }));
+  await waitFor(() => expect(opened).toMatchObject({ kind: "app", port: 3001 }));
+});
+it("awaits opening and displays asynchronous failures", async () => {
+  let rejectOpen: (error: Error) => void = () => {};
+  const busy: boolean[] = [];
+  mount({
+    onBusyChange: (value) => {
+      busy.push(value);
+    },
+    onOpen: () =>
+      new Promise<void>((_resolve, reject) => {
+        rejectOpen = reject;
+      }),
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Open preview" }));
+  await waitFor(() => expect(busy).toEqual([true]));
+  expect(screen.getByRole("button", { name: "Back" }).getAttribute("aria-disabled")).toBe("true");
+  rejectOpen(new Error("Could not connect"));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Could not connect"));
+  expect(busy).toEqual([true, false]);
 });

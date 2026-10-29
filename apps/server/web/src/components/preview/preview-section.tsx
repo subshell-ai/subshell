@@ -1,4 +1,5 @@
 import { errMessage } from "@internal/node-admin";
+import type { PreviewConfiguration } from "@internal/subshell-protocol";
 import { Link } from "@tanstack/react-router";
 import { type JSX, useEffect, useMemo, useRef, useState } from "react";
 import { hasDisabledPreviewFeature, NodeUnavailableNote } from "@/components/preview/node-unavailable-note";
@@ -15,6 +16,7 @@ import { WatchViewer } from "@/components/preview/watch-viewer";
 import { TrustNoticeBanner } from "@/components/trust-notice-banner";
 import type { UseSubshellPreview } from "@/hooks/use-subshell-preview";
 import type { TrustNotice } from "@/lib/trust-notices";
+import { requestWorkspacePreview } from "@/lib/workspace-preview";
 import type { SubshellAccess, SubshellView } from "@/types/subshell";
 
 /**
@@ -96,7 +98,13 @@ export function PreviewSection({
   initialView,
   onClose,
 }: PreviewSectionProps): JSX.Element {
-  const [open, setOpen] = useState<{ port: number; proxyBase: string; serviceId?: string } | null>(null);
+  const [open, setOpen] = useState<{
+    port: number;
+    proxyBase: string;
+    serviceId?: string;
+    configuration?: PreviewConfiguration;
+    sandbox?: boolean;
+  } | null>(null);
   const [configuring, setConfiguring] = useState(false);
   const [busy, setBusy] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -149,19 +157,24 @@ export function PreviewSection({
     };
   }, [paneId]);
 
-  async function handleOpen(port: number, serviceId?: string): Promise<void> {
+  async function handleOpen(
+    port: number,
+    serviceId?: string,
+    configuration?: PreviewConfiguration,
+    revision?: number,
+  ): Promise<void> {
     resumed.current = true;
     const gen = generation.current;
     setOpenError(null);
     setBusy(true);
     setConnection("connecting");
     try {
-      const { proxyBase } = await preview.openPort(port, serviceId);
+      const { proxyBase, sandbox } = await preview.openPort(port, serviceId, configuration, revision);
       if (generation.current !== gen) return;
       setScreenSession(null);
       if (preview.watching) await preview.stopWatch();
       if (generation.current !== gen) return;
-      setOpen({ port, proxyBase, serviceId });
+      setOpen({ port, proxyBase, serviceId, configuration, sandbox });
     } catch (err) {
       // The named refusal (the caps, the stale node answer) renders as asked.
       if (generation.current !== gen) return;
@@ -217,8 +230,9 @@ export function PreviewSection({
       setReloadKey((value) => value + 1);
     } else if (screenSession) void handleScreen();
     else if (preview.watching) void handleWatch();
-    else if (initialView?.kind === "app") void handleOpen(initialView.port);
-    else if (initialView?.kind === "service") void handleOpen(initialView.port, initialView.serviceId);
+    else if (initialView?.kind === "app") void handleOpen(initialView.port, undefined, initialView.configuration);
+    else if (initialView?.kind === "service")
+      void handleOpen(initialView.port, initialView.serviceId, initialView.configuration, initialView.revision);
     else if (initialView?.kind === "screen") void handleScreen();
     else if (initialView?.kind === "browser") void handleWatch();
     preview.refresh();
@@ -237,8 +251,15 @@ export function PreviewSection({
     queueMicrotask(() => {
       if (cancelled || resumed.current) return;
       resumed.current = true;
-      if (initialView.kind === "app") void reopen.current.handleOpen(initialView.port);
-      else if (initialView.kind === "service") void reopen.current.handleOpen(initialView.port, initialView.serviceId);
+      if (initialView.kind === "app")
+        void reopen.current.handleOpen(initialView.port, undefined, initialView.configuration);
+      else if (initialView.kind === "service")
+        void reopen.current.handleOpen(
+          initialView.port,
+          initialView.serviceId,
+          initialView.configuration,
+          initialView.revision,
+        );
       else if (initialView.kind === "screen") void reopen.current.handleScreen();
       else void reopen.current.startWatch();
     });
@@ -252,6 +273,8 @@ export function PreviewSection({
   const browserGone = preview.watching && info != null && info.cdpPort === null;
   const hasViewer = Boolean(open || screenSession || preview.watching);
   const selected = open ? `app:${open.port}` : screenSession ? "screen" : preview.watching ? "browser" : null;
+  const feature =
+    screenSession || initialView?.kind === "screen" ? "screen" : hasViewer || initialView ? "web" : undefined;
   const nothingToPreview =
     info?.nodeEnabled &&
     !info.reason &&
@@ -288,7 +311,17 @@ export function PreviewSection({
           port={open.port}
           serviceId={open.serviceId}
           onClose={() => setConfiguring(false)}
-          onOpen={() => handleOpen(open.port, open.serviceId)}
+          configuration={open.configuration}
+          onOpen={(view) => {
+            if (requestWorkspacePreview(paneId, view)) return;
+            if (view.kind === "app" || view.kind === "service")
+              return handleOpen(
+                view.port,
+                view.kind === "service" ? view.serviceId : undefined,
+                view.configuration,
+                view.kind === "service" ? view.revision : undefined,
+              );
+          }}
         />
       )}
       {!selected && (busy || !info) && (
@@ -314,9 +347,9 @@ export function PreviewSection({
       {/* The switch's remedy line: the info answer is always the full shape,
           so a switched-off node says so in words rather than showing a blank
           list that reads as "nothing is listening". */}
-      {info && <NodeUnavailableNote info={info} className="p-3" />}
+      {info && <NodeUnavailableNote info={info} feature={feature} className="p-3" />}
 
-      {hasDisabledPreviewFeature(info) && subshell && (
+      {hasDisabledPreviewFeature(info, feature) && subshell && (
         <Link
           to="/nodes/$id"
           params={{ id: subshell.nodeId ?? "local" }}
@@ -369,6 +402,7 @@ export function PreviewSection({
           port={open.port}
           reloadKey={reloadKey}
           onConnectionChange={setConnection}
+          sandbox={open.sandbox}
           proxyBase={open.proxyBase}
         />
       )}

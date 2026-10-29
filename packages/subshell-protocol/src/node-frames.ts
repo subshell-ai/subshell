@@ -2372,7 +2372,9 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
           typeof service !== "object" ||
           typeof service.host !== "string" ||
           normalizeServiceHost(service.host) !== service.host ||
-          (service.protocol !== "http" && service.protocol !== "https")
+          (service.protocol !== "http" && service.protocol !== "https") ||
+          (service.ignoreCertificateErrors !== undefined && typeof service.ignoreCertificateErrors !== "boolean") ||
+          (service.ignoreCertificateErrors === true && service.protocol !== "https")
         )
           return null;
       }
@@ -2392,6 +2394,9 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
                 service: {
                   host: (value.service as ServiceTarget).host,
                   protocol: (value.service as ServiceTarget).protocol,
+                  ...((value.service as ServiceTarget).ignoreCertificateErrors !== undefined
+                    ? { ignoreCertificateErrors: (value.service as ServiceTarget).ignoreCertificateErrors }
+                    : {}),
                 },
               }
             : {}),

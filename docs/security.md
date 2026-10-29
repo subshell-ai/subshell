@@ -1101,7 +1101,7 @@ consequences are:
   2026-10-21), accounted here the way the relay lanes are.** A forward lane
   dials loopback by default, or an explicit saved HTTP(S) destination from the node.
   Protocol 24 carries a validated host and protocol for that destination; TLS
-  certificate checks stay enabled. The plane rewrites `Host` to the destination; the
+  certificate checks default to enabled, with an explicit per-service HTTPS opt-out. The plane rewrites `Host` to the destination; the
   session's 32-hex ref inside the `/pv/` path is the credential. The
   screencast bridge dials CDP on the node's loopback, so frames ride the
   encrypted node link like any other node event. The plane therefore sees
@@ -4185,7 +4185,7 @@ SSH settings and harness health without granting configuration or SSH access.
 ### Browser isolation
 
 **Website JavaScript does not inherit dashboard authority.** Proxied documents
-carry a CSP sandbox without `allow-same-origin`; embedded app viewers also use
+carry a CSP sandbox without `allow-same-origin` by default; embedded app viewers also use
 the iframe sandbox attribute. Their opaque origin cannot read the dashboard
 DOM or storage. The browser's dashboard cookie is stripped on target requests,
 and target cookies stay in a per-session server-side jar rather than setting
@@ -4211,6 +4211,29 @@ server messages. The parent checks the source window and capability ref, accepts
 only fixed reason values, and emits at most one toast per capability/reload. The
 app itself knows that ref and can forge a status; no status grants authority or
 renders app-authored text.
+
+
+### Explicit preview sandbox opt-out
+
+An edit-authorized browser viewer can select **Run outside the sandbox** in preview
+configuration. This is a deliberate grant of dashboard-origin script authority:
+the website can read the parent DOM and storage and act with the viewer's Subshell
+browser session. The caption explains compatibility reasons; a gold warning appears
+when enabled and remains in the open viewer. Treat the site's authors and anyone
+who can change its served code as trusted with the viewer's account.
+
+The open route requires a cookie actor for this option. Unsandboxed HTTP responses
+also require a current cookie for the capability's opening user; a copied capability
+cannot run unsandboxed code in another account's browser. Stored service options do
+not alone grant the opt-out: the viewer sends an explicit configuration on open, and
+the saved unsafe entry first displays the configuration step. Destination changes
+are checked against the viewer's supplied host, protocol, and expected port.
+Saved service edits increment a revision and revoke old sessions/pending opens;
+late opens must recheck that revision. Sandbox defaults remain enabled for existing
+rows, legacy clients, and requests with no explicit configuration. Browser credential
+stripping and server-side cookie jars remain, but do not remove the account authority
+of same-origin JavaScript once a viewer chooses this option.
+
 
 The sandbox deliberately prevents same-origin storage and service-worker use.
 Sites requiring those browser capabilities, JavaScript-managed cookies, or a
@@ -4255,7 +4278,12 @@ loopback literals and a bounded port by default. Saved services deliberately ext
 this to a hostname or IP and HTTP/HTTPS, chosen by an edit-authorized user and
 stored under the subshell. This grants network reach from that node, including
 private and link-local networks, at the same shell-equivalent authority as terminal input. Hosts
-cannot contain credentials, paths, or header text. TLS remains certificate-verified;
+cannot contain credentials, paths, or header text. TLS is certificate-verified by default. An edit-authorized user may save an HTTPS
+service with `ignoreCertificateErrors: true`, disabling certificate-chain and hostname
+verification only for that destination. Encryption remains, but server identity is
+not authenticated. The choice is audited and shown in the saved-services UI;
+existing services keep verification. Use Edit to change the saved service; this revokes existing preview sessions.
+Older nodes ignore the optional field and keep verifying certificates;
 the proxy never follows redirects server-side. Deleting a saved entry cancels
 pending opens and revokes its capabilities without stopping the service. Saves
 and removals are audited without capability URLs. Port

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { parseNodeCommandBody } from "../node-frames.js";
+import { DEFAULT_PREVIEW_CONFIGURATION } from "../preview-configuration.js";
 import { normalizeServiceHost, serviceAuthority } from "../service-target.js";
 import { parseWorkspacePreviewId, workspacePreviewId } from "../workspace-preview.js";
 
@@ -33,6 +34,15 @@ test("node grammar accepts explicit HTTP(S) forwards but rejects target changes 
     service: { host: "example.com", protocol: "https" },
   } as const;
   expect(parseNodeCommandBody(JSON.stringify(command))).toEqual(command);
+  for (const ignoreCertificateErrors of [false, true]) {
+    const optIn = { ...command, service: { ...command.service, ignoreCertificateErrors } };
+    expect(parseNodeCommandBody(JSON.stringify(optIn))).toEqual(optIn);
+  }
+  for (const service of [
+    { ...command.service, ignoreCertificateErrors: "true" },
+    { ...command.service, protocol: "http", ignoreCertificateErrors: true },
+  ])
+    expect(parseNodeCommandBody(JSON.stringify({ ...command, service }))).toBeNull();
   expect(parseNodeCommandBody(JSON.stringify({ ...command, kind: "screencast" }))).toBeNull();
   for (const service of [{ host: "http://host", protocol: "http" }, { host: "host", protocol: "file" }, null])
     expect(parseNodeCommandBody(JSON.stringify({ ...command, service }))).toBeNull();
@@ -42,4 +52,24 @@ test("saved workspace tabs round trip their stable identity and reject malformed
   expect(parseWorkspacePreviewId(workspacePreviewId("pane", view))).toEqual({ paneId: "pane", view });
   expect(parseWorkspacePreviewId("preview:pane:service:bad:3000")).toBeNull();
   expect(parseWorkspacePreviewId(workspacePreviewId("pane", { ...view, port: 65536 }))).toBeNull();
+});
+
+test("configured preview identities retain one-off options and reject malformed settings", () => {
+  const view = {
+    kind: "app" as const,
+    port: 8006,
+    configuration: {
+      ...DEFAULT_PREVIEW_CONFIGURATION,
+      protocol: "https" as const,
+      ignoreCertificateErrors: true,
+      sandbox: false,
+    },
+  };
+  expect(parseWorkspacePreviewId(workspacePreviewId("pane", view))).toEqual({ paneId: "pane", view });
+  expect(parseWorkspacePreviewId("preview:pane:app:8006:config:%7B%7D")).toBeNull();
+  expect(
+    parseWorkspacePreviewId(
+      workspacePreviewId("pane", { ...view, configuration: { ...view.configuration, protocol: "http" } }),
+    ),
+  ).toBeNull();
 });

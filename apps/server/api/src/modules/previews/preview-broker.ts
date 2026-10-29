@@ -144,6 +144,7 @@ export interface PreviewLane {
  * the pane's one screencast bridge (`kind: "screencast"`).
  */
 export interface PreviewSession {
+  sandbox?: boolean;
   proxySettings?: PreviewProxySettings;
   service?: ServiceTarget;
   serviceId?: string;
@@ -188,6 +189,7 @@ export interface PreviewSession {
 
 /** The verbs the routes, the ws feed, and the sweeps call (Tasks 9-11). */
 interface PreviewOpenInput {
+  sandbox?: boolean;
   proxySettings?: PreviewProxySettings;
   service?: ServiceTarget;
   serviceId?: string;
@@ -921,6 +923,7 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
           port,
           service: input.service,
           serviceId: input.serviceId,
+          sandbox: input.sandbox !== false,
           proxySettings: input.proxySettings ? { ...input.proxySettings } : undefined,
           createdBy: viewerUserId,
           createdAt: deps.nowMs(),

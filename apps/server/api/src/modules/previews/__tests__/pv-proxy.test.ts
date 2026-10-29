@@ -614,6 +614,19 @@ describe("pv-http: the same-origin rewrite", () => {
     expect(lastSeen?.url).toBe("/asset%20name%2Fpart?name=a%20b");
   });
 
+  it("does not expose an unsandboxed preview through its capability alone", async () => {
+    const { ref } = await getPreviewBroker().openForward({
+      viewerUserId: USER,
+      paneId: PANE,
+      nodeId: NODE,
+      port: targetPort,
+      sandbox: false,
+    });
+    const res = await proxyFetch(`/pv/${ref}/`);
+    expect(res.status).toBe(403);
+    expect(fake.piped).toBe(0);
+  });
+
   it("keeps target cookies out of the dashboard browser and isolates preview documents", async () => {
     const ref = await openSession(targetPort);
     const res = await proxyFetch(`/pv/${ref}/cookie`);

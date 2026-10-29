@@ -42,7 +42,23 @@ test("a service outside the subshell saves, opens without a display, survives re
     const frame = page.frames().find((frame) => frame.url().includes("/pv/"));
     if (!frame) throw new Error("Saved service iframe missing");
     const proxy = frame.url();
+    await expect(page.locator("iframe")).toHaveAttribute("sandbox", /allow-scripts/);
+    await page.getByRole("button", { name: "More view actions" }).click();
+    await page.getByRole("menuitem", { name: "Configure preview" }).click();
+    await page.getByRole("checkbox", { name: "Run outside the sandbox" }).check();
+    await expect(page.getByText(/This site can access your Subshell browser session/)).toBeVisible();
+    await page.getByRole("button", { name: "Save changes", exact: true }).click();
+    await expect(page.frameLocator("iframe").getByRole("heading", { name: "Outside the subshell" })).toBeVisible();
+    await expect(page.locator("iframe")).not.toHaveAttribute("sandbox");
+    await expect
+      .poll(async () => {
+        const current = page.frames().find((candidate) => candidate.url().includes("/pv/"));
+        return current?.evaluate(() => parent.document.title);
+      })
+      .not.toBeUndefined();
     await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.frameLocator("iframe").getByRole("heading", { name: "Outside the subshell" })).toBeVisible();
+    await expect(page.locator("iframe")).not.toHaveAttribute("sandbox");
     await page.getByRole("button", { name: /^Open web preview or screen/ }).click();
     await expect(page.getByRole("button", { name: /External website.*http:\/\/localhost/ })).toBeVisible();
     await page.getByRole("button", { name: "Remove External website", exact: true }).click();

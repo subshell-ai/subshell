@@ -947,8 +947,10 @@ accounting in `docs/security.md` §6.
 
 Preview browser boundaries are documented in [Preview architecture](../../../docs/preview-architecture.md)
 and [security §11.15](../../../docs/security.md#1115-web-previews-and-virtual-displays).
-Proxied documents require a response CSP sandbox without `allow-same-origin`,
-plus the workspace iframe sandbox. Keep upstream cookies in the broker jar;
+Proxied documents default to a response CSP sandbox without `allow-same-origin`,
+plus the workspace iframe sandbox. The explicit browser-only sandbox opt-out
+removes both, requires the opening account’s current cookie on HTTP requests, and
+shows the account-authority warning. See the explicit opt-out in security §11.15. Keep upstream cookies in the broker jar;
 never write them to the dashboard browser. Only capability-bound preview CORS
 and WS may accept opaque `Origin: null`; dashboard APIs and WS must keep refusing
 it. View-only watch requests must match the shared subshell's discovered CDP port.

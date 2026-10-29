@@ -21,6 +21,7 @@ import {
   parseWorkspacePreviewId,
   previewPanelId,
   previewParentId,
+  previewResourceId,
   publishWorkspacePreviews,
   workspacePreviewLabel,
 } from "@/lib/workspace-preview";
@@ -165,7 +166,7 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
           return true;
         }
         const id = previewPanelId(pane.id, view);
-        setPreviewIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
+        setPreviewIds((ids) => [...ids.filter((old) => previewResourceId(old) !== previewResourceId(id)), id]);
         setSelectedId(id);
         return true;
       }),

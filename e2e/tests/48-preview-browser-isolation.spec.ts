@@ -55,6 +55,9 @@ test("preview documents isolate dashboard authority while modules, POST and WS k
     // A discovered document wears its page title in the row, so this is the
     // titled spelling, not the "Web preview" fallback an untitled port gets.
     await page.getByRole("button", { name: `Open ${PREVIEW_SITE_TITLE} on port ${port}` }).click();
+    await expect(page.getByRole("dialog", { name: "Configure preview" })).toBeVisible();
+    await expect(page.getByRole("checkbox", { name: "Run outside the sandbox" })).not.toBeChecked();
+    await page.getByRole("button", { name: "Open preview", exact: true }).click();
     await expect(
       page.frameLocator("iframe").getByRole("heading", { name: "Small teams. Considered websites." }),
     ).toBeVisible();

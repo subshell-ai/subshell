@@ -1,5 +1,5 @@
 import { apiFetch, errMessage } from "@internal/node-admin";
-import type { NodePreviewScreenWire } from "@internal/subshell-protocol";
+import type { NodePreviewScreenWire, PreviewConfiguration } from "@internal/subshell-protocol";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveSubshellsFeed } from "@/hooks/use-live-subshells-feed";
@@ -51,6 +51,7 @@ export interface PreviewInfo {
 /** `POST /:id/views/open`'s answer: the proxy path to point a frame at. */
 export interface PreviewOpenResult {
   proxyBase: string;
+  sandbox?: boolean;
 }
 
 export interface UseSubshellPreview {
@@ -63,7 +64,12 @@ export interface UseSubshellPreview {
   watching: boolean;
   /** The refused watch, named (e.g. a `watch-port-conflict`), or null. */
   watchError: string | null;
-  openPort: (port: number, serviceId?: string) => Promise<PreviewOpenResult>;
+  openPort: (
+    port: number,
+    serviceId?: string,
+    configuration?: PreviewConfiguration,
+    expectedRevision?: number,
+  ) => Promise<PreviewOpenResult>;
   startWatch: (port?: number) => Promise<void>;
   stopWatch: () => Promise<void>;
   /** Ask for a fresh info answer, throttled to one request per window. */
@@ -223,10 +229,13 @@ export function useSubshellPreview(id: string, subshell: SubshellView | undefine
   );
 
   const openPort = useCallback(
-    (port: number, serviceId?: string) =>
+    (port: number, serviceId?: string, configuration?: PreviewConfiguration, expectedRevision?: number) =>
       apiFetch<PreviewOpenResult>(`/api/subshells/${encodeURIComponent(id)}/views/open`, {
         method: "POST",
-        body: JSON.stringify(serviceId ? { serviceId } : { port }),
+        body: JSON.stringify({
+          ...(serviceId ? { serviceId, expectedPort: port, expectedRevision } : { port }),
+          ...(configuration ? { configuration } : {}),
+        }),
       }),
     [id],
   );

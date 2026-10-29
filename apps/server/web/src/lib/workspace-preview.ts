@@ -75,3 +75,10 @@ export function armWorkspacePreview(subshellId: string) {
 export function flushWorkspacePreview() {
   if (pendingPreview && requestWorkspacePreview(pendingPreview)) pendingPreview = null;
 }
+
+/** Configuration changes replace the existing resource tab, not its parent terminal. */
+export function previewResourceId(id: string): string {
+  const parsed = parseWorkspacePreviewId(id);
+  if (parsed?.view.kind === "service") return `preview:${parsed.paneId}:service:${parsed.view.serviceId}`;
+  return id.split(":config:")[0];
+}

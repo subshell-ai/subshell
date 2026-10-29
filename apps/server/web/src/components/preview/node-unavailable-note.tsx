@@ -13,23 +13,36 @@ export function isSwitchOff(reason: string | undefined): boolean {
 
 const ENABLE_GUIDE = "https://docs.subshell.sh/previews/setup";
 
-function unavailableReasons(info: PreviewInfo): Set<string> {
+type PreviewFeature = "web" | "screen";
+
+function unavailableReasons(info: PreviewInfo, feature?: PreviewFeature): Set<string> {
   const reasons = new Set<string>();
   if (info.reason) reasons.add(info.reason);
   if (info.nodeEnabled && !isSwitchOff(info.reason)) {
-    if (info.webPreviewsEnabled === false) reasons.add("web-previews-disabled");
-    if (info.virtualDisplayEnabled === false) reasons.add("virtual-display-disabled");
+    if (feature !== "screen" && info.webPreviewsEnabled === false) reasons.add("web-previews-disabled");
+    // Display permissions do not affect saved services or other web previews.
+    if (info.virtualDisplayEnabled === false && (feature === "screen" || (!feature && info.screen))) {
+      reasons.add("virtual-display-disabled");
+    }
   }
   return reasons;
 }
 
 /** Match the enablement note's full verdict, including per-feature switches. */
-export function hasDisabledPreviewFeature(info: PreviewInfo | undefined): boolean {
-  return !!info && [...unavailableReasons(info)].some(isSwitchOff);
+export function hasDisabledPreviewFeature(info: PreviewInfo | undefined, feature?: PreviewFeature): boolean {
+  return !!info && [...unavailableReasons(info, feature)].some(isSwitchOff);
 }
 
-export function NodeUnavailableNote({ info, className = "" }: { info: PreviewInfo; className?: string }) {
-  const reasons = unavailableReasons(info);
+export function NodeUnavailableNote({
+  info,
+  feature,
+  className = "",
+}: {
+  info: PreviewInfo;
+  feature?: PreviewFeature;
+  className?: string;
+}) {
+  const reasons = unavailableReasons(info, feature);
   if (info.nodeEnabled && reasons.size === 0) return null;
   const switchOff = [...reasons].some(isSwitchOff);
   return (

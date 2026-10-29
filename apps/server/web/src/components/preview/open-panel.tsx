@@ -18,6 +18,7 @@ import type { PreviewConnection } from "./preview-toolbar";
 
 export interface OpenPanelProps {
   reloadKey?: number;
+  sandbox?: boolean;
   onConnectionChange?: (state: PreviewConnection) => void;
   /** The forwarded port, for the title. */
   port: number;
@@ -37,7 +38,13 @@ const REFUSAL_TOAST: Record<PreviewRefusalReason, { title: string; description: 
   },
 };
 
-export function OpenPanel({ port, proxyBase, reloadKey, onConnectionChange }: OpenPanelProps): JSX.Element {
+export function OpenPanel({
+  port,
+  proxyBase,
+  reloadKey,
+  sandbox = true,
+  onConnectionChange,
+}: OpenPanelProps): JSX.Element {
   const frame = useRef<HTMLIFrameElement | null>(null);
   const announced = useRef<{ proxyBase: string; reloadKey: number | undefined } | null>(null);
   useEffect(() => {
@@ -74,11 +81,16 @@ export function OpenPanel({ port, proxyBase, reloadKey, onConnectionChange }: Op
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
+      {!sandbox && (
+        <p className="p-2 text-detail text-warning">
+          Sandbox off: this site can access your Subshell browser session and act with your account’s permissions.
+        </p>
+      )}
       <iframe
         ref={frame}
         key={reloadKey}
         onLoad={() => onConnectionChange?.("connected")}
-        sandbox="allow-scripts allow-forms allow-modals allow-downloads allow-popups"
+        sandbox={sandbox ? "allow-scripts allow-forms allow-modals allow-downloads allow-popups" : undefined}
         referrerPolicy="no-referrer"
         title={`Preview of port ${port}`}
         src={proxyBase}

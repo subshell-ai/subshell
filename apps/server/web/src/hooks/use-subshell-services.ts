@@ -1,12 +1,16 @@
 import { apiFetch } from "@internal/node-admin";
+import type { PreviewConfiguration } from "@internal/subshell-protocol";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 export interface SavedService {
   id: string;
+  revision?: number;
   name: string;
   host: string;
   port: number;
   protocol: "http" | "https";
+  ignoreCertificateErrors?: boolean;
+  configuration?: PreviewConfiguration | null;
 }
 export function useSubshellServices(id: string, enabled = true) {
   const client = useQueryClient();
@@ -27,9 +31,17 @@ export function useSubshellServices(id: string, enabled = true) {
     await client.invalidateQueries({ queryKey });
     return service;
   }
+  async function update(serviceId: string, input: Omit<SavedService, "id"> & { expectedRevision: number }) {
+    const service = await apiFetch<SavedService>(`${path}/${encodeURIComponent(serviceId)}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+    await client.invalidateQueries({ queryKey });
+    return service;
+  }
   async function remove(serviceId: string) {
     await apiFetch(`${path}/${encodeURIComponent(serviceId)}`, { method: "DELETE" });
     await client.invalidateQueries({ queryKey });
   }
-  return { ...query, save, remove };
+  return { ...query, save, update, remove };
 }

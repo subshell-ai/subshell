@@ -140,7 +140,7 @@ loopback RFB port. See the local-user limitation in the security model.
 | `preview_display_check { provider? }` | Report prerequisites for the requested provider or node default without allocating. |
 | `launch { screen?: { width, height, provider? }, ... }` | Allocate a display through an enabled provider; the server resolves and persists the provider before sending the launch. |
 | `preview_ports_get { paneId }` | Discover the subshell's listeners, CDP port, and display. |
-| `preview_open { ref, kind, paneId, port, lifetimeMs, fps?, service? }` | Open `forward` TCP bytes or a `screencast` CDP bridge. An optional `service: { host, protocol }` selects an explicit HTTP(S) destination for forward lanes only. |
+| `preview_open { ref, kind, paneId, port, lifetimeMs, fps?, service? }` | Open `forward` TCP bytes or a `screencast` CDP bridge. An optional `service: { host, protocol, ignoreCertificateErrors? }` selects an explicit HTTP(S) destination for forward lanes only. |
 | `preview_close { ref, reason }` | Release a lane or bridge; an unknown reference closes idempotently. |
 | `preview_data { ref, dir, blob }` | Base64 TCP bytes; `in` goes toward the node and `out` toward the server. Ordering comes from the link. |
 | `preview_stream` | JPEG frame with bridge reference, sequence, dimensions, and capture metadata. |
@@ -160,10 +160,13 @@ host/port/protocol combinations per subshell, with cascading deletion. Read acce
 uses the subshell view gate; mutations require edit access. Machine credentials
 retain the owner-only boundary. Saving never starts a process or dials a host.
 
-Opening with `{ serviceId }` looks up the immutable destination under that subshell,
+Opening with `{ serviceId }` looks up the saved destination under that subshell,
 checks node opt-in and pane liveness, and forces HTTP mode. Every per-request lane
 uses that same destination, including WebSockets. DNS and TLS run on the node;
-TLS certificate and hostname checks stay enabled. Protocol 24 prevents older nodes
+TLS certificate and hostname checks are enabled by default. An edit-authorized
+user can save `ignoreCertificateErrors: true` for one HTTPS service; that snapshotted
+choice travels with every lane and is audited. Existing rows default to false.
+Older nodes ignore the optional field and retain verification. Protocol 24 prevents older nodes
 from silently ignoring a destination and falling back to plaintext loopback.
 
 Removal cancels pending opens and revokes sessions for that saved ID; authorization
@@ -199,8 +202,8 @@ stylesheet adds a fresh `ts` parameter so Chromium does not reuse the old CSS
 inside the opaque-origin frame. An injected
 browser script handles common dynamic request and DOM URL APIs; target CSP can
 block it. Text rewriting is bounded to 16 MiB decoded, while untransformed
-bodies stream. Rewriting preserves the opaque-origin sandbox, so storage,
-service workers, and arbitrary app behavior still need a normal browser context.
+bodies stream. Rewriting preserves the default opaque-origin sandbox. A viewer can explicitly
+opt out for a trusted app, as described under Configured preview flow below.
 See [Configure an app preview](../apps/docs/content/docs/previews/apps.mdx#configure-an-app-preview)
 for personal settings and their defaults.
 
@@ -215,7 +218,7 @@ Name-only cookie keying is a compatibility limitation, not
 a full browser cookie implementation. Jars evict oldest entries to stay within
 128 cookies and 64 KiB; individual cookies over 4 KiB are ignored.
 
-Every proxied response enforces a CSP sandbox without `allow-same-origin`.
+By default, every proxied response enforces a CSP sandbox without `allow-same-origin`.
 The workspace iframe adds the same sandbox attribute so a navigation cannot
 remove the embedding boundary. Scripts and forms work in an opaque origin;
 preview-specific CORS allows modules and fetches under the capability URL.
@@ -419,3 +422,24 @@ Explicitly applying a preset retains its display intent for the user to resolve.
 See [launch-form guidance](../apps/server/web/docs/home-launch-guidance.md).
 
 Forward lanes buffer target greetings until the proxy subscribes, bounded by the lane byte budget and 256 chunks. A subscriber attaching after its lane closed receives an immediate closed event.
+
+## Configured preview flow
+
+The picker opens a configuration step for discovered apps. One-off app targets carry
+validated `PreviewConfiguration` in their panel identity, so rehydration keeps the
+chosen protocol, host, TLS policy, rewriting, and sandbox mode without creating a
+saved-service row. Custom services store the same configuration. PUT of a saved
+service requires the revision the editor loaded, preserves its id, increments its revision, and revokes its old sessions and
+pending opens; open authorization rechecks that revision after asynchronous work.
+
+Sandbox-off is explicit, browser-cookie-only at open time, and bound to the opening
+account's current cookie on every HTTP response. It removes both the iframe sandbox
+and the response CSP sandbox; it grants the target dashboard-origin access, including
+the viewer's authenticated APIs, storage, and parent DOM. The configuration step
+explains this in gold, and the active viewer keeps a gold notice. A saved configuration
+alone cannot remove the sandbox: the open request must explicitly opt out. Saved
+sandbox-off entries pass through the configuration step when selected. Their open requests
+bind consent to the reviewed revision and port; stale requests must review the service again.
+Workspace panel identities retain that revision and the per-open configuration. Credential
+stripping, target cookie jars, and response-policy filtering remain in effect; they
+do not protect the dashboard from same-origin script after this opt-out.

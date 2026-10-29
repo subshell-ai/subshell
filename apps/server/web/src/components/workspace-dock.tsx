@@ -7,6 +7,7 @@ import {
   type IDockviewPanelProps,
 } from "dockview-react";
 import { useSubshellDrop } from "@/hooks/use-subshell-drop";
+import { previewResourceId } from "@/lib/workspace-preview";
 import "dockview-react/dist/styles/dockview.css";
 import { apiFetch, Button, errMessage } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
@@ -232,6 +233,9 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
           return true;
         }
         const id = previewPanelId(pane.id, view);
+        for (const panel of [...api.panels]) {
+          if (panel.id !== id && previewResourceId(panel.id) === previewResourceId(id)) panel.api.close();
+        }
         const existing = api.getPanel(id);
         if (existing) existing.api.setActive();
         else {

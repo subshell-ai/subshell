@@ -82,3 +82,48 @@ test("accessory key bar sends real bytes into the pane", async ({ page }) => {
   expect((await page.request.post(`/api/subshells/${id}/terminate`)).ok()).toBe(true);
   expect((await page.request.delete(`/api/subshells/${id}`)).ok()).toBe(true);
 });
+
+test("conversation jump controls send Ctrl+Home and Ctrl+End through the mobile terminal", async ({ page }) => {
+  const created = await page.request.post("/api/subshells", {
+    data: { harnessId: "terminal", nodeId: "local", workingDir: "/tmp", name: "Mobile conversation keys" },
+  });
+  expect(created.ok(), await created.text()).toBe(true);
+  const { id } = await created.json();
+  let workspaceId: string | undefined;
+  try {
+    const workspace = await page.request.post("/api/workspaces", {
+      data: { name: "Mobile navigation", subshellId: id },
+    });
+    expect(workspace.ok()).toBe(true);
+    workspaceId = (await workspace.json()).id;
+    await page.goto(`/workspaces/${workspaceId}`);
+    const bar = page.getByRole("toolbar", { name: "Terminal special keys" });
+    await expect(bar.getByRole("button", { name: "Send Enter", exact: true })).toBeEnabled();
+    // A real PTY consumer owns the alternate screen, as Codex does. Its byte
+    // echo proves mobile taps traverse xterm, the websocket, and tmux.
+    const started = await page.request.post(`/api/subshells/${id}/input`, {
+      data: {
+        text: "stty raw -echo; printf '\\033[?1049h\\033[?1h'; cat -v",
+        submit: true,
+      },
+    });
+    expect(started.ok()).toBe(true);
+    for (const name of ["Send Ctrl+Home", "Send Ctrl+End"]) {
+      const key = bar.getByRole("button", { name, exact: true });
+      await expect(key).toBeVisible();
+      await key.scrollIntoViewIfNeeded();
+      await expect(key).toBeInViewport();
+      await key.tap();
+    }
+    await expect
+      .poll(async () => {
+        const res = await page.request.get(`/api/subshells/${id}/log`);
+        const body = (await res.json()) as { lines: string[] };
+        return body.lines.join("\n");
+      })
+      .toContain("^[[1;5H^[[1;5F");
+  } finally {
+    if (workspaceId) await page.request.delete(`/api/workspaces/${workspaceId}`);
+    await page.request.delete(`/api/subshells/${id}`);
+  }
+});

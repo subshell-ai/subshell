@@ -270,6 +270,11 @@ export {
   presetLaunchRequirementsMet,
 } from "./preset-prompt.js";
 export {
+  DEFAULT_PREVIEW_CONFIGURATION,
+  type PreviewConfiguration,
+  parsePreviewConfiguration,
+} from "./preview-configuration.js";
+export {
   acceptsPreviewDocument,
   isPreviewAttachmentDisposition,
   isPreviewDocumentContentType,
