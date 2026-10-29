@@ -30,7 +30,7 @@ export function PreviewSettingsDialog({
         if (!open && !busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[85dvh] overflow-y-auto">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Configure preview</DialogTitle>
         </DialogHeader>

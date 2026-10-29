@@ -2,6 +2,8 @@ import { previewSrcset, previewUrl } from "./preview-url.js";
 
 // Executed only inside the sandbox; kept as source to avoid importing browser globals into server types.
 const browserCompatSource = `function installPreviewCompat(target, proxy, mapUrl, mapSrcset) {
+  // location retains the browser's scheme even in an opaque sandbox origin.
+  proxy = new URL(proxy, location.href).href;
   const map = (value) => mapUrl(value, document.baseURI, target, proxy);
   Object.defineProperty(globalThis, "__subshellPreviewMap", { value: (value, base) => {
     const text = "" + value;

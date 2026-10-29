@@ -359,7 +359,14 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
       headers: headersOut,
     });
     return settings.rewriteUrls && !isHead
-      ? await transformPreviewResponse(response, targetOrigin, proxyBase, `/${rest}${url.search}`)
+      ? // Inherit the browser's scheme: this request can arrive over HTTP from
+        // a TLS terminator, and forwarded headers aren't a trusted origin source.
+        await transformPreviewResponse(
+          response,
+          targetOrigin,
+          `//${url.host}/pv/${sessionRef}/`,
+          `/${rest}${url.search}`,
+        )
       : response;
   } catch (err) {
     duplex.destroy();
