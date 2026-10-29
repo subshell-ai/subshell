@@ -1,5 +1,17 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -138,6 +150,36 @@ describe("resolveUploadPath", () => {
 });
 
 describe("ensureGitExcluded", () => {
+  for (const component of [".git", ".git/info"]) {
+    it(`doesn't write through a planted ${component} directory link`, () => {
+      const ws = tempWorkDir();
+      const outside = tempWorkDir();
+      if (component === ".git/info") mkdirSync(join(ws, ".git"));
+      symlinkSync(outside, join(ws, component));
+
+      ensureGitExcluded(ws);
+
+      expect(readdirSync(outside)).toEqual([]);
+    });
+  }
+
+  for (const kind of ["symlink", "hardlink"] as const) {
+    it(`leaves an outside file unchanged when exclude is a ${kind}`, () => {
+      const ws = tempWorkDir();
+      const victim = join(tempWorkDir(), "victim");
+      writeFileSync(victim, "untouched\n", { mode: 0o640 });
+      mkdirSync(join(ws, ".git", "info"), { recursive: true });
+      const link = join(ws, ".git", "info", "exclude");
+      if (kind === "symlink") symlinkSync(victim, link);
+      else linkSync(victim, link);
+
+      ensureGitExcluded(ws);
+
+      expect(readFileSync(victim, "utf8")).toBe("untouched\n");
+      expect(lstatSync(victim).mode & 0o777).toBe(0o640);
+    });
+  }
+
   it("does nothing when the working directory is not a git repo", () => {
     const ws = tempWorkDir();
     ensureGitExcluded(ws);
@@ -170,6 +212,20 @@ describe("ensureGitExcluded", () => {
 });
 
 describe("writeUpload", () => {
+  for (const component of [".subshell", ".subshell/uploads"]) {
+    it(`refuses a planted ${component} link before writing outside the working directory`, async () => {
+      const ws = tempWorkDir();
+      const outside = tempWorkDir();
+      if (component === ".subshell/uploads") mkdirSync(join(ws, ".subshell"));
+      symlinkSync(outside, join(ws, component));
+
+      await expect(
+        writeUpload({ workingRealPath: ws, file: new File(["private upload"], "notes.txt"), now: NOW }),
+      ).rejects.toBeInstanceOf(UploadError);
+      expect(readdirSync(outside)).toEqual([]);
+    });
+  }
+
   it("writes the file into the working directory and reports its path", async () => {
     const ws = tempWorkDir();
     const file = new File(["hello upload"], "notes.txt", { type: "text/plain" });

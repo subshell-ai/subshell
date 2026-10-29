@@ -823,6 +823,12 @@ filesystem permissions, nothing more.
 `<workingDir>/.subshell/uploads/`, git-excluded, filename-sanitized, capped at
 `MAX_UPLOAD_BYTES` (25 MiB). Paths are injected into the pane via bracketed paste.
 They are not swept: an uploaded file stays until someone removes it.
+Local uploads refuse symlinks at `.subshell` and `uploads` before writing;
+exclusive creation prevents following a linked filename or overwriting an
+existing upload. The optional `.git/info/exclude` update also refuses directory
+links and only appends through a descriptor for a regular, singly linked file.
+These checks reject planted links in workspace contents; they don't sandbox a
+hostile OS user racing directory replacement between filesystem calls.
 
 ### Pane logs: the session transcript on disk
 
@@ -4199,8 +4205,10 @@ custom identity headers must prevent those from reaching preview routes.
 Target `Clear-Site-Data`, `WWW-Authenticate`, HSTS, Alt-Svc, NEL, Report-To,
 Reporting-Endpoints, Accept-CH, and Critical-CH response headers are removed
 so a dev server cannot install those origin-wide dashboard policies.
-The proxy also removes `X-Accel-*` response headers: a target must not instruct
-an outer nginx proxy to perform internal redirects or override caching.
+The proxy also removes `X-Accel-*`, `X-Sendfile`, `X-Sendfile-Temporary`,
+`X-Sendfile2`, and `X-LIGHTTPD-send-file` response headers: a target must not
+instruct an outer proxy to redirect internally, override caching, serve a local
+file, or delete it after sending.
 Responses use `Cache-Control: no-store` and
 `Referrer-Policy: no-referrer`.
 

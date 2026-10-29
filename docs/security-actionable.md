@@ -1,5 +1,84 @@
 # Security follow-ups and audit history
 
+## Adversarial follow-up: 2026-10-29
+
+This second pass continued on `security/codebase-audit-2026-10-29` after the
+audit below. It traced restricted credentials through derived tokens and
+resource access, then tested filesystem and preview-response inputs that can
+redirect an otherwise authorized operation. All attack fixtures used temporary
+files, isolated test databases, or test listeners. The running instance was
+not targeted.
+
+### Confirmed findings and fixes
+
+1. **Medium: planted workspace links redirected local upload writes.**
+   The local upload service sanitized the filename and used exclusive creation,
+   but followed directory symlinks at `.subshell` and `.subshell/uploads`.
+   A prepared workspace could therefore send an upload and its ignore-file
+   creation outside the documented working-directory boundary. This requires
+   control over workspace contents and a subsequent authorized upload; the
+   uploaded filename remains sanitized and timestamp-prefixed, so this is not
+   an arbitrary existing-file overwrite. Both directory components now have to
+   be real directories before any upload or ignore-file write.
+
+   The same operation's optional Git bookkeeping followed `.git` and
+   `.git/info` directory links and appended through an `exclude` symlink or
+   hard link. That could modify an unrelated file with the fixed ignore line.
+   It now rejects directory links, opens the leaf without following links,
+   verifies a regular inode with one link, and reads/appends through that
+   descriptor. Six service regressions failed before the fix and pass after it;
+   they verify that outside directories stay empty and victim bytes and modes
+   stay unchanged. A route regression verifies a 400 `BAD_REQUEST` without an
+   outside write. Ordinary uploads, name collisions, concurrent writes, and
+   best-effort ignore handling still pass. Hostile OS-user races remain outside
+   the threat model; these checks do not provide a filesystem sandbox.
+
+2. **Medium, with deployment-dependent impact: preview targets could still
+   emit file-serving directives for an outer proxy.** The first pass stripped
+   nginx's `X-Accel-*` family, but `X-Sendfile`, `X-Sendfile-Temporary`,
+   `X-Sendfile2`, and `X-LIGHTTPD-send-file` still escaped. The composed-app
+   test returned the target's `/private/instance.db` directive before this fix;
+   all four are now removed while the ordinary response remains intact.
+   An outer proxy configured to honor them could replace the response with a
+   file from its own host. Apache's optional temporary-file variant can also
+   delete the file when its configured path permits deletion. These semantics
+   are documented by the [mod_xsendfile author](https://github.com/nmaier/mod_xsendfile)
+   and [lighttpd](https://redmine.lighttpd.net/projects/lighttpd/wiki/Mod_fastcgi).
+   This extends the first pass's reverse-proxy finding. No live Apache or
+   lighttpd deployment was used, and installations that don't enable those
+   features don't have that file-serving exposure.
+
+### Other paths examined
+
+Source review covered provider-policy hooks and better-auth's account-linking
+inputs; session-cache handling after revocation; versioned system-key checks,
+derived-token ceilings and restart intersection; node-management actor gates
+and setup-key disclosure; preview opening/revocation coordination; SSH native-key
+session ownership; MCP path construction; and transfer/archive confinement.
+No additional reproducible authorization bypass was established in those paths.
+That is a bounded review result, not evidence that those subsystems are free of
+defects. The documented same-account execution authority, preview capability
+links, and lifetime of independently issued credentials remain unchanged.
+
+The working security summary had drifted from the implementation on system-key
+scopes and node management. It now describes explicit grants and the remaining
+cookie-only actions instead of claiming that all system keys have full access
+or that all bearer node-management requests are refused.
+
+### Validation and limits
+
+The affected server package passed **4,942 tests across 386 files**, including
+HTTP/WS preview integration and CLI backup subprocess tests. Its type check
+passed; lint passed with 39 existing warnings outside the changed code. The
+new regressions demonstrated the defects before the fixes. A changeset covers
+the server CLI and the desktop server that bundles it.
+
+This pass did not rerun the node/runtime/protocol suites from the first audit
+because their implementation did not change. It did not perform browser E2E,
+native macOS testing, a full release build, an external penetration test, or
+continuous fuzzing. Neither audit is a guarantee that every security defect
+has been found.
+
 ## Codebase security audit: 2026-10-29
 
 Work was isolated on `security/codebase-audit-2026-10-29`, starting from a clean

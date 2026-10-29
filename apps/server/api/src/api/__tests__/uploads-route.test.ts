@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_UPLOAD_BYTES } from "@internal/subshell-protocol";
@@ -123,6 +123,21 @@ describe("subshell uploads route", () => {
     await uploadsRoutes.fetch(uploadRequest(id, ownerToken, new File(["x"], "a.txt", { type: "text/plain" })));
     const status = await Bun.$`git status --porcelain`.cwd(ws).text();
     expect(status.trim()).toBe("");
+  });
+
+  it("refuses a workspace that redirects uploads through a directory link", async () => {
+    const ws = tempWorkDir();
+    const outside = tempWorkDir();
+    symlinkSync(outside, join(ws, ".subshell"));
+    const id = await makeSubshell(ownerId, ws);
+
+    const res = await uploadsRoutes.fetch(
+      uploadRequest(id, ownerToken, new File(["private upload"], "notes.txt", { type: "text/plain" })),
+    );
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: string }).code).toBe("BAD_REQUEST");
+    expect(readdirSync(outside)).toEqual([]);
   });
 
   it("unknown subshell -> 404", async () => {
