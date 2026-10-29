@@ -635,6 +635,14 @@ bun run clean:dist         # Remove dist directories only
 
 ### Changesets & releases
 
+**Standing release preference (2026-10-29):** When Theo asks to cut a release,
+include all four app components, the documentation site, and the website unless
+he explicitly narrows the scope. Include docs and website version bumps when
+needed so their workflows can publish fresh tags. After the app release and its
+release-manifest refresh succeed, deploy both sites from main and verify their
+workflows. A release is not complete while either site is still pending.
+
+
 **Changesets are everyday work; releases are not.** `bunx changeset` after
 user-visible changes to the four releasable apps (or to `@internal/docs`,
 whose bump drives the docs deploy instead of a release cut) → a version PR

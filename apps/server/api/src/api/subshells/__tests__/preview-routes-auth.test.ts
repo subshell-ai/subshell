@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { BackendErrorCodes } from "@internal/backend-errors";
+import { DEFAULT_PREVIEW_CONFIGURATION } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
@@ -274,10 +275,27 @@ describe("preview REST surface (Task 9)", () => {
     const input = { host: "EXAMPLE.COM", port: 443, protocol: "https", name: "Docs" };
     const saved = await call("POST", `/${pane}/services`, { cookie: ownerCookie, body: input });
     expect(saved.status).toBe(200);
-    const service = (await saved.json()) as { id: string; host: string };
+    const service = (await saved.json()) as { id: string; host: string; ignoreCertificateErrors: boolean };
     expect(service.host).toBe("example.com");
+    expect(service.ignoreCertificateErrors).toBe(false);
     const duplicate = await call("POST", `/${pane}/services`, { cookie: ownerCookie, body: input });
     expect(((await duplicate.json()) as { id: string }).id).toBe(service.id);
+    expect(
+      (
+        await call("POST", `/${pane}/services`, {
+          cookie: ownerCookie,
+          body: { ...input, name: "Different name" },
+        })
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await call("POST", `/${pane}/views/open`, {
+          cookie: ownerCookie,
+          body: { serviceId: service.id, expectedPort: 444 },
+        })
+      ).status,
+    ).toBe(409);
     const list = await call("GET", `/${pane}/services`, { cookie: ownerCookie });
     expect(((await list.json()) as { id: string }[]).map((row) => row.id)).toEqual([service.id]);
     expect(
@@ -294,6 +312,148 @@ describe("preview REST surface (Task 9)", () => {
     expect(
       (await call("POST", `/${pane}/views/open`, { cookie: ownerCookie, body: { serviceId: service.id } })).status,
     ).toBe(404);
+    expect(await call("GET", `/${pane}/services`, { cookie: ownerCookie }).then((r) => r.json())).toEqual([]);
+  });
+
+  it("persists a service's explicit TLS opt-out and passes it to its preview lanes", async () => {
+    attachLive();
+    const pane = await directRow();
+    const body = { host: "localhost", port: 8006, protocol: "https", ignoreCertificateErrors: true };
+    const saved = await call("POST", `/${pane}/services`, { cookie: ownerCookie, body });
+    expect(saved.status).toBe(200);
+    const service = (await saved.json()) as { id: string; ignoreCertificateErrors: boolean };
+    expect(service.ignoreCertificateErrors).toBe(true);
+    const listed = await call("GET", `/${pane}/services`, { cookie: ownerCookie });
+    expect(((await listed.json()) as { ignoreCertificateErrors: boolean }[])[0].ignoreCertificateErrors).toBe(true);
+    const opened = await call("POST", `/${pane}/views/open`, { cookie: ownerCookie, body: { serviceId: service.id } });
+    expect(opened.status).toBe(200);
+    const { proxyBase } = (await opened.json()) as { proxyBase: string };
+    expect(getPreviewBroker().sessionFor(proxyBase.split("/")[2])?.service).toEqual({
+      host: "localhost",
+      protocol: "https",
+      ignoreCertificateErrors: true,
+    });
+    expect(
+      (
+        await call("POST", `/${pane}/services`, {
+          cookie: ownerCookie,
+          body: { ...body, ignoreCertificateErrors: false },
+        })
+      ).status,
+    ).toBe(409);
+    expect(
+      (await call("POST", `/${pane}/services`, { cookie: ownerCookie, body: { ...body, protocol: "http" } })).status,
+    ).toBe(400);
+    await call("DELETE", `/${pane}/services/${service.id}`, { cookie: ownerCookie });
+  });
+
+  it("updates saved configuration in place, revokes old views, and requires an explicit browser sandbox choice", async () => {
+    attachLive();
+    const pane = await directRow();
+    const configuration = {
+      ...DEFAULT_PREVIEW_CONFIGURATION,
+      protocol: "https",
+      ignoreCertificateErrors: true,
+      sandbox: false,
+      rewriteUrls: false,
+    };
+    const input = {
+      name: "Proxmox",
+      host: "localhost",
+      port: 8006,
+      protocol: "https",
+      ignoreCertificateErrors: true,
+      configuration,
+    };
+    const saved = await call("POST", `/${pane}/services`, { cookie: ownerCookie, body: input });
+    expect(saved.status).toBe(200);
+    const service = (await saved.json()) as { id: string };
+    const opened = await call("POST", `/${pane}/views/open`, { cookie: ownerCookie, body: { serviceId: service.id } });
+    const first = (await opened.json()) as { proxyBase: string; sandbox: boolean };
+    expect(first.sandbox).toBe(true);
+    const token = await bearerFor(pane);
+    expect(
+      (await call("POST", `/${pane}/views/open`, { bearer: token, body: { serviceId: service.id, configuration } }))
+        .status,
+    ).toBe(403);
+    const outside = await call("POST", `/${pane}/views/open`, {
+      cookie: ownerCookie,
+      body: { serviceId: service.id, configuration, expectedPort: 8006, expectedRevision: 0 },
+    });
+    expect(((await outside.json()) as { sandbox: boolean }).sandbox).toBe(false);
+    await grantPane(pane, viewerId, "view");
+    const changed = {
+      ...input,
+      expectedRevision: 0,
+      name: "Updated",
+      port: 8007,
+      configuration: { ...configuration, rewriteUrls: true },
+    };
+    expect((await call("PUT", `/${pane}/services/${service.id}`, { cookie: viewerCookie, body: changed })).status).toBe(
+      403,
+    );
+    const updated = await call("PUT", `/${pane}/services/${service.id}`, { cookie: ownerCookie, body: changed });
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toMatchObject({
+      id: service.id,
+      name: "Updated",
+      port: 8007,
+      configuration: changed.configuration,
+    });
+    expect(getPreviewBroker().sessionFor(first.proxyBase.split("/")[2])).toBeNull();
+    expect((await call("PUT", `/${pane}/services/${service.id}`, { cookie: ownerCookie, body: changed })).status).toBe(
+      409,
+    );
+    expect(
+      (
+        await call("POST", `/${pane}/views/open`, {
+          cookie: ownerCookie,
+          body: { serviceId: service.id, configuration, expectedPort: 8006, expectedRevision: 0 },
+        })
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await call("POST", `/${pane}/views/open`, {
+          cookie: ownerCookie,
+          body: { serviceId: service.id, configuration },
+        })
+      ).status,
+    ).toBe(409);
+    const override = await call("POST", `/${pane}/views/open`, {
+      cookie: ownerCookie,
+      body: {
+        serviceId: service.id,
+        configuration: { ...configuration, sandbox: true, passHost: true },
+        expectedRevision: 1,
+      },
+    });
+    expect(override.status).toBe(200);
+    const overrideResult = (await override.json()) as { proxyBase: string };
+    expect(getPreviewBroker().sessionFor(overrideResult.proxyBase.split("/")[2])?.proxySettings?.passHost).toBe(true);
+
+    const listed = await call("GET", `/${pane}/services`, { cookie: ownerCookie });
+    expect(((await listed.json()) as unknown[]).length).toBe(1);
+  });
+
+  it("opens an unsaved HTTPS configuration without creating a saved service", async () => {
+    attachLive();
+    const pane = await directRow();
+    const configuration = {
+      ...DEFAULT_PREVIEW_CONFIGURATION,
+      protocol: "https",
+      ignoreCertificateErrors: true,
+      passHost: true,
+    };
+    const opened = await call("POST", `/${pane}/views/open`, {
+      cookie: ownerCookie,
+      body: { port: 8006, configuration },
+    });
+    expect(opened.status).toBe(200);
+    const result = (await opened.json()) as { proxyBase: string };
+    const session = getPreviewBroker().sessionFor(result.proxyBase.split("/")[2]);
+    expect(session?.service).toEqual({ host: "localhost", protocol: "https", ignoreCertificateErrors: true });
+    expect(session?.proxySettings?.passHost).toBe(true);
     expect(await call("GET", `/${pane}/services`, { cookie: ownerCookie }).then((r) => r.json())).toEqual([]);
   });
 

@@ -553,3 +553,5 @@ after constructing noVNC. It consumes unused clipboard messages without
 extended-clipboard decompression. The adapter uses the pinned noVNC 1.7
 private surface, covered against the real class; preserve these guards when
 upgrading noVNC. Never rely only on a frame's claimed width and height.
+
+The preview picker sends discovered apps to a configuration step with protocol, TLS, proxy, and sandbox options, plus optional named saving. Custom services use the same form and have an Edit action. Sandbox-off is explicit, displays its compatibility caption and gold account-authority warning, and saved sandbox-off services show this step before opening.

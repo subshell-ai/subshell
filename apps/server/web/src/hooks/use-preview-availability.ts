@@ -4,12 +4,12 @@ import { shouldPollSavedServices, unsavedPreviewItemCount } from "@/lib/preview-
 import type { SubshellView } from "@/types/subshell";
 
 /**
- * The header badge's number: items the preview picker could offer that this
+ * Header availability and the badge's number: items the picker could offer that this
  * pane has no saved service for. Both reads are the ones the picker itself
  * uses (same query keys), so a header and an open tab never disagree, and a
  * header with no row yet asks for nothing.
  */
-export function useUnsavedPreviewCount(id: string | undefined, subshell: SubshellView | undefined): number {
+export function usePreviewAvailability(id: string | undefined, subshell: SubshellView | undefined) {
   // Both hooks run on every render, and what varies is whether they ask: an
   // early return above them would change the hook order between renders. The
   // guard covers an empty id as well as its absence, because `""` would build
@@ -24,5 +24,9 @@ export function useUnsavedPreviewCount(id: string | undefined, subshell: Subshel
   // is always discarded.
   const access = subshell?.access ?? "owner";
   const services = useSubshellServices(id ?? "", usable && shouldPollSavedServices(preview.info, access));
-  return usable ? unsavedPreviewItemCount(preview.info, services.data, access) : 0;
+  const live = usable && subshell.status === "running" && subshell.alive;
+  return {
+    unsavedCount: live ? unsavedPreviewItemCount(preview.info, services.data, access) : 0,
+    hasLiveItems: live && unsavedPreviewItemCount(preview.info, [], access) > 0,
+  };
 }

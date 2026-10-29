@@ -37,8 +37,8 @@ beforeAll(() => {
   cert = readFileSync(join(directory, "cert.pem"));
 });
 afterAll(() => rmSync(directory, { recursive: true, force: true }));
-for (const trusted of [false, true])
-  test(`HTTPS lane ${trusted ? "carries bytes over verified TLS" : "rejects untrusted certificates without sending application data"}`, async () => {
+for (const mode of ["untrusted", "trusted", "ignore"] as const)
+  test(`HTTPS lane certificate policy: ${mode}`, async () => {
     let received = "";
     const server = createServer({ key, cert }, (socket) => {
       socket.on("error", () => {});
@@ -50,9 +50,9 @@ for (const trusted of [false, true])
     server.on("tlsClientError", () => {});
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const events: PreviewLaneEvent[] = [];
-    // Only this test trusts its generated CA; production has no bypass setting.
+    // The trusted case supplies a CA; the opt-in case uses the production dial.
     const forward = new PreviewForward(
-      trusted
+      mode === "trusted"
         ? {
             connect: (options) =>
               tlsConnect({
@@ -75,7 +75,11 @@ for (const trusted of [false, true])
         ref,
         paneId: "test",
         port: (server.address() as AddressInfo).port,
-        service: { host: "127.0.0.1", protocol: "https" },
+        service: {
+          host: "127.0.0.1",
+          protocol: "https",
+          ...(mode === "ignore" ? { ignoreCertificateErrors: true } : {}),
+        },
         lifetimeMs: 1000,
         hooks: {
           emit: (event) => {
@@ -91,7 +95,7 @@ for (const trusted of [false, true])
         blob: Buffer.from("private bytes").toString("base64"),
       });
       await answered;
-      if (trusted) {
+      if (mode !== "untrusted") {
         expect(received).toBe("private bytes");
         expect(
           events.some(

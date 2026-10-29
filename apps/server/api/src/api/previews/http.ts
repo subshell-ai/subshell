@@ -1,5 +1,6 @@
 import { serviceAuthority } from "@internal/subshell-protocol";
 import { Elysia } from "elysia";
+import { resolveCookieSession } from "@/modules/auth/session-cookie.js";
 import { LaneDuplex } from "@/modules/previews/lane-duplex.js";
 import { LaneClosedError, LaneProtocolError, sendLaneRequest } from "@/modules/previews/lane-http.js";
 import { previewRefusalPage, strandingNavigationReason } from "@/modules/previews/navigation-guard.js";
@@ -135,10 +136,12 @@ export function jarCookieHeader(jar: Map<string, string>): string {
 }
 
 /** Enforce the browser boundary on embedded documents and direct preview tabs. */
-export function isolatedPreviewHeaders(headers = new Headers()): Headers {
+export function isolatedPreviewHeaders(headers = new Headers(), sandbox = true): Headers {
   headers.append(
     "content-security-policy",
-    "sandbox allow-scripts allow-forms allow-modals allow-downloads allow-popups; frame-ancestors 'self'",
+    sandbox
+      ? "sandbox allow-scripts allow-forms allow-modals allow-downloads allow-popups; frame-ancestors 'self'"
+      : "frame-ancestors 'self'",
   );
   headers.set("access-control-allow-origin", "*");
   headers.set("access-control-allow-credentials", "false");
@@ -186,7 +189,7 @@ function setCookieValues(pairs: [string, string][]): string[] {
  * host, keep the target's cookies in the jar rather than the browser, and
  * finish with the isolation headers.
  */
-function outHeadersToWeb(pairs: [string, string][], jar: Map<string, string>, ref: string): Headers {
+function outHeadersToWeb(pairs: [string, string][], jar: Map<string, string>, ref: string, sandbox = true): Headers {
   const headers = new Headers();
   const setCookies = setCookieValues(pairs);
   for (const [name, value] of pairs) {
@@ -202,7 +205,7 @@ function outHeadersToWeb(pairs: [string, string][], jar: Map<string, string>, re
   if (setCookies.length > 0) {
     storeCookiesInJar(jar, setCookies);
   }
-  return isolatedPreviewHeaders(headers);
+  return isolatedPreviewHeaders(headers, sandbox);
 }
 
 /**
@@ -218,6 +221,14 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
   const broker = getPreviewBroker();
   const session = broker.sessionFor(sessionRef);
   if (!session) throw new HttpError(404, DEAD_LINK);
+  if (session.sandbox === false) {
+    const viewer = await resolveCookieSession(request.headers.get("cookie") ?? "");
+    if (viewer?.user.id !== session.createdBy)
+      throw new HttpError(
+        403,
+        "This preview runs outside the sandbox. Open it from the account that enabled that option.",
+      );
+  }
 
   // Opaque-origin scripts need CORS for modules and fetch. The unguessable
   // session path authorizes these reads; dashboard API CORS remains unchanged.
@@ -330,7 +341,7 @@ async function proxyRequest(request: Request, sessionRef: string, rest: string):
         headers: isolatedPreviewHeaders(new Headers({ "content-type": "text/html; charset=utf-8" })),
       });
     }
-    const headersOut = outHeadersToWeb(res.headers, session.cookieJar, sessionRef);
+    const headersOut = outHeadersToWeb(res.headers, session.cookieJar, sessionRef, session.sandbox !== false);
     const location = res.headers.find(([name]) => name === "location")?.[1];
     if (location) {
       const mapped = settings.rewriteRedirects

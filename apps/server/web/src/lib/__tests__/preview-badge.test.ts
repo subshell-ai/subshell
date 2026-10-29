@@ -43,6 +43,21 @@ describe("unsavedPreviewItemCount", () => {
     expect(unsavedPreviewItemCount(info({ ports: [port(3000)] }), [saved(3000)], OPEN)).toBe(0);
   });
 
+  it("counts only features enabled on the node", () => {
+    const screen: PreviewInfo["screen"] = { display: ":90", viewer: { protocol: "vnc", port: 5910 } };
+    const everything = { ports: [port(3000)], cdpPort: 9222, screen };
+    expect(unsavedPreviewItemCount(info({ ...everything, webPreviewsEnabled: false }), [], OPEN)).toBe(1);
+    expect(unsavedPreviewItemCount(info({ ...everything, virtualDisplayEnabled: false }), [], OPEN)).toBe(2);
+    expect(
+      unsavedPreviewItemCount(
+        info({ ...everything, webPreviewsEnabled: false, virtualDisplayEnabled: false }),
+        [],
+        OPEN,
+      ),
+    ).toBe(0);
+    expect(unsavedPreviewItemCount(info({ ...everything, webPreviewsEnabled: false }), [], "view")).toBe(0);
+  });
+
   it("counts a dual-stack port once", () => {
     expect(unsavedPreviewItemCount(info({ ports: [port(3000), port(3000, "tcp6")] }), [], OPEN)).toBe(1);
   });

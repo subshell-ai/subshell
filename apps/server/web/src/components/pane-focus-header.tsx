@@ -20,9 +20,9 @@ import { useOpenVirtualDisplay } from "@/hooks/use-open-virtual-display";
 import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
 import { usePaneDevices } from "@/hooks/use-pane-devices";
 import { usePaneDiagnostics } from "@/hooks/use-pane-diagnostics";
+import { usePreviewAvailability } from "@/hooks/use-preview-availability";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
-import { useUnsavedPreviewCount } from "@/hooks/use-unsaved-preview-count";
 import { invalidateAfterRename } from "@/hooks/use-workspaces";
 import { FALLBACK_NODE_ID, nodeLabelFor } from "@/lib/subshell-node-groups";
 import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
@@ -95,7 +95,7 @@ export function PaneFocusHeader({
   const focusedPane = panes.find((pane) => pane.subshellId === focusedId);
   const subshell = useSubshellRow(focusedPane?.subshellId ?? "");
   const openVirtualDisplay = useOpenVirtualDisplay(subshell);
-  const unsavedPreview = useUnsavedPreviewCount(focusedPane?.subshellId, subshell);
+  const unsavedPreview = usePreviewAvailability(focusedPane?.subshellId, subshell);
   const devices = usePaneDevices(focusedPane?.id);
   const trustNotices = useTrustNotices(focusedPane ? subshell : undefined);
   const stacked = useIsStackedHeader();
@@ -167,7 +167,12 @@ export function PaneFocusHeader({
       actions={
         <>
           {isPane && (
-            <VirtualDisplayEntry subshell={subshell} unsavedCount={unsavedPreview} onOpen={openVirtualDisplay} />
+            <VirtualDisplayEntry
+              subshell={subshell}
+              unsavedCount={unsavedPreview.unsavedCount}
+              hasLiveItems={unsavedPreview.hasLiveItems}
+              onOpen={openVirtualDisplay}
+            />
           )}
           {isPane && subshell && <SshPaneLabels subshell={subshell} nodeLabel={nodeLabel} />}
           {devices && <SubshellDevices key={focusedPane?.id} state={devices.state} onSizing={devices.onSizing} />}

@@ -26,3 +26,11 @@ it("rejects malformed and legacy identities instead of trusting their parameters
   ])
     expect(parseWorkspacePreviewId(id)).toBeNull();
 });
+
+it("preserves the reviewed service revision in restored panels", () => {
+  const view = { kind: "service", serviceId: "11111111-1111-1111-1111-111111111111", port: 8006, revision: 3 } as const;
+  const id = workspacePreviewId("pane", view);
+  expect(parseWorkspacePreviewId(id)).toEqual({ paneId: "pane", view });
+  expect(workspacePreviewId("pane", { ...view, revision: 4 })).not.toBe(id);
+  expect(parseWorkspacePreviewId(id.replace(":revision:3", ":revision:9007199254740992"))).toBeNull();
+});

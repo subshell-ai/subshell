@@ -1,3 +1,4 @@
+import { parsePreviewConfiguration } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/api/middleware/context.plugin.js";
@@ -9,6 +10,7 @@ import { readPreviewProxySettings, savePreviewProxySettings } from "@/modules/pr
 import { detailIsNodeOff, PREVIEW_PANE_GONE } from "@/modules/previews/refusals.js";
 import { getService } from "@/modules/subshells/saved-services.js";
 import { HttpError } from "@/shared/errors.js";
+import { PreviewConfigurationSchema } from "./preview-configuration-schema.js";
 
 /**
  * `POST /api/subshells/:id/views/open` (spec §6): open one forward lane to
@@ -21,6 +23,7 @@ import { HttpError } from "@/shared/errors.js";
 const PreviewOpenBodySchema = t.Union(
   [
     t.Object({
+      configuration: t.Optional(PreviewConfigurationSchema),
       port: t.Integer({
         minimum: 1,
         maximum: 65_535,
@@ -29,6 +32,9 @@ const PreviewOpenBodySchema = t.Union(
       }),
     }),
     t.Object({
+      configuration: t.Optional(PreviewConfigurationSchema),
+      expectedRevision: t.Optional(t.Integer({ minimum: 0 })),
+      expectedPort: t.Optional(t.Integer({ minimum: 1, maximum: 65535 })),
       serviceId: t.String({ format: "uuid", description: "Saved service whose host and protocol the node will use" }),
     }),
   ],
@@ -36,6 +42,7 @@ const PreviewOpenBodySchema = t.Union(
 );
 
 const PreviewOpenResponseSchema = t.Object({
+  sandbox: t.Optional(t.Boolean()),
   proxyBase: t.String({
     description: "Path prefix the SPA proxies the forwarded lane through, ending in a slash",
   }),
@@ -73,12 +80,37 @@ export const viewsOpenRoute = new Elysia()
           `Web previews & screens is not available on that node right now (${transportState.reason}).`,
         );
       const service = "serviceId" in body ? await getService(params.id, body.serviceId) : undefined;
+      const requestedConfiguration = body.configuration ? parsePreviewConfiguration(body.configuration) : undefined;
+      if (body.configuration && !requestedConfiguration) throw new HttpError(400, "Choose valid preview options.");
+      const configuration = requestedConfiguration ?? service?.configuration;
+      // A saved entry changed by another editor cannot silently remove this viewer's sandbox.
+      const sandbox = requestedConfiguration?.sandbox !== false;
+      if (!sandbox && actor !== "cookie")
+        throw new HttpError(403, "Open this preview in the dashboard to run it outside the sandbox.");
+      if (
+        service &&
+        (("expectedPort" in body && body.expectedPort !== undefined && body.expectedPort !== service.port) ||
+          ("expectedRevision" in body &&
+            body.expectedRevision !== undefined &&
+            body.expectedRevision !== service.revision) ||
+          (!sandbox &&
+            (!("expectedRevision" in body) ||
+              body.expectedRevision !== service.revision ||
+              !("expectedPort" in body) ||
+              body.expectedPort !== service.port)) ||
+          (requestedConfiguration &&
+            (requestedConfiguration.host !== service.host ||
+              requestedConfiguration.protocol !== service.protocol ||
+              requestedConfiguration.ignoreCertificateErrors !== service.ignoreCertificateErrors)))
+      )
+        throw new HttpError(409, "This service's destination changed. Open it again and review its settings.");
+      const destination = service ?? configuration;
       const port = service?.port ?? ("port" in body ? body.port : 0);
       const broker = getPreviewBroker();
       const remembered = broker.displayForPane(params.id);
-      const scan = service ? null : await broker.getPorts(row.nodeId, params.id).catch(() => null);
+      const scan = destination ? null : await broker.getPorts(row.nodeId, params.id).catch(() => null);
       const screen = scan?.screen ?? (remembered?.nodeId === row.nodeId ? remembered.screen : null);
-      const feature = !service && screen?.viewer.port === port ? "display" : "web-previews";
+      const feature = !destination && screen?.viewer.port === port ? "display" : "web-previews";
       const nodeState = await previewNodeState(row.nodeId, feature);
       if (!nodeState.nodeEnabled) {
         // The info poll already said this; arriving here means the page was
@@ -96,21 +128,36 @@ export const viewsOpenRoute = new Elysia()
           paneId: params.id,
           nodeId: row.nodeId,
           port,
-          service: service ? { host: service.host, protocol: service.protocol } : undefined,
+          sandbox,
+          service: destination
+            ? {
+                host: destination.host,
+                protocol: destination.protocol,
+                ...(destination.ignoreCertificateErrors ? { ignoreCertificateErrors: true } : {}),
+              }
+            : undefined,
           serviceId: service?.id,
-          proxySettings: await readPreviewProxySettings({
-            userId: user.id,
-            nodeId: row.nodeId,
-            host: service?.host ?? "localhost",
-            protocol: service?.protocol ?? "http",
-            port,
-          }),
+          proxySettings: configuration
+            ? {
+                rewriteUrls: configuration.rewriteUrls,
+                passHost: configuration.passHost,
+                rewriteRedirects: configuration.rewriteRedirects,
+              }
+            : await readPreviewProxySettings({
+                userId: user.id,
+                nodeId: row.nodeId,
+                host: service?.host ?? "localhost",
+                protocol: service?.protocol ?? "http",
+                port,
+              }),
           authorize: async () => {
-            if (service) await getService(params.id, service.id);
+            if (service && (await getService(params.id, service.id)).revision !== service.revision) {
+              throw new HttpError(409, "This saved service changed. Open it again to use its current settings.");
+            }
             await recheckPreviewOpen(user.id, params.id, row.nodeId, "edit", actor, feature);
           },
         });
-        return { proxyBase: `/pv/${ref}/` };
+        return { proxyBase: `/pv/${ref}/`, sandbox };
       } catch (err) {
         if (err instanceof PreviewRefusal) {
           // The broker's own caps (lanes over the per-pane/per-node cap):

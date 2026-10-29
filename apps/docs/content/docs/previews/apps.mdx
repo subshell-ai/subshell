@@ -45,23 +45,17 @@ isn't discovered automatically.
    reach. Hostnames resolve on the node, not on the device viewing the dashboard.
 4. Choose **Save service**, then select the saved row to open its workspace tab.
 
-<figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/add-service.png" alt="Add service form with a port, HTTP protocol, optional name, and collapsed Advanced host setting." width="512" height="534" loading="lazy" decoding="async" unoptimized />
-  <figcaption>Save a connection to a web service without creating a virtual display.</figcaption>
-</figure>
-
 The subshell must be running. HTTPS requires a certificate the node trusts and
-whose name matches the host; Subshell doesn't bypass certificate checks.
+whose name matches the host by default. For a service you trust that uses a
+self-signed or mismatched certificate, select **Ignore certificate validation**
+when adding the HTTPS service. This applies only to that saved service: traffic
+stays encrypted, but Subshell can't verify the server's identity. To change an
+existing service's certificate setting, use its **Edit** button.
 
 Saved connections stay with the subshell across reloads and closed tabs. Use the
 remove button beside a saved row to delete the connection and disconnect its open
 views. Removing a connection doesn't stop the service. People with view access
 can see the list but can't open or change its connections.
-
-<figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/preview-picker.png" alt="Open web preview or screen dialog with the saved Subshell website service on port 3401 and the option to configure a preview before opening." width="2144" height="988" loading="lazy" decoding="async" unoptimized />
-  <figcaption>After saving a service, select its row to open the web preview.</figcaption>
-</figure>
 
 <figure className="docs-screenshot">
   <ImageZoom src="/screenshots/preview-intro.png" alt="Subshell’s website loaded in a landscape web preview, with enlarged text and preview controls." width="2400" height="1700" loading="lazy" decoding="async" unoptimized />
@@ -70,37 +64,45 @@ can see the list but can't open or change its connections.
 
 ## Configure an app preview
 
-<figure className="docs-screenshot">
-  <ImageZoom src="/screenshots/preview-settings.png" alt="Configure preview dialog, with Rewrite app URLs and Rewrite redirects enabled, Pass the preview host disabled, and reset, cancel, and save controls." width="2144" height="1736" loading="lazy" decoding="async" unoptimized />
-  <figcaption>Personal settings remembered for this app on this node.</figcaption>
-</figure>
+Choose a discovered app in **Open web preview or screen** to open its configuration
+step. Select the protocol and adjust the options, then choose **Open preview**.
+To keep the configuration, select **Save this configuration**, optionally give it
+a name, and choose **Save and open**.
 
-In the subshell header's **Open web preview or screen** dialog, select
-**Configure preview before opening**, then choose a discovered port or saved service. For an app that's already open, use
-**More view actions** → **Configure preview** in its toolbar.
+**Add service** offers the same options for a custom host and port. Use **Edit**
+beside a saved service to change its name, destination, or options. **Save changes**
+disconnects its open previews; open the saved service again to use the new settings.
+For an app that's already open, **More view actions** → **Configure preview** opens
+these controls too.
 
 | Setting | Default | What it changes |
 | --- | --- | --- |
+| **Protocol** | HTTP | Chooses HTTP or HTTPS for the connection from the node. |
+| **Ignore certificate validation** | Off | Skips certificate and hostname checks for this HTTPS destination. |
 | **Rewrite app URLs** | On | Routes supported app URLs through the private preview path. |
-| **Pass the preview host** | Off | Sends your browser's preview host to the app instead of the target host. Use it only when the app expects that host. |
+| **Pass the preview host** | Off | Sends your browser's preview host to the app instead of the target host. |
 | **Rewrite redirects** | On | Keeps redirects to this app under the preview path. |
+| **Run outside the sandbox** | Off | Allows browser features that isolation blocks, including storage and some sign-in flows. |
 
-Choose **Save and open** to save your choices and open a fresh preview.
-**Reset to defaults** removes the saved choices and opens a fresh preview with
-the defaults above. **Cancel** keeps the current preview.
+A saved service keeps these options with its name and destination. People with edit
+access can change it. Opening a saved service with **Run outside the sandbox** enabled
+shows its configuration and warning before opening.
 
-These settings belong to your account and follow you across devices and
-subshells for the same node, host, protocol, and port. They don't change anyone
-else's preview or grant access to a target. A saved service and a discovered
-port share settings when they identify the same target.
+> **Running outside the sandbox trusts the website with your Subshell account.**
+> It can access your browser session and data, interact with the dashboard, and act
+> with your account's permissions. Only enable this for a site and everyone who can
+> change it that you fully trust. The preview remains restricted to the account
+> that opened it; sharing its link doesn't authorize another account to run it.
 
 ## Browser compatibility and private links
 
-App previews use an isolated browser document so the website's JavaScript can't
+By default, app previews use an isolated browser document so the website's JavaScript can't
 read your dashboard's DOM, storage, or authenticated API responses. Target
 cookies stay in the preview's server-side cookie jar. Sites that need browser
 storage, service workers, JavaScript-managed cookies, or full browser login
-flows should be checked in the node's browser through a [virtual display](/previews#choose-a-view).
+flows may work with **Run outside the sandbox** enabled for a trusted app. This
+doesn't guarantee compatibility with every app. A [virtual display](/previews#choose-a-view)
+lets you use a normal browser on the node.
 
 With **Rewrite app URLs** enabled, Subshell rewrites supported HTML attributes,
 CSS URLs, and module imports. It also adds a browser compatibility script for

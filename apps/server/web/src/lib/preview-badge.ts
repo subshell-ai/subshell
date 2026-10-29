@@ -51,14 +51,15 @@ export function unsavedPreviewItemCount(
   access: SubshellAccess,
 ): number {
   if (!previewAnswerUsable(info)) return 0;
-  if (access === "view") return info.cdpPort === null ? 0 : 1;
+  const webEnabled = info.webPreviewsEnabled !== false;
+  if (access === "view") return webEnabled && info.cdpPort !== null ? 1 : 0;
   const savedPorts = new Set((services ?? []).map((service) => service.port));
-  const discoveredPorts = new Set(info.ports.map((row) => row.port));
+  const discoveredPorts = new Set(webEnabled ? info.ports.map((row) => row.port) : []);
   let count = 0;
   for (const port of discoveredPorts) {
     if (!savedPorts.has(port)) count += 1;
   }
-  if (info.screen) count += 1;
-  if (info.cdpPort !== null) count += 1;
+  if (info.screen && info.virtualDisplayEnabled !== false) count += 1;
+  if (webEnabled && info.cdpPort !== null) count += 1;
   return count;
 }

@@ -1,3 +1,4 @@
+import { cn } from "@internal/node-admin";
 import { AppWindow, Globe } from "lucide-react";
 import { badgeText, CountBadge } from "@/components/count-badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -7,6 +8,7 @@ export function VirtualDisplayIndicator({
   display,
   compact = false,
   unsavedCount = 0,
+  hasLiveItems = false,
   canSave = true,
   onOpen,
 }: {
@@ -18,6 +20,8 @@ export function VirtualDisplayIndicator({
    * something previewable says so before anyone opens the picker.
    */
   unsavedCount?: number;
+  /** Discovery confirms something this viewer can select, independently of saved rows. */
+  hasLiveItems?: boolean;
   /**
    * Whether saving is among this reader's acts, which is `access !== "view"`.
    * The counted item for a view grantee is the browser watch: watching is theirs,
@@ -43,7 +47,7 @@ export function VirtualDisplayIndicator({
         aria-label={`Open web preview or screen${count}`}
         aria-haspopup="dialog"
         onClick={onOpen}
-        className="relative inline-flex shrink-0 items-center text-primary"
+        className={cn("relative inline-flex shrink-0 items-center", hasLiveItems ? "text-primary" : "text-foreground")}
       >
         {display ? (
           <AppWindow className="size-3.5" aria-hidden="true" />
@@ -71,12 +75,14 @@ export function VirtualDisplayIndicator({
 export function VirtualDisplayEntry({
   subshell,
   unsavedCount,
+  hasLiveItems,
   onOpen,
 }: {
   /** The pane this header stands over, or nothing while its read is in flight. */
   subshell: SubshellView | undefined;
   /** Offered items this pane has no saved service for; see {@link VirtualDisplayIndicator}. */
   unsavedCount: number;
+  hasLiveItems?: boolean;
   /** Opens the picker, which its caller mounts. */
   onOpen: () => void;
 }) {
@@ -84,6 +90,7 @@ export function VirtualDisplayEntry({
     <VirtualDisplayIndicator
       display={subshell?.virtualDisplay}
       unsavedCount={unsavedCount}
+      hasLiveItems={hasLiveItems}
       canSave={subshell?.access !== "view"}
       onOpen={onOpen}
     />

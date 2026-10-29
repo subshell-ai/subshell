@@ -2,6 +2,8 @@
 export interface ServiceTarget {
   host: string;
   protocol: "http" | "https";
+  /** Explicit per-service opt-out; omission keeps certificate validation enabled. */
+  ignoreCertificateErrors?: boolean;
 }
 
 /** Accept a hostname or IP, never a URL, credentials, path, or header text. */

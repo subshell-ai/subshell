@@ -67,7 +67,13 @@ export interface LaneTimers {
 /** The mechanics a caller (or a test) can replace. Production passes none. */
 export interface LaneDeps {
   /** Defaults to TCP or certificate-verified TLS for an explicit HTTPS service. */
-  connect?: (options: { host: string; port: number; protocol?: "http" | "https"; servername?: string }) => LaneSocket;
+  connect?: (options: {
+    host: string;
+    port: number;
+    protocol?: "http" | "https";
+    servername?: string;
+    ignoreCertificateErrors?: boolean;
+  }) => LaneSocket;
   now?: () => number;
   /** Defaults to global timers UNREF'd — a lane timer must never hold the daemon (or a test) open. */
   timer?: LaneTimers;
@@ -126,7 +132,7 @@ const realConnect: NonNullable<LaneDeps["connect"]> = (options) =>
         host: options.host,
         port: options.port,
         servername: isIP(options.servername ?? options.host) ? undefined : (options.servername ?? options.host),
-        rejectUnauthorized: true,
+        rejectUnauthorized: options.ignoreCertificateErrors !== true,
       })
     : netConnect(options);
 
@@ -272,7 +278,13 @@ export class PreviewForward {
       socket = lane.connect({
         host,
         port: lane.port,
-        ...(lane.service ? { protocol: lane.service.protocol, servername: lane.service.host } : {}),
+        ...(lane.service
+          ? {
+              protocol: lane.service.protocol,
+              servername: lane.service.host,
+              ignoreCertificateErrors: lane.service.ignoreCertificateErrors,
+            }
+          : {}),
       });
     } catch (err: unknown) {
       this.dialFailed(lane, v6, err);
