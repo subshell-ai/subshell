@@ -1,5 +1,13 @@
 # @internal/desktop-client
 
+## 1.5.3
+
+### Patch Changes
+
+- [#472](https://github.com/subshell-ai/subshell/pull/472) [`48a8f4a`](https://github.com/subshell-ai/subshell/commit/48a8f4ae2362d2c62b15d59367a88f6831f6bb30) Thanks [@theogravity](https://github.com/theogravity)! - Fix web preview assets loading over HTTP behind an HTTPS reverse proxy, and remove duplicate scrollbars from preview configuration dialogs. Refresh the app releases and sites together.
+- Updated dependencies [[`48a8f4a`](https://github.com/subshell-ai/subshell/commit/48a8f4ae2362d2c62b15d59367a88f6831f6bb30)]:
+  - @internal/node@3.1.3
+
 ## 1.5.2
 
 ### Patch Changes
