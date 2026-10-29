@@ -1,5 +1,13 @@
 # @internal/desktop-server
 
+## 1.7.1
+
+### Patch Changes
+
+- [#468](https://github.com/subshell-ai/subshell/pull/468) [`433d012`](https://github.com/subshell-ai/subshell/commit/433d0121bc98daf96f89188e6516fa98260954e9) Thanks [@theogravity](https://github.com/theogravity)! - Update the web interface's Seroval dependency to fix serialization injection and deserialization denial-of-service vulnerabilities.
+- Updated dependencies [[`c43bbbe`](https://github.com/subshell-ai/subshell/commit/c43bbbea20d91c8150e3e9342931b3a5b784324c), [`433d012`](https://github.com/subshell-ai/subshell/commit/433d0121bc98daf96f89188e6516fa98260954e9)]:
+  - @internal/server@3.0.4
+
 ## 1.7.0
 
 ### Minor Changes
