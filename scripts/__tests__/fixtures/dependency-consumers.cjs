@@ -11,6 +11,18 @@ assert.deepEqual(
   { a: "hello world", b: "+", c: "%FF", d: "€" },
 );
 assert.equal(query.parse(`a=${"%FF".repeat(100000)}`).a.length, 300000);
+// Distinct encoded runs exercise the quadratic fallback in GHSA-qr28-fpjm-wq7f;
+// the repeated byte above only exercises one replacement. The parent bounds
+// this real consumer's runtime so a vulnerable decoder can't hang the suite.
+let distinctRuns = "";
+for (let index = 0; index < 64000; index++) {
+  const high = Math.floor(index / 256)
+    .toString(16)
+    .padStart(2, "0");
+  const low = (index % 256).toString(16).padStart(2, "0");
+  distinctRuns += `%${high}%${low}x`;
+}
+assert.ok(query.parse(`a=${distinctRuns}%zz`).a.endsWith("%zz"));
 assert.equal(
   query.parseUrl("https://example.com/#hello+world", { parseFragmentIdentifier: true }).fragmentIdentifier,
   "hello world",

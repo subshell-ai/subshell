@@ -92,7 +92,7 @@
   "engineStrict": true,
   "overrides": {
     "xcode>uuid": "11.1.1",
-    "decode-uri-component": "0.5.0",
+    "decode-uri-component": "0.5.1",
     "image-size": "2.0.4",
     "zod@4": "4.6.7",
     "@expo/cli>zod": "4.6.7",
