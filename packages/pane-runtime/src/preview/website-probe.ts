@@ -104,10 +104,11 @@ const ATTEMPT_TIMEOUT_MS = 900;
  * succeeds, walking to `::1` only after a REFUSED connect. The socket the lane
  * will dial is therefore the only one allowed to describe the row. An IPv4 that
  * answers settles the port on its own merits even when that answer is not a
- * document, and an IPv4 that accepts and stalls strands the lane wherever IPv6
- * stands: in both cases the port is not offered on IPv6's behalf. A refused
- * IPv4 is the one case where the two agree, because then the lane goes to `::1`
- * too, and a site only IPv6 serves is listed and opens.
+ * document, and an IPv4 that accepts and stalls, or accepts and breaks the
+ * connection, strands the lane wherever IPv6 stands: in every one of those
+ * cases the port is not offered on IPv6's behalf. An IPv4 that was never
+ * reached at all is the one case where the two agree, because then the lane
+ * goes to `::1` too, and a site only IPv6 serves is listed and opens.
  */
 export async function probeWebsite(port: number, signal: AbortSignal): Promise<WebsiteInfo | null> {
   const v4 = await probeFamily(`http://127.0.0.1:${port}`, signal);
@@ -128,8 +129,26 @@ type FamilyVerdict =
   | { kind: "no-page" }
   /** Accepted and never answered inside the family's window. */
   | { kind: "stalled" }
-  /** No socket at all (refused), or the caller's budget ended the question. */
+  /** No socket was ever reached (refused), or the caller's budget ended the question. */
   | { kind: "unreachable" };
+
+/**
+ * The error codes that mean "nothing was listening here", which is the only
+ * IPv4 verdict the lane walks past: `forward.ts` retries `::1` solely from
+ * `dialFailed`, and a connect that then breaks is not a `dialFailed`. A reset
+ * after the handshake, a malformed reply, or a binary protocol answering HTTP
+ * (gRPC on the port a dev server holds on `::1`) all mean a socket EXISTS on
+ * IPv4, so that socket is what the viewer would get, whatever IPv6 serves.
+ */
+const NEVER_CONNECTED = new Set(["ECONNREFUSED", "EHOSTUNREACH", "ENETUNREACH", "EADDRNOTAVAIL", "ENETDOWN"]);
+
+/** Walk the cause chain Bun's fetch builds and ask whether any link refused the connection. */
+function connectNeverLanded(err: unknown): boolean {
+  for (let link = err as { code?: unknown; cause?: unknown } | undefined; link; link = link.cause as typeof link) {
+    if (typeof link.code === "string" && NEVER_CONNECTED.has(link.code)) return true;
+  }
+  return false;
+}
 
 /** Ask one family once, in its own window, and classify what came back. */
 async function probeFamily(origin: string, signal: AbortSignal): Promise<FamilyVerdict> {
@@ -140,9 +159,12 @@ async function probeFamily(origin: string, signal: AbortSignal): Promise<FamilyV
   try {
     const info = await probeWebsiteOrigin(origin, AbortSignal.any([signal, attempt]));
     return info ? { kind: "page", info } : { kind: "no-page" };
-  } catch {
+  } catch (err) {
     if (signal.aborted) return { kind: "unreachable" };
-    return attempt.aborted ? { kind: "stalled" } : { kind: "unreachable" };
+    if (attempt.aborted) return { kind: "stalled" };
+    // Reaching the socket and getting nothing usable IS an answer about that
+    // socket: only a connection that never landed sends the lane elsewhere.
+    return connectNeverLanded(err) ? { kind: "unreachable" } : { kind: "no-page" };
   }
 }
 

@@ -228,6 +228,43 @@ describe.skipIf(process.platform !== "linux")("scanPanePorts over fixture /proc 
     // regression. What is pinned is the promise the budget exists to keep.
   });
 
+  it("the scan's deadline bounds the devtools probe too, not just the document one", async () => {
+    // Both probes per port are promised to the same window. A CDP probe that
+    // answers only to its own timer keeps a worker running after the deadline
+    // fires, and on a crowded pane that overrun is what pushes the whole command
+    // past the plane's 10 s, where discovery answers NOTHING instead of dropping
+    // a tail. This is a cancellation test with real timers on purpose: the
+    // behavior under test is that the probe stops when told.
+    let longestProbeMs = 0;
+    const started = Date.now();
+    const r = await scanPanePorts({
+      procRoot: tinyProcRoot,
+      panePid: 100,
+      websiteProbe: async () => null,
+      probe: async (_port, signal) => {
+        const at = Date.now();
+        await new Promise<void>((resolve) => {
+          const stop = (): void => {
+            clearTimeout(unbounded);
+            resolve();
+          };
+          const unbounded = setTimeout(stop, 8_000);
+          if (signal.aborted) stop();
+          else signal.addEventListener("abort", stop, { once: true });
+        });
+        longestProbeMs = Math.max(longestProbeMs, Date.now() - at);
+        return false;
+      },
+    });
+    expect(r.cdpPort).toBeNull();
+    expect(r.ports).toEqual([]);
+    // The window for one candidate is the sized allowance, so a probe that
+    // respects it returns within seconds; one that ignores the signal would sit
+    // at the 8 s ceiling and this assert would fail on the probe, not the clock.
+    expect(longestProbeMs).toBeLessThan(4_000);
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
   it("rotates where the probe budget starts, so one tail is not always the loser", async () => {
     // The kernel lists listeners in a stable order, so a scan that always drains
     // from the first row spends its budget on the same leading ports every poll

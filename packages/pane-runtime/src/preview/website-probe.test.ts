@@ -1,4 +1,5 @@
 import { expect, it } from "bun:test";
+import { createServer, type Socket } from "node:net";
 import { probeWebsite } from "./website-probe.js";
 
 it("discovers HTML and same-port redirects, excluding APIs, downloads, and off-port redirects", async () => {
@@ -239,6 +240,44 @@ it("will not offer an API's IPv4 socket on a dev server's IPv6 behalf", async ()
   }
 });
 
+/** Bind a real IPv4 listener that misbehaves, and an IPv6 dev server on its port. */
+async function withBrokenV4(breakV4: (sock: Socket) => void, probe: (port: number) => Promise<unknown>) {
+  const gremlin = createServer((sock) => breakV4(sock));
+  await new Promise<void>((resolve) => gremlin.listen(0, "127.0.0.1", resolve));
+  const port = (gremlin.address() as { port: number }).port;
+  const site = Bun.serve({
+    hostname: "::1",
+    port,
+    fetch: () => new Response("<title>Real dev server</title>", { headers: { "content-type": "text/html" } }),
+  });
+  try {
+    await probe(port);
+  } finally {
+    gremlin.close();
+    site.stop(true);
+  }
+}
+
+// The pair this policy exists for, on REAL sockets so the error shapes are Bun's
+// own rather than a stub's guess. A binary-protocol tool (gRPC, a language
+// server) or one that takes the connection and drops it answers on 127.0.0.1:P
+// while the dev server holds [::1]:P. `forward.ts` completes the TCP connect and
+// so never retries `::1`: a port offered from the IPv6 answer here is a preview
+// that dies or hangs the moment someone opens it.
+for (const [label, breakV4] of [
+  ["resets the socket", (sock: Socket) => sock.destroy()],
+  [
+    "replies with something that is not HTTP",
+    (sock: Socket) => sock.on("data", () => sock.write("binary junk\r\n\r\n")),
+  ],
+] as const) {
+  it(`will not offer an IPv6 site across an IPv4 socket that ${label}`, async () => {
+    await withBrokenV4(breakV4, async (port) => {
+      expect(await probeWebsite(port, AbortSignal.timeout(3_000))).toBeNull();
+    });
+  });
+}
+
 it("drops a port only after both families decline", async () => {
   // "Decline" means no socket answered at all: that is the one shape where the
   // lane would also walk to `::1`, so both families get asked before the port is
@@ -247,7 +286,11 @@ it("drops a port only after both families decline", async () => {
   let asks = 0;
   globalThis.fetch = (async () => {
     asks++;
-    throw new TypeError("connect ECONNREFUSED");
+    // The `code` Bun's own fetch carries on a refused connect (measured, not
+    // guessed): it is what separates "nobody is listening" from "a socket took
+    // the connection and gave nothing usable", and only the first lets IPv6
+    // carry the offer.
+    throw Object.assign(new TypeError("ECONNREFUSED: Unable to connect."), { code: "ECONNREFUSED" });
   }) as unknown as typeof fetch;
   try {
     expect(await probeWebsite(4197, AbortSignal.timeout(3_000))).toBeNull();

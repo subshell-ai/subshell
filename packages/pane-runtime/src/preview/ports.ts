@@ -28,8 +28,13 @@ export interface ScanPanePortsOptions {
   procRoot?: string;
   /** The pid tmux reports for the pane (`TmuxRunner.panePid`), the BFS root. */
   panePid: number;
-  /** "Is this port CDP?" default: a loopback `GET /json/version` with a 400 ms budget. Test-only seam. */
-  probe?: (port: number) => Promise<boolean>;
+  /**
+   * "Is this port CDP?" default: a loopback `GET /json/version` with a 400 ms
+   * budget per family. The second argument is the scan's deadline: a probe that
+   * outlives it costs the whole command its answer, so it must stop when told.
+   * Test-only seam.
+   */
+  probe?: (port: number, signal: AbortSignal) => Promise<boolean>;
   /** Test seam for the bounded HTML document probe. */
   websiteProbe?: (port: number, signal: AbortSignal) => Promise<WebsiteInfo | null>;
   /** The pane's allocated display, passed through to the answer; null means this pane has none. */
@@ -158,25 +163,22 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
   const candidates = [...new Set(ports.map((row) => row.port))];
   const websites = new Map<number, WebsiteInfo>();
   const cdpPorts = new Set<number>();
-  // Two probes per port, asked at the SAME time. In series a listener that
-  // accepts and never answers costs the devtools window plus the document
-  // window, and a pane holding dozens of them outruns any budget; in parallel
-  // a port costs whichever window is longer, which is what makes the ceiling
-  // below reachable. CDP wins when both answer, so a devtools endpoint that
-  // serves its JSON listing as HTML never becomes a website row.
+  // Two probes per port, asked at the SAME time and both bounded by the scan's
+  // deadline. In series a listener that accepts and never answers costs the
+  // devtools window plus the document window, and a pane holding dozens of them
+  // outruns any budget; in parallel a port costs whichever window is longer. CDP
+  // wins when both answer, so a devtools endpoint that serves its JSON listing
+  // as HTML never becomes a website row. The deadline has to reach both: a probe
+  // that answers only to its own timer keeps a worker running after the window
+  // closes, and that overrun is what would push the command past the plane.
   //
-  // The budget grows with the candidate count and is capped on purpose: past
-  // the cap the plane's command times out and discovery answers NOTHING, which
-  // is worse than dropping the tail of a crowded pane. An untried port reads
-  // exactly like a port that is not a website, so a pane with more stalled
-  // listeners than this covers loses rows only until the next poll, seconds
-  // later, reaches further into the list.
-  // What the probes get, per probeWindowMs: the candidate-sized allowance and
-  // what remains of the scan's ceiling (with a floor so a slow walk still asks),
-  // and never more than what remains of the plane's command budget. Without the
-  // floor a slow walk can spend the whole budget before the first port is tried
-  // and answer an empty picker rather than a dropped tail; without the cap a slow
-  // walk plus the floor overruns the RPC and answers nothing at all.
+  // The window itself comes from probeWindowMs: the candidate-sized allowance,
+  // what remains of the scan's ceiling (floored, so a slow walk still asks), and
+  // what remains of the plane's command budget. Being cut off is a better answer
+  // than being timed out, because a command the plane abandons answers NOTHING
+  // while a cut-off scan simply leaves a tail untried, and an untried port reads
+  // like a port that is not a website only until the next poll, seconds later,
+  // rotates the start point onto it.
   const windowMs = probeWindowMs(Date.now() - startedAt, candidates.length);
   // Rotating start point: see probeCursor. Wrapping means the ports this scan
   // cannot reach before the budget runs out are the first ones the next asks.
@@ -189,7 +191,7 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
         while (next < candidates.length && !deadline.aborted) {
           const port = candidates[(start + next++) % candidates.length];
           if (port === screen?.viewer.port) continue;
-          const [isCdp, info] = await Promise.all([probe(port), website(port, deadline)]);
+          const [isCdp, info] = await Promise.all([probe(port, deadline), website(port, deadline)]);
           if (isCdp) cdpPorts.add(port);
           else if (info) websites.set(port, info);
         }
@@ -211,12 +213,14 @@ export async function scanPanePorts(opts: ScanPanePortsOptions): Promise<PanePor
  * devtools answers on loopback whatever address it was bound to. Each family
  * gets its own 400 ms slice (see `fetchCdpJsonFromLoopback`), because a browser
  * bound to `::1` only is routine and a single-family probe reported it as a
- * website with no browser to watch. Every failure shape on every family
- * (refused, slow, non-JSON, not CDP) answers false.
+ * website with no browser to watch, and the scan's deadline rides along so a
+ * worker that picked this port at the very end of the window cannot keep the
+ * whole command past it. Every failure shape on every family (refused, slow,
+ * non-JSON, not CDP, out of budget) answers false.
  */
-async function defaultCdpProbe(port: number): Promise<boolean> {
+async function defaultCdpProbe(port: number, signal: AbortSignal): Promise<boolean> {
   try {
-    const body = await fetchCdpJsonFromLoopback(port, "/json/version", AbortSignal.timeout(CDP_PROBE_TIMEOUT_MS * 2), {
+    const body = await fetchCdpJsonFromLoopback(port, "/json/version", signal, {
       perFamilyTimeoutMs: CDP_PROBE_TIMEOUT_MS,
     });
     return typeof body === "object" && body !== null && "Browser" in body;
