@@ -544,7 +544,7 @@ describe("pv-http: the same-origin rewrite", () => {
     expect(body).not.toContain("This isn't a web page");
     // Rewritten like any other document, and still typed as what it is.
     expect(body).toContain("XHTML App");
-    expect(body).toContain(`href="http://localhost:3080/pv/${ref}/style.css"`);
+    expect(body).toContain(`href="//localhost:3080/pv/${ref}/style.css"`);
     expect(body).toContain("installPreviewCompat");
     // The part that keeps it renderable: to an XML parser the shim's content is
     // markup, so it has to arrive inside a CDATA section, delimited by lines the

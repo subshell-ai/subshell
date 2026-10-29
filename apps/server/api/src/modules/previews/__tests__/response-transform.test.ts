@@ -23,6 +23,32 @@ describe("preview resource compatibility", () => {
     expect(map("https://foreign.test/pv/secret/a")).toBe("https://foreign.test/pv/secret/a");
     expect(previewUrl("child", `${proxy}nested/page`, target, proxy)).toBe(`${proxy}nested/child`);
   });
+  it("inherits the browser scheme for assets when the server sits behind TLS termination", async () => {
+    const browserProxy = "//plane.test/pv/secret/";
+    const upstream = "https://localhost:8006";
+    const response = await transformPreviewResponse(
+      new Response(
+        '<head><link rel="stylesheet" href="/pve.css"><script src="/ext.js"></script><script type="module">import "/module.js";</script><style>body{background:url(/image.png)}</style></head>',
+        {
+          headers: { "content-type": "text/html" },
+        },
+      ),
+      upstream,
+      browserProxy,
+      "/",
+    );
+    const text = await response.text();
+    expect(text).toContain(`href="${browserProxy}pve.css"`);
+    expect(text).toContain(`src="${browserProxy}ext.js"`);
+    expect(text).toContain(`import "${browserProxy}module.js"`);
+    expect(text).toContain(`url("${browserProxy}image.png")`);
+    for (const scheme of ["http:", "https:"]) {
+      const page = `${scheme}//plane.test/pv/secret/`;
+      expect(new URL(`${browserProxy}ext.js`, page).protocol).toBe(scheme);
+    }
+    expect(previewUrl("/pv/secret/ext.js", upstream, upstream, browserProxy)).toBe(`${browserProxy}ext.js`);
+    expect(previewUrl("https://cdn.test/ext.js", upstream, upstream, browserProxy)).toBe("https://cdn.test/ext.js");
+  });
   it("preserves srcset data URLs and rewrites candidates", () => {
     expect(previewSrcset("data:image/png;base64,aa 1x, /large.png 2x", map)).toBe(
       `data:image/png;base64,aa 1x, ${proxy}large.png 2x`,

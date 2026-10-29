@@ -29,7 +29,7 @@ export function PreviewChooserDialog({ subshellId, onClose }: { subshellId: stri
         if (!value && !busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[85dvh] overflow-y-auto">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>
             {target

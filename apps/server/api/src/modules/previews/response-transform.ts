@@ -27,13 +27,13 @@ function turbopackChunkBase(mappedSrc: string, proxy: string): string | null {
   if (!mappedSrc.startsWith(proxy)) return null;
   let url: URL;
   try {
-    url = new URL(mappedSrc);
+    url = new URL(mappedSrc, "http://preview.invalid");
   } catch {
     return null;
   }
   const marker = url.pathname.indexOf("/_next/static/");
   if (marker < 0) return null;
-  return `${url.origin}${url.pathname.slice(0, marker)}/_next/`;
+  return `${proxy.startsWith("//") ? `//${url.host}` : url.origin}${url.pathname.slice(0, marker)}/_next/`;
 }
 
 /** Quote a JS literal that can also safely appear inside an HTML script. */
@@ -283,7 +283,10 @@ export async function transformPreviewResponse(
               const chunkBase = turbopackChunkBase(mappedSrc, proxy);
               if (chunkBase) {
                 el.before(
-                  previewInlineScript(`globalThis.TURBOPACK_CHUNK_BASE_PATH=${scriptString(chunkBase)};`, xml),
+                  previewInlineScript(
+                    `globalThis.TURBOPACK_CHUNK_BASE_PATH=${chunkBase.startsWith("//") ? `new URL(${scriptString(chunkBase)},location.href).href` : scriptString(chunkBase)};`,
+                    xml,
+                  ),
                   { html: true },
                 );
                 nextChunkBaseInjected = true;
