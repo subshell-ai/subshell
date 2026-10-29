@@ -13,7 +13,8 @@ Web previews connect a subshell's development server to your browser through Sub
 | Browser watch | JPEG frames from a browser's Chrome DevTools Protocol (CDP) connection | Subshell view access, with discovered-port restrictions | No |
 | Virtual display | RFB frames and keyboard/pointer input | Subshell edit access | Yes |
 
-A web preview renders the target website in your browser. A browser watch shows
+A web preview renders the target website in an iframe in your browser. Its
+JavaScript runs on the viewing device. A browser watch shows
 what a browser on the node rendered and doesn't provide interactive control.
 A virtual display lets you control graphical applications on the node. Read
 [Virtual display architecture](/developers/virtual-display-architecture) for
@@ -130,15 +131,26 @@ The settings endpoint uses the same execute/edit and enabled-node gates as an
 app open, and it cannot authorize a destination. Settings store no capability
 URLs. See [Configure an app preview](/previews/apps#configure-an-app-preview).
 
-Rewriting covers common app patterns rather than arbitrary JavaScript. A target
-CSP can block the injected script; Subshell doesn't relax that policy to make
-rewriting work. Opaque-origin storage and service-worker restrictions still apply.
+Rewriting covers common app patterns rather than arbitrary JavaScript. Each
+forwarding session reaches one destination; URLs for other hosts or ports stay
+external and are requested by the viewing device. A target CSP can block the
+injected script; Subshell preserves its directives apart from `frame-ancestors`.
+By default, opaque-origin storage and service-worker restrictions apply even
+when the preview URL opens in a separate browser tab.
 
 The cookie jar isn't a full browser cookie implementation: it keys by cookie
-name. Applications that require service workers, browser storage,
-JavaScript-managed cookies, or a normal website login context should run in
-the node's browser and be checked through a virtual display. Don't weaken the
-sandbox to make such applications work.
+name. The explicit **Run outside the sandbox** option removes both the iframe
+and response-header sandboxes, granting the app access to the viewer's Subshell
+browser session, storage, and dashboard. It requires the opening account's
+current cookie on HTTP requests. Credential filtering and the target cookie
+jar remain in place, so this option doesn't restore a normal website context.
+See the [configuration warning](/previews/apps#configure-an-app-preview) before
+using it for an app you fully trust.
+
+For checks that need the app's original origin, browser cookie behavior, or
+full browser capabilities, use the node's browser through a virtual display.
+See [Web app previews](/previews/apps#browser-compatibility-and-private-links)
+for application compatibility guidance.
 
 ## Application WebSockets
 

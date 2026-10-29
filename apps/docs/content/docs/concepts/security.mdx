@@ -87,12 +87,20 @@ watching, restricted to the browser discovered for that shared subshell.
 
 #### Website isolation
 
-Forwarded websites run in an opaque-origin browser sandbox, including when
+By default, forwarded websites run in an opaque-origin browser sandbox, including when
 opened in a separate browser tab. Their scripts can't read the dashboard DOM,
 storage, or authenticated API responses. Target cookies stay in a per-preview
 server-side jar rather than being installed on the dashboard origin. Browser
 storage, service workers, and some website login flows need the node's normal
 browser context; use **Virtual display** for those checks.
+
+The explicit **Run outside the sandbox** option removes that isolation for an
+app you fully trust. Its scripts can access the dashboard, browser storage, and
+your Subshell session, and act with your account's permissions. These previews
+require the opening account's current cookie on HTTP requests. Credential
+filtering and the target cookie jar still apply; the option doesn't guarantee
+app compatibility. Read the [configuration warning](/previews/apps#configure-an-app-preview)
+before enabling it.
 
 The preview proxy can rewrite app HTML, styles, and module imports, and inject a
 compatibility script to keep common app requests under the private preview URL.
@@ -105,7 +113,7 @@ framing restrictions and can still block the compatibility script.
 [Personal preview settings](/previews/apps#configure-an-app-preview) control URL
 rewriting, redirects, and which Host header the app receives. They're saved for
 you by node, host, protocol, and port, and apply when a fresh preview opens.
-They don't relax the sandbox, grant access to another target, disable HTTPS
+Those three options don't relax the sandbox, grant access to another target, disable HTTPS
 certificate checks, or make every app compatible. Text rewriting and
 decompression have size and concurrency limits; these aren't general
 protection against denial-of-service attacks.
