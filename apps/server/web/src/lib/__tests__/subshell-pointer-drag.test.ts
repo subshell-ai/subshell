@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 import {
   beginPointerSubshellDrag,
   consumePointerDragClick,
+  getPointerDragState,
   registerPointerDragZone,
+  resetPointerDragForTests,
   subscribePointerDrag,
 } from "@/lib/subshell-pointer-drag";
 
@@ -25,6 +27,8 @@ function nativeDragStart(): void {
   window.dispatchEvent(new MouseEvent("dragstart"));
 }
 
+const SOURCE = document.createElement("div");
+
 function begin(opts: Partial<Parameters<typeof beginPointerSubshellDrag>[0]> = {}): void {
   beginPointerSubshellDrag({
     subshellId: "s-1",
@@ -32,6 +36,7 @@ function begin(opts: Partial<Parameters<typeof beginPointerSubshellDrag>[0]> = {
     button: 0,
     clientX: 100,
     clientY: 100,
+    sourceElement: SOURCE,
     ...opts,
   });
 }
@@ -47,6 +52,7 @@ describe("beginPointerSubshellDrag", () => {
     // A running gesture self-clears at pointerup; this covers tests that end
     // mid-flight. Safe to call unconditionally.
     up(-9999, -9999);
+    resetPointerDragForTests();
   });
 
   it("ignores touch (native path owns it) and non-primary buttons", () => {
@@ -181,5 +187,114 @@ describe("beginPointerSubshellDrag", () => {
     move(900, 900);
     up(900, 900);
     expect(ends).toBe(1);
+  });
+
+  // — regression pins for the round-3 review findings —
+
+  it("a dragstart AFTER promotion still cleans up: no stuck selection lock, no stale publish", () => {
+    // M1: Chromium/WebKit can deliver the promoting pointermove before the
+    // native dragstart on a fast flick. Zeroing `promoted` for the yield must
+    // not skip the cleanups the promotion performed.
+    const seen: unknown[] = [];
+    const off = subscribePointerDrag((s) => seen.push(s));
+    let ends = 0;
+    begin({ onEnd: () => (ends += 1) });
+    move(500, 500); // promotes: user-select none, publish, ghost
+    nativeDragStart(); // yields to the native transport
+    expect(document.body.style.userSelect).toBe("");
+    expect(document.body.querySelectorAll('[aria-hidden="true"]').length).toBe(0);
+    expect(seen[seen.length - 1]).toBe(null);
+    // The native path owns the gesture: no trailing-click swallow, no onEnd
+    // (the row's own dragend disarms the zones).
+    expect(consumePointerDragClick(SOURCE)).toBe(false);
+    expect(ends).toBe(0);
+    off();
+  });
+
+  it("a zone armed synchronously catches a flick that releases in the same flush", () => {
+    // M2: onPromote arms through React state, which a quick flick's pointerup
+    // can outrun. A zone whose enabled() reads the session synchronously
+    // (getPointerDragState) must accept that release.
+    const dropped: string[] = [];
+    const off = registerPointerDragZone({
+      contains: (x, y) => x >= 200 && x <= 400 && y >= 200 && y <= 400,
+      enabled: () => getPointerDragState()?.subshellId === "s-1",
+      onDrop: (id) => dropped.push(id),
+    });
+    begin();
+    move(300, 300); // the promoting move — and the release follows with no
+    up(300, 300); // re-render in between, as on a real coalesced flick
+    expect(dropped).toEqual(["s-1"]);
+    off();
+  });
+
+  it("a release over an element outside the zone's subtree drops nothing (z-order)", () => {
+    // m3: rect hit-testing alone would let a drop land on a zone that a menu
+    // or dialog visually covers.
+    const dropped: string[] = [];
+    const root = document.createElement("div");
+    const overlay = document.createElement("div");
+    const off = registerPointerDragZone({
+      ...rectZone(0, 0, 500, 500),
+      rootElement: () => root,
+      onDrop: (id) => dropped.push(id),
+    });
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => overlay; // topmost at the point: NOT in root
+    try {
+      begin();
+      move(250, 250);
+      up(250, 250);
+      expect(dropped).toEqual([]);
+    } finally {
+      document.elementFromPoint = original;
+    }
+    off();
+  });
+
+  it("a throwing zone cannot brick the transport", () => {
+    // m2: listeners and the gesture sentinel must clear even when onDrop
+    // throws, or every later press early-returns against the stuck gesture.
+    const offA = registerPointerDragZone({
+      ...rectZone(0, 0, 500, 500),
+      onDrop: () => {
+        throw new Error("zone exploded");
+      },
+    });
+    begin();
+    move(250, 250);
+    up(250, 250);
+    offA();
+    const dropped: string[] = [];
+    const offB = registerPointerDragZone({ ...rectZone(0, 0, 500, 500), onDrop: (id) => dropped.push(id) });
+    begin();
+    move(250, 250);
+    up(250, 250);
+    expect(dropped).toEqual(["s-1"]);
+    offB();
+  });
+
+  it("the trailing-click swallow is scoped to the source row and dies on the first click", () => {
+    // m1: a stale flag must never eat a click on anything else (an unrelated
+    // element, a focused link's Enter, a cross-agent row).
+    const other = document.createElement("span");
+    begin();
+    move(900, 900);
+    up(900, 900); // promoted, released over nothing
+    expect(consumePointerDragClick(other)).toBe(false); // unrelated target…
+    expect(consumePointerDragClick(SOURCE)).toBe(false); // …and it dies at once
+    begin();
+    move(900, 900);
+    up(900, 900);
+    expect(consumePointerDragClick(SOURCE)).toBe(true); // the row's own click
+    expect(consumePointerDragClick(SOURCE)).toBe(false); // exactly once
+  });
+
+  it("a refused press (cross-agent gate, non-primary button) still clears a stale swallow", () => {
+    begin();
+    move(900, 900);
+    up(900, 900);
+    begin({ enabled: false }); // a cross-agent row's pointerdown: refused…
+    expect(consumePointerDragClick(SOURCE)).toBe(false); // …but the stale flag is gone
   });
 });

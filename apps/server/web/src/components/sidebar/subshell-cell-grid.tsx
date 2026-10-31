@@ -278,6 +278,7 @@ export function SubshellCell({
                   button: e.button,
                   clientX: e.clientX,
                   clientY: e.clientY,
+                  sourceElement: cellEl,
                   createGhost: () => cloneRowSnapshot(cellEl),
                 });
               }}
@@ -288,7 +289,7 @@ export function SubshellCell({
               onClick={(e) => {
                 if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
                 e.preventDefault();
-                if (consumePointerDragClick()) return;
+                if (consumePointerDragClick(e.target)) return;
                 void openAsTab(subshell);
               }}
               aria-label={`${subshell.name}: ${bell ? bellAnnouncement(INDICATOR_LABEL[indicator]) : INDICATOR_LABEL[indicator]}`}

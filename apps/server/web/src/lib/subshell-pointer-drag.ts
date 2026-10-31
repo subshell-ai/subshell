@@ -18,23 +18,30 @@ import { useEffect, useRef, useState } from "react";
  * under the pointer, and hand the id to that zone's drop callback.
  *
  * Click safety: a rail row is also a button (click means the tab). A gesture
- * that promotes was never a click, so its trailing `click` is swallowed
- * exactly once (`consumePointerDragClick`); a release under the threshold
- * leaves the click intact.
+ * that promoted was never a click, so the trailing `click` ON THAT ROW
+ * SUBTREE is swallowed once (`consumePointerDragClick`); a release under the
+ * threshold leaves the click intact, and a click on anything else never
+ * touches the flag.
  */
 
 /** Movement before a press-drag becomes a drag, in CSS pixels. */
 export const POINTER_DRAG_THRESHOLD_PX = 8;
 
-/** A registered drop surface. Hit-testing uses `contains` rather than
- *  `elementFromPoint` so the test double and the stack order agree. */
+/** A registered drop surface. */
 export interface PointerDragZone {
   /** True when the given client-space point falls inside the zone. */
   contains(x: number, y: number): boolean;
-  /** Whether the zone would accept a drop right now. */
+  /** Whether the zone would accept a drop right now. Read AT hit-test time,
+   *  so it must not depend on a re-render the promotion has not caused yet
+   *  (zones whose offer depends on the gesture arm themselves off
+   *  `getPointerDragState()` inside this callback). */
   enabled(): boolean;
   /** Accept the dragged subshell, same effect as the HTML5 drop. */
   onDrop(subshellId: string): void;
+  /** The zone's DOM element, when it has one. hitTest then also requires the
+   *  topmost element at the point to live inside it, so a release over an
+   *  open menu or dialog cannot land on the zone it visually covers. */
+  rootElement?: () => HTMLElement | null;
 }
 
 /** The published state of a promoted gesture: what is flying, and where. */
@@ -49,7 +56,7 @@ type Listener = (state: PointerDragState | null) => void;
 const listeners = new Set<Listener>();
 const zones = new Set<PointerDragZone>();
 let state: PointerDragState | null = null;
-let suppressClick = false;
+let suppressClickFor: HTMLElement | null = null;
 
 function publish(next: PointerDragState | null): void {
   state = next;
@@ -73,6 +80,14 @@ export function registerPointerDragZone(zone: PointerDragZone): () => void {
   };
 }
 
+/** Live read of the promoted gesture, synchronously — the escape hatch for
+ *  a zone whose `enabled()` must be true in the same task as the promotion,
+ *  before React has re-rendered anything (`onPromote` arms through state,
+ *  and a quick flick's pointerup can beat that render). */
+export function getPointerDragState(): PointerDragState | null {
+  return state;
+}
+
 export interface BeginPointerSubshellDragOptions {
   subshellId: string;
   /** `e.pointerType` from the source's pointerdown. */
@@ -81,6 +96,14 @@ export interface BeginPointerSubshellDragOptions {
   button: number;
   clientX: number;
   clientY: number;
+  /** The row the press started on: a promoted gesture's trailing click is
+   *  swallowed only within this subtree, so a stale flag can never eat an
+   *  unrelated click (or a focused link's Enter). */
+  sourceElement: HTMLElement;
+  /** Whether this row drags at all (cross-agent helpers are refused at the
+   *  source, like their HTML5 `draggable` is false). Checked AFTER the click
+   *  bookkeeping reset, so a refused press still clears a stale swallow. */
+  enabled?: boolean;
   /** Snapshot floated under the pointer once promoted; null skips the ghost. */
   createGhost?: () => HTMLElement | null;
   /** Fires once on promotion — arm the zones the way `dragstart` would. */
@@ -97,7 +120,17 @@ let gesture: ActiveGesture | null = null;
 function hitTest(x: number, y: number): PointerDragZone | null {
   let found: PointerDragZone | null = null;
   for (const zone of zones) {
-    if (zone.contains(x, y) && zone.enabled()) found = zone;
+    if (!zone.contains(x, y) || !zone.enabled()) continue;
+    const root = zone.rootElement?.() ?? null;
+    if (root && typeof document.elementFromPoint === "function") {
+      const top = document.elementFromPoint(x, y);
+      // The z-order guard: a release over a menu or dialog covering the zone
+      // belongs to the overlay, not the zone. A no-layout engine answers
+      // null or the bare document/body — that is not evidence of an overlay,
+      // so the rect decides.
+      if (top && top !== document.body && top !== document.documentElement && !root.contains(top)) continue;
+    }
+    found = zone;
   }
   return found;
 }
@@ -109,17 +142,55 @@ function hitTest(x: number, y: number): PointerDragZone | null {
  * listeners, the ghost, the selection suppression, and the drop dispatch.
  */
 export function beginPointerSubshellDrag(options: BeginPointerSubshellDragOptions): void {
-  // A fresh press resets the click bookkeeping: only the gesture that
-  // promoted gets its trailing click swallowed.
-  suppressClick = false;
+  // A fresh press ends any promoted gesture's claim on the next click,
+  // whatever this press goes on to do — including a refused press.
+  suppressClickFor = null;
   if (gesture) return;
+  if (options.enabled === false) return;
   if (options.button !== 0) return;
   if (options.pointerType !== "mouse" && options.pointerType !== "pen") return;
 
   const originX = options.clientX;
   const originY = options.clientY;
   let promoted = false;
+  // Separate from `promoted` because the native yield zeroes it: the
+  // CLEANUPS a promotion made (body selection, published state) must run
+  // even when the gesture ends by handing over to the HTML5 transport.
+  let everPromoted = false;
+  // Whether the release landed on a zone. A gesture that dropped never
+  // produces a trailing click, so it must NOT arm the click-swallow — only a
+  // release in empty space (the browser's own "drag that went nowhere") can
+  // be followed by a click on the source, and that is the one to swallow.
+  let landed = false;
   let ghost: HTMLElement | null = null;
+  let settled = false;
+
+  const finish = (): void => {
+    if (settled) return;
+    settled = true;
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onCancel);
+    window.removeEventListener("dragstart", onNativeDragStart);
+    window.removeEventListener("keydown", onKeyDown);
+    try {
+      const wasPromoted = promoted;
+      ghost?.remove();
+      ghost = null;
+      if (everPromoted) {
+        document.body.style.removeProperty("user-select");
+        publish(null);
+      }
+      if (wasPromoted) {
+        if (!landed) suppressClickFor = options.sourceElement;
+        options.onEnd?.();
+      }
+    } finally {
+      // No throw in the block above may leave the transport bricked: the
+      // next press must be able to begin.
+      gesture = null;
+    }
+  };
 
   const onMove = (event: PointerEvent): void => {
     const dx = event.clientX - originX;
@@ -127,6 +198,7 @@ export function beginPointerSubshellDrag(options: BeginPointerSubshellDragOption
     if (!promoted) {
       if (dx * dx + dy * dy < POINTER_DRAG_THRESHOLD_PX * POINTER_DRAG_THRESHOLD_PX) return;
       promoted = true;
+      everPromoted = true;
       document.body.style.userSelect = "none";
       // A press-drag may already have started selecting text before the
       // threshold is crossed; clear it so the row does not paint blue.
@@ -148,27 +220,19 @@ export function beginPointerSubshellDrag(options: BeginPointerSubshellDragOption
     publish({ subshellId: options.subshellId, overZone: hitTest(event.clientX, event.clientY) });
   };
 
-  const finish = (): void => {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onCancel);
-    window.removeEventListener("dragstart", onNativeDragStart);
-    window.removeEventListener("keydown", onKeyDown);
-    const wasPromoted = promoted;
-    ghost?.remove();
-    if (wasPromoted) {
-      suppressClick = true;
-      document.body.style.removeProperty("user-select");
-      publish(null);
-      options.onEnd?.();
-    }
-    gesture = null;
-  };
-
   const onUp = (event: PointerEvent): void => {
     if (promoted) {
       const zone = hitTest(event.clientX, event.clientY);
-      zone?.onDrop(options.subshellId);
+      if (zone) {
+        landed = true;
+        try {
+          zone.onDrop(options.subshellId);
+        } catch (err) {
+          // A throwing zone must not brick the transport (gesture=null
+          // lives in finish's finally).
+          console.error("subshell pointer drop failed", err);
+        }
+      }
     }
     finish();
   };
@@ -179,10 +243,10 @@ export function beginPointerSubshellDrag(options: BeginPointerSubshellDragOption
 
   // The yield rule: whatever browser this is, if it does start an HTML5
   // drag, that transport owns the gesture and this session vanishes.
+  // `promoted` zeroes so the trailing-click and onEnd bookkeeping stays
+  // native's; `everPromoted` still cleans up what this session did.
   const onNativeDragStart = (): void => {
-    promoted = false; // an aborted promotion must not swallow the click
-    ghost?.remove();
-    ghost = null;
+    promoted = false;
     finish();
   };
 
@@ -198,12 +262,14 @@ export function beginPointerSubshellDrag(options: BeginPointerSubshellDragOption
   gesture = { cancel: finish };
 }
 
-/** True (once) when the gesture that just ended had promoted — the source's
- *  click handler must ignore that trailing click. */
-export function consumePointerDragClick(): boolean {
-  const value = suppressClick;
-  suppressClick = false;
-  return value;
+/** True (once) when the click belongs to the row whose gesture just
+ *  promoted — the row's click handler must ignore that trailing click. A
+ *  click on anything else never consumes the flag. */
+export function consumePointerDragClick(target?: EventTarget): boolean {
+  const source = suppressClickFor;
+  suppressClickFor = null;
+  if (!source) return false;
+  return target instanceof Node ? source === target || source.contains(target) : true;
 }
 
 /**
@@ -219,6 +285,7 @@ export function usePointerDragZone(zone: PointerDragZone): { active: PointerDrag
     contains: (x, y) => zoneRef.current.contains(x, y),
     enabled: () => zoneRef.current.enabled(),
     onDrop: (id) => zoneRef.current.onDrop(id),
+    rootElement: () => zoneRef.current.rootElement?.() ?? null,
   });
   const [active, setActive] = useState<PointerDragState | null>(null);
   useEffect(() => {
@@ -231,4 +298,15 @@ export function usePointerDragZone(zone: PointerDragZone): { active: PointerDrag
     };
   }, []);
   return { active, over: active?.overZone === stable.current };
+}
+
+/** Drop every piece of module state — for tests only. @internal */
+export function resetPointerDragForTests(): void {
+  gesture?.cancel();
+  gesture = null;
+  suppressClickFor = null;
+  state = null;
+  zones.clear();
+  listeners.clear();
+  document.body.style.removeProperty("user-select");
 }

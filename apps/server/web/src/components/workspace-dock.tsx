@@ -725,6 +725,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       const r = el.getBoundingClientRect();
       return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
     },
+    rootElement: () => dockEl.current,
     enabled: () => true,
     onDrop: (id) => attachDroppedSubshell(id),
   });

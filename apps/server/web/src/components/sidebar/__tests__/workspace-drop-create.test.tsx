@@ -12,7 +12,7 @@ import { QuickAddProvider } from "@/components/quick-add";
 import { ActiveWorkspaceSection } from "@/components/sidebar/active-workspace-section";
 import { WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
 import { SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
-import { beginPointerSubshellDrag } from "@/lib/subshell-pointer-drag";
+import { beginPointerSubshellDrag, resetPointerDragForTests } from "@/lib/subshell-pointer-drag";
 import { resetWorkspaceFocusForTests } from "@/lib/workspace-focus";
 import { setFetchRouter } from "@/test-setup";
 
@@ -160,6 +160,9 @@ afterEach(() => {
   setFetchRouter(null);
   localStorage.clear();
   resetWorkspaceFocusForTests();
+  // The pointer session is module state; a promoted gesture in this file
+  // must leave no armed state or click-swallow for the next file's rows.
+  resetPointerDragForTests();
 });
 
 test("a subshell drag in flight dresses the zone with a dashed ring, and dragend strips it", async () => {
@@ -383,7 +386,14 @@ test("the iPad pointer session dresses the create zone and files the pane on rel
   // happy-dom lays out nothing: hand the session's hit-test a rect.
   zone.getBoundingClientRect = () => ({ left: 0, top: 0, right: 300, bottom: 200, width: 300, height: 200 }) as DOMRect;
   act(() => {
-    beginPointerSubshellDrag({ subshellId: "s1", pointerType: "mouse", button: 0, clientX: 10, clientY: 10 });
+    beginPointerSubshellDrag({
+      subshellId: "s1",
+      pointerType: "mouse",
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+      sourceElement: document.createElement("div"),
+    });
     window.dispatchEvent(new MouseEvent("pointermove", { clientX: 150, clientY: 150 }));
   });
   // Promoted over the zone: the solid hover dressing and the label, exactly

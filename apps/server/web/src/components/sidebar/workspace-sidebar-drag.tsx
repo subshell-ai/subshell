@@ -6,7 +6,7 @@ import { useSubshellDrop, useSubshellDropGuard } from "@/hooks/use-subshell-drop
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { useInvalidateWorkspaces } from "@/hooks/use-workspaces";
 import { acceptsSubshellDrag } from "@/lib/subshell-dnd";
-import { usePointerDragZone } from "@/lib/subshell-pointer-drag";
+import { getPointerDragState, usePointerDragZone } from "@/lib/subshell-pointer-drag";
 import { requestWorkspacePaneFocus } from "@/lib/workspace-focus";
 import type { WorkspaceRow } from "@/types/workspace";
 
@@ -122,11 +122,20 @@ export function WorkspaceSidebarDropArea({
   }, [drag?.id]);
   // The iPad-PWA transport (lib/subshell-pointer-drag.ts): a trackpad press
   // drag never fires dragstart on iPadOS, so the session hit-tests this zone
-  // by rect and hands the id straight to the same acceptance path the HTML5
-  // onDrop below runs. Arming still rides the context (the row's onPromote
-  // calls drag.start, mirroring its onDragStart), so `offered` is one rule
-  // for both transports.
+  // and hands the id straight to the same acceptance path the HTML5 onDrop
+  // below runs. The offer is computed SYNCHRONOUSLY from the live session
+  // (getPointerDragState), not from the rendered `offered`: the row's
+  // onPromote arms the context through React state, and a quick flick's
+  // pointerup can arrive in the same input flush, before any re-render — the
+  // gesture must not fall on that race. Membership reads drag.workspace.panes
+  // (stable for the drag's life); only the flying id comes from the session.
   const zoneEl = useRef<HTMLDivElement>(null);
+  const pointerOffered = (): boolean => {
+    const id = getPointerDragState()?.subshellId ?? null;
+    if (!drag?.workspace || !id) return false;
+    const isMember = drag.workspace.panes?.some((pane) => pane.subshellId === id) ?? false;
+    return kind === "remove" ? isMember : !isMember;
+  };
   const pointer = usePointerDragZone({
     contains: (x, y) => {
       const el = zoneEl.current;
@@ -134,11 +143,12 @@ export function WorkspaceSidebarDropArea({
       const r = el.getBoundingClientRect();
       return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
     },
-    enabled: () => offered,
+    rootElement: () => zoneEl.current,
+    enabled: () => pointerOffered() && !drag?.busy,
     onDrop: (id) => {
-      if (!drag) return;
+      if (!drag || !pointerOffered()) return;
       const guarded = guard(id);
-      if (guarded && guarded === drag.id && !blocked) (kind === "add" ? drag.add : drag.remove)(guarded);
+      if (guarded && !drag.busy) (kind === "add" ? drag.add : drag.remove)(guarded);
       drag.end();
       setOver(false);
     },

@@ -209,6 +209,7 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
       const r = el.getBoundingClientRect();
       return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
     },
+    rootElement: () => zoneEl.current,
     enabled: () => noWorkspaces && !createInFlight.current,
     // Same drop-time cache recheck the HTML5 path runs (its transfer-reading
     // half lives in the same hook), so both transports refuse alike.

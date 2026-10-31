@@ -170,7 +170,6 @@ export function SubshellRecentRow({
               // and swallows the trailing click so a finished drag does not
               // also open the tab. See lib/subshell-pointer-drag.ts.
               onPointerDown={(e) => {
-                if (subshell.crossAgent) return;
                 const row = e.currentTarget;
                 beginPointerSubshellDrag({
                   subshellId: subshell.id,
@@ -178,6 +177,10 @@ export function SubshellRecentRow({
                   button: e.button,
                   clientX: e.clientX,
                   clientY: e.clientY,
+                  sourceElement: row,
+                  // Refused presses still clear a stale click-swallow (the
+                  // check lives inside begin for exactly that reason).
+                  enabled: !subshell.crossAgent,
                   createGhost: () => cloneRowSnapshot(row),
                   onPromote: () => sidebarDrag?.start(subshell.id),
                   onEnd: () => sidebarDrag?.end(),
@@ -203,7 +206,7 @@ export function SubshellRecentRow({
                 if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
                 // A pointer drag that promoted is not a click (see
                 // beginPointerSubshellDrag on this row's pointerdown).
-                if (consumePointerDragClick()) {
+                if (consumePointerDragClick(e.target)) {
                   e.preventDefault();
                   return;
                 }
