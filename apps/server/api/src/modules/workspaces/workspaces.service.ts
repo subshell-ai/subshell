@@ -422,6 +422,13 @@ export class WorkspacesService extends BaseService {
    * the tile on its own terms. Read-side visibility pruning (`getWorkspace`'s
    * `pruneLayout`) still decides per caller what a reader actually sees.
    *
+   * The backfill consults the saver's VISIBLE subshells, not raw rows: a pane
+   * whose grant closed stays in the table (see `#visibleSubshellIds`), and
+   * re-appending it would write the revoked subshell's name back into the
+   * stored layout on every flush — a channel the list response ships
+   * unpruned. A grant that comes back re-files the tab through the client's
+   * own reconciliation, and that flush persists it.
+   *
    * @throws WorkspacesError 404 when the workspace is absent or not the caller's.
    */
   async saveWorkspaceLayout(userId: string, id: string, layout: unknown): Promise<{ ok: true }> {
@@ -429,15 +436,19 @@ export class WorkspacesService extends BaseService {
     const workspace = await repo.findByIdForUser(id, userId);
     if (!workspace) throw new WorkspacesError("not_found", "Workspace not found", 404);
     let toStore = layout;
-    const paneRows = await this.repos.workspacePanes.listByWorkspace(workspace.id);
+    const [paneRows, visibleSubshells] = await Promise.all([
+      this.repos.workspacePanes.listByWorkspace(workspace.id),
+      this.repos.subshells.listVisibleTo(userId),
+    ]);
+    // id → name for everything the saver can see; one read, no per-pane chase.
+    const visibleNames = new Map(visibleSubshells.map((subshell) => [subshell.id, subshell.name]));
     const known = new Set(panelIdsInLayout(layout));
-    const missing = paneRows.filter((pane) => !known.has(pane.id));
+    const missing = paneRows.filter((pane) => !known.has(pane.id) && visibleNames.has(pane.subshellId));
     if (missing.length > 0) {
-      const titled: LayoutPaneInput[] = [];
-      for (const pane of missing) {
-        const subshell = await this.repos.subshells.findById(pane.subshellId);
-        titled.push({ id: pane.id, title: subshell?.name ?? "" });
-      }
+      const titled: LayoutPaneInput[] = missing.map((pane) => ({
+        id: pane.id,
+        title: visibleNames.get(pane.subshellId) ?? "",
+      }));
       toStore = backfillLayout(layout, titled);
     }
     await repo.update(id, { layoutJson: JSON.stringify(toStore) });

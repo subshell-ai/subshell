@@ -59,6 +59,18 @@ let state: PointerDragState | null = null;
 let suppressClickFor: HTMLElement | null = null;
 
 function publish(next: PointerDragState | null): void {
+  // Skip no-op frames. pointermove fires 60–120×/s and every zone host keeps
+  // this object in React state, so a fresh allocation per move re-renders the
+  // dock and both sidebar sections for a pixel of ghost travel — the ghost
+  // itself is moved by direct style writes, not state. `overZone` identity is
+  // stable (registered objects), so Object.is answers "nothing changed" and
+  // the hosts' setState bails out too.
+  if (
+    state === next ||
+    (state !== null && next !== null && state.subshellId === next.subshellId && state.overZone === next.overZone)
+  ) {
+    return;
+  }
   state = next;
   for (const listener of [...listeners]) listener(state);
 }
@@ -165,7 +177,13 @@ export function beginPointerSubshellDrag(options: BeginPointerSubshellDragOption
   // A fresh press ends any promoted gesture's claim on the next click,
   // whatever this press goes on to do — including a refused press.
   suppressClickFor = null;
-  if (gesture) return;
+  // And it ends a live session outright. Implicit capture is touch-only, so
+  // a mouse release outside the window never arrives; returning here would
+  // brick every later drag AND leave the stale session's `onUp` armed, so the
+  // next unrelated pointerup could drop the old subshell id wherever the
+  // pointer happens to be. `finish` is idempotent and clears the slot in its
+  // finally, so this press proceeds to open its own session either way.
+  gesture?.cancel();
   if (options.enabled === false) return;
   if (options.button !== 0) return;
   if (options.pointerType !== "mouse" && options.pointerType !== "pen") return;

@@ -239,13 +239,17 @@ describe("WorkspaceTabs: the arrival focus is held until it lands", () => {
     // A stale held target must not strand the newer arm: s-2 is what the
     // person clicked last, and its row is already here.
     act(() => armPaneFocusOnArrive("s-2"));
-    act(() => strip.set([stripPane("p0", "s-1"), stripPane("p1", "s-2"), stripPane("p2", "s-3")]));
+    act(() => strip.set([stripPane("p0", "s-1"), stripPane("p1", "s-2")]));
     expect(document.querySelector('[data-pane-id="p1"]')?.querySelector("button")?.getAttribute("aria-current")).toBe(
       "true",
     );
 
-    // And the held-then-arriving case: arm, deliver the row a tick later.
+    // And the held-then-arriving case for real: arm s-3 while its row is
+    // still absent (this set delivers only what was already here, so the
+    // arm drains into a held target that cannot be honoured yet), then
+    // bring the row and see the hold honoured.
     act(() => armPaneFocusOnArrive("s-3"));
+    act(() => strip.set([stripPane("p0", "s-1"), stripPane("p1", "s-2")]));
     expect(document.querySelector('[data-pane-id="p1"]')?.querySelector("button")?.getAttribute("aria-current")).toBe(
       "true",
     );

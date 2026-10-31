@@ -23,6 +23,13 @@ export function useSubshellDropGuard() {
   );
 }
 
+/**
+ * The HTML5-transport drop handler: reads the dragged id off the transfer
+ * and runs it through the same guard the pointer transport uses (which
+ * already holds the id from its session and calls
+ * {@link useSubshellDropGuard} directly), so both transports accept a drop
+ * only for a still-fileable row.
+ */
 export function useSubshellDrop() {
   const guard = useSubshellDropGuard();
   return useCallback((transfer: Pick<DataTransfer, "types" | "getData">) => guard(readSubshellDrag(transfer)), [guard]);

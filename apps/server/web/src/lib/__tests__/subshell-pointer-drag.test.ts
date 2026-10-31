@@ -278,6 +278,46 @@ describe("beginPointerSubshellDrag", () => {
     offB();
   });
 
+  it("a fresh press force-cancels a stuck session — the lost release cannot phantom-drop", () => {
+    // Implicit pointer capture is touch-only, so a mouse button released
+    // outside the window delivers no pointerup here and the session never
+    // ends on its own. A later press must take over: not only must the new
+    // gesture work, the OLD session's listeners must not answer its release
+    // (which would drop the stale id wherever the pointer happens to be).
+    const dropped: string[] = [];
+    const off = registerPointerDragZone({ ...rectZone(200, 200, 400, 400), onDrop: (id) => dropped.push(id) });
+    begin({ subshellId: "old" });
+    move(900, 900); // promoted — and this release never arrives
+    begin({ subshellId: "new" }); // the next press ends the stuck session
+    move(300, 300); // the new gesture's own drag
+    up(300, 300);
+    expect(dropped).toEqual(["new"]);
+    off();
+  });
+
+  it("publishes only on change, and still clears state at the end", () => {
+    // pointermove fires 60–120×/s; zone hosts keep the published object in
+    // React state, so a fresh allocation per frame re-renders the whole dock
+    // for a pixel of travel. Same id + same zone object must not re-publish,
+    // while entering a different zone and the final null always do.
+    const seen: (string | null)[] = [];
+    const zoneA = registerPointerDragZone({ ...rectZone(0, 0, 400, 400), onDrop: () => {} });
+    const zoneB = registerPointerDragZone({ ...rectZone(500, 0, 900, 400), onDrop: () => {} });
+    const offS = subscribePointerDrag((s) => seen.push(s ? s.subshellId : null));
+    begin(); // origin (100,100)
+    move(200, 100); // crosses the threshold over A: the one publish of this batch
+    move(201, 100); // same id, same zone
+    move(202, 100); // ...nothing new to tell the hosts
+    expect(seen).toEqual(["s-1"]);
+    move(600, 100); // crossed into B: publish
+    expect(seen).toEqual(["s-1", "s-1"]);
+    up(600, 100);
+    expect(seen[seen.length - 1]).toBe(null);
+    offS();
+    zoneA();
+    zoneB();
+  });
+
   it("the trailing-click swallow is scoped to the source row and dies on the first click", () => {
     // m1: a stale flag must never eat a click on anything else (an unrelated
     // element, a focused link's Enter, a cross-agent row).

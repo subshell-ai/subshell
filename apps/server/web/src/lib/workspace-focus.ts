@@ -96,10 +96,14 @@ export function onWorkspacePaneFocusRequest(cb: (subshellId: string, workspaceId
  * you were not on (spec 2026-10-17: selecting a pane means going to its tab).
  * `requestWorkspacePaneFocus` only reaches a DOCK that is already mounted;
  * when the click has to navigate first, the destination presentation takes
- * this value once its panes are up and activates the matching tab. Consumed
- * by the first presentation ready to honour it — if none ever is (a dead
- * pane, a fast redirect), it is simply stale by the next navigation, and
- * `arm` overwrites rather than queues.
+ * this value on its first panes-effect run — ready or not — and holds it in
+ * its own state from there: the arm lives in this module only until the
+ * first effect drains it, then in the mount until it can honour it. A newer
+ * arm replaces a held one, so a target whose row never arrives cannot strand
+ * later clicks. What that buys over a module-held pending value is arrival
+ * patience; what it costs is that a mount which drains the arm and then
+ * unmounts (a strip↔dock breakpoint swap mid-hand-off) takes the held target
+ * with it, and the next rail click has to arm again.
  */
 let pendingArrivalFocus: string | null = null;
 
