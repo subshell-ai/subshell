@@ -205,12 +205,20 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
   }, [focusedSubshellId]);
   useEffect(() => () => setWorkspaceFocusedId(null), []);
   // The narrow view's half of the arrival focus (see `workspace-dock.tsx`):
-  // a rail click that navigated here selects the matching tab.
+  // a rail click that navigated here selects the matching tab. Held until it
+  // is honoured — a just-filed launch can arm before its pane row reaches
+  // this mount's detail, and dropping it there would leave the strip on its
+  // first-tab fallback instead of the tab that was clicked.
+  const arrivalTargetRef = useRef<string | null>(null);
   useEffect(() => {
-    const target = takePaneFocusOnArrive();
+    if (!arrivalTargetRef.current) arrivalTargetRef.current = takePaneFocusOnArrive();
+    const target = arrivalTargetRef.current;
     if (!target) return;
     const pane = detail.panes.find((p) => p.subshellId === target);
-    if (pane) setSelectedId(pane.id);
+    if (pane) {
+      arrivalTargetRef.current = null;
+      setSelectedId(pane.id);
+    }
   }, [detail.panes]);
   // A focus request from the rail selects the matching tab instead of letting
   // the rail's link navigate out of the workspace.

@@ -188,18 +188,18 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     );
     setWorkspaceFocusedId(pane?.subshellId ?? null);
   }, []);
-  // A rail click that had to NAVIGATE here first (the pane was not on screen
-  // to focus) arms an arrival focus; the first ready render takes it and
-  // activates that panel (spec 2026-10-17: selecting a pane means going to
-  // its tab). Consumed once; a pane the workspace does not hold just drops.
-  useEffect(() => {
-    if (!ready) return;
-    const target = takePaneFocusOnArrive();
-    if (!target) return;
-    const pane = detail.panes.find((p) => p.subshellId === target);
-    if (!pane) return;
-    apiRef.current?.getPanel(pane.id)?.api.setActive();
-  }, [ready, detail.panes]);
+  // The arrival focus (spec 2026-10-17: selecting a pane means going to its
+  // tab) is honoured by the effect declared AFTER the reconciliation effect
+  // below — same dependency, later declaration, so a pane row that has just
+  // arrived is tiled by reconciliation first and activated right after. A
+  // rail click or a just-filed launch arms the target; it is HELD, not
+  // consumed on sight, because the arm can land before the pane row reaches
+  // this mount's `detail.panes` (the create's refetch is still in flight) or
+  // before reconciliation has tiled it. Backfill adds are focus-neutral (see
+  // `addPanel`'s inactive rule), so this — not the add — is what puts the
+  // person on the tab they asked for. A target whose pane never appears
+  // simply drops at unmount; the next arm overwrites.
+  const arrivalTargetRef = useRef<string | null>(null);
   // The rail asks to focus a pane by subshell id when a click lands on a cell
   // that is already open here (so the click focuses the tab instead of
   // navigating away). Activation fires the onDidActiveGroupChange handler, which
@@ -288,18 +288,32 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
    * group. Used by `onReady`, by the reconciliation effect below, and by
    * `handleAdd` — the subshell picker's and the drop handler's shared path
    * for actually attaching a subshell to the workspace.
+   *
+   * `inactive: true` adds the tile without giving it focus. Backfill uses it:
+   * a pane that arrived while this dock wasn't looking (another device, the
+   * phone strip, a stale second writer's flush) must reach the tab bar, but
+   * it must not decide which tab the person is looking at.
    */
-  const addPanel = useCallback((api: DockviewApi, pane: WorkspacePaneRow, position?: AddPanelPositionOptions) => {
-    api.addPanel<DockedPaneParams>({
-      id: pane.id,
-      component: "subshell",
-      title: pane.subshellName,
-      renderer: "always",
-      params: { paneId: pane.id },
-      ...(position ? { position } : {}),
-    });
-    knownPaneIdsRef.current.add(pane.id);
-  }, []);
+  const addPanel = useCallback(
+    (
+      api: DockviewApi,
+      pane: WorkspacePaneRow,
+      position?: AddPanelPositionOptions,
+      options?: { inactive?: boolean },
+    ) => {
+      api.addPanel<DockedPaneParams>({
+        id: pane.id,
+        component: "subshell",
+        title: pane.subshellName,
+        renderer: "always",
+        params: { paneId: pane.id },
+        ...(position ? { position } : {}),
+        ...(options?.inactive ? { inactive: true } : {}),
+      });
+      knownPaneIdsRef.current.add(pane.id);
+    },
+    [],
+  );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: dockview calls onReady exactly once, at mount — the callback below runs against whatever detail/save were at that moment, and later changes are covered by the reconciliation effect further down.
   const onReady = useCallback((event: DockviewReadyEvent) => {
@@ -330,11 +344,23 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     if (restored) {
       for (const id of panelIdsInLayout(layout)) knownPaneIdsRef.current.add(id);
     }
+    // Backfill must never steal focus: dockview activates every panel it adds
+    // unless told otherwise, so a plain add would land the person on the LAST
+    // pane the layout forgot — which, after a stale second device's flush, is
+    // precisely the newest tab on every return to the page (operator report
+    // 2026-10-30, iPad PWA). Add them inactive; the restored `activeView` (or
+    // the first pane, on a dock that has nothing active at all) decides what
+    // is on screen.
+    const hadActive = !!event.api.activePanel;
     for (const pane of panesMissingFromLayout(restored ? layout : null, detail.panes)) {
       // Same defensive check the reconciliation effect makes: a `fromJSON`
       // that threw partway can leave panels behind, and adding a duplicate id
       // would throw from inside dockview's own initialisation.
-      if (!event.api.getPanel(pane.id)) addPanel(event.api, pane);
+      if (!event.api.getPanel(pane.id)) addPanel(event.api, pane, undefined, { inactive: true });
+    }
+    if (!hadActive) {
+      const first = detail.panes[0];
+      if (first) event.api.getPanel(first.id)?.api.setActive();
     }
     event.api.onDidLayoutChange(() => save.schedule(event.api.toJSON()));
     // Publish the focused pane (as its subshell id) so the rail can ring the
@@ -378,7 +404,9 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       }
       if (knownPaneIdsRef.current.has(pane.id)) continue;
       knownPaneIdsRef.current.add(pane.id);
-      addPanel(api, pane);
+      // Inactive on purpose: a pane attached elsewhere must not move the
+      // tab this person is reading (see the same rule in `onReady` above).
+      addPanel(api, pane, undefined, { inactive: true });
     }
     // The mirror of the loop above: a pane can also disappear without this
     // client doing anything — deleting its subshell from /subshells cascades
@@ -417,6 +445,23 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     publishFocus();
     flushWorkspacePreview();
   }, [detail.panes, addPanel, publishFocus]);
+  // Declared AFTER the reconciliation effect on purpose: both key on
+  // `detail.panes`, effects run in declaration order, and the arrival tab
+  // must be activated only once reconciliation has tiled it (that effect's
+  // backfill add is focus-neutral). Held-until-honoured semantics and the
+  // reason are in the comment at `arrivalTargetRef`'s declaration above.
+  useEffect(() => {
+    if (!ready) return;
+    if (!arrivalTargetRef.current) arrivalTargetRef.current = takePaneFocusOnArrive();
+    const target = arrivalTargetRef.current;
+    if (!target) return;
+    const pane = detail.panes.find((p) => p.subshellId === target);
+    if (!pane) return;
+    const panel = apiRef.current?.getPanel(pane.id);
+    if (!panel) return; // not tiled yet — reconciliation adds it on this same change
+    arrivalTargetRef.current = null;
+    panel.api.setActive();
+  }, [ready, detail.panes]);
 
   const { addPane, removePane, restartSubshell } = useWorkspacePaneMutations(detail.workspace.id);
   const closeLanding = useCloseSubshellLanding();
@@ -591,9 +636,16 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       // Never a second pane for one subshell (regression #13): reloading with
       // the params still in the URL, or a poll that landed before this effect
       // ran, must not add the same subshell twice.
-      // Already here (a reload with the params still present) counts as landed.
+      // Already here (a reload with the params still present, or the
+      // reconciliation effect having tiled it first) counts as landed — and
+      // still gets its tab focused: the backfill adds tiles without stealing
+      // focus, so the split the person just chose must activate its pane
+      // explicitly, the way `handleDockDrop` shows an existing one.
       let landed = true;
-      if (!detail.panes.some((p) => p.subshellId === intent.subshellId)) {
+      const existing = detail.panes.find((p) => p.subshellId === intent.subshellId);
+      if (existing) {
+        apiRef.current?.getPanel(existing.id)?.api.setActive();
+      } else {
         landed = await handleAdd(intent.subshellId, intent.direction);
       }
       await onRefetch();

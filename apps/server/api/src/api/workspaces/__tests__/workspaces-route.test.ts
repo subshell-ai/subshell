@@ -569,6 +569,55 @@ describe("workspaces route", () => {
     expect(Object.keys(body.workspace.layout?.panels ?? {})).toEqual([paneId]);
   });
 
+  it("a save that omits a live pane brings it back — a stale second device cannot delete a tab", async () => {
+    // The iPad-PWA-return bug (operator report 2026-10-30): another client's
+    // dock mounted before the newest pane existed, and its debounced flush on
+    // hide/unmount saved a layout that simply lacks that pane. Without the
+    // server's write-side backfill every other reader then re-appends the tile
+    // itself — and dockview activates what it appends, so the newest tab wins
+    // focus on every reload. The stored layout must never forget a live pane.
+    const token = await signIn(ownerEmail, password);
+    const id = await createWorkspace(token, `laystale-${crypto.randomUUID().slice(0, 8)}`);
+    const first = await addPane(token, id, await makeSubshell(ownerId));
+    const second = await addPane(token, id, await makeSubshell(ownerId));
+
+    const staleLayout = {
+      grid: {
+        root: {
+          type: "branch",
+          data: [{ type: "leaf", data: { id: "1", views: [first], activeView: first }, size: 1000 }],
+        },
+        width: 1000,
+        height: 660,
+        orientation: "HORIZONTAL",
+      },
+      panels: { [first]: { id: first, contentComponent: "subshell", params: { paneId: first }, renderer: "always" } },
+      activeGroup: "1",
+    };
+    const put = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${id}/layout`, token, {
+        method: "PUT",
+        body: JSON.stringify({ layout: staleLayout }),
+      }),
+    );
+    expect(put.status).toBe(200);
+
+    const read = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, token));
+    const body = (await read.json()) as {
+      workspace: {
+        layout: {
+          grid: { root: { data: { data: { views: string[]; activeView: string } }[] } };
+          panels: Record<string, unknown>;
+        } | null;
+      };
+    };
+    const leaf = body.workspace.layout?.grid.root.data[0]?.data;
+    // The forgotten pane is back, and the snapshot's own focus was not moved.
+    expect(leaf?.views).toEqual([first, second]);
+    expect(leaf?.activeView).toBe(first);
+    expect(Object.keys(body.workspace.layout?.panels ?? {}).sort()).toEqual([first, second].sort());
+  });
+
   it("another user's layout save -> 404 (not 403)", async () => {
     const ownerToken = await signIn(ownerEmail, password);
     const otherToken = await signIn(otherEmail, password);

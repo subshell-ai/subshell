@@ -77,6 +77,101 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
  * view the pane's row still deserves. The dock is wide-view; this uses the
  * rail workspace row's Delete (a different tree from the page under test).
  */
+/**
+ * Regression (operator report 2026-10-30, iPad PWA with the Magic Keyboard):
+ * returning to the workspace selected the BOTTOM tab, not the one on screen.
+ * A dock whose stored layout lacks a pane — a second device's flush saved a
+ * pre-dating snapshot, or panes added from the phone strip which never writes
+ * the layout — re-appends the missing tiles, and dockview activates every
+ * panel it adds by default, so the LAST backfilled pane (chronically the
+ * newest) stole focus on every return. Backfill must reach the tab bar without
+ * moving it: the restored `activeView` owns the focus.
+ */
+test("panes the saved layout forgot come back as tabs, without stealing focus", async ({ page }) => {
+  test.setTimeout(150_000);
+  const tag = `e2e-backfill-${test.info().retry}`;
+
+  const mk = async (i: number): Promise<string> => {
+    const res = await page.request.post("/api/subshells", {
+      data: { harnessId: "pi", workingDir: "/tmp", name: `${tag}-p${i}` },
+    });
+    expect(res.ok(), await res.text()).toBe(true);
+    return ((await res.json()) as { id: string }).id;
+  };
+  const ids = [await mk(0), await mk(1), await mk(2)];
+  await expect
+    .poll(
+      async () => {
+        const rows = (await (await page.request.get("/api/subshells")).json()) as { id: string; alive: boolean }[];
+        return ids.every((id) => rows.find((r) => r.id === id)?.alive === true);
+      },
+      { timeout: PANE_TIMEOUT },
+    )
+    .toBe(true);
+
+  // A workspace holding only the first pane, with an explicit layout that
+  // names just it and points activeView at it.
+  const wsRes = await page.request.post("/api/workspaces", { data: { name: tag, subshellId: ids[0] } });
+  expect(wsRes.ok(), await wsRes.text()).toBe(true);
+  const ws = (await wsRes.json()) as { id: string };
+  const detail0 = (await (await page.request.get(`/api/workspaces/${ws.id}`)).json()) as {
+    panes: { id: string }[];
+  };
+  const [firstPane] = detail0.panes;
+  expect(firstPane, "the create-with-pane shape must have filed the first subshell").toBeTruthy();
+  const put = await page.request.put(`/api/workspaces/${ws.id}/layout`, {
+    data: {
+      layout: {
+        grid: {
+          root: {
+            type: "branch",
+            data: [{ type: "leaf", data: { id: "1", views: [firstPane.id], activeView: firstPane.id }, size: 1000 }],
+          },
+          width: 1000,
+          height: 660,
+          orientation: "HORIZONTAL",
+        },
+        panels: {
+          [firstPane.id]: {
+            id: firstPane.id,
+            contentComponent: "subshell",
+            params: { paneId: firstPane.id },
+            title: `${tag}-p0`,
+            renderer: "always",
+          },
+        },
+        activeGroup: "1",
+      },
+    },
+  });
+  expect(put.ok(), await put.text()).toBe(true);
+
+  // The two panes the layout will never have seen — added AFTER the save.
+  for (const id of ids.slice(1)) {
+    const r = await page.request.post(`/api/workspaces/${ws.id}/panes`, { data: { subshellId: id } });
+    expect(r.ok(), await r.text()).toBe(true);
+  }
+
+  try {
+    await page.goto(`/workspaces/${ws.id}`);
+    // All three tabs reach the strip…
+    for (let i = 0; i < 3; i++) {
+      await expect(page.locator(`.dv-tab:has-text("${tag}-p${i}")`)).toBeVisible({ timeout: PANE_TIMEOUT });
+    }
+    // …but the restored pane keeps the focus. Before the fix, the last
+    // backfilled add (p2) was the active tab.
+    await expect(page.locator(".dv-tab.dv-active-tab")).toHaveText(new RegExp(`${tag}-p0`), {
+      timeout: PANE_TIMEOUT,
+    });
+  } finally {
+    await page.request.delete(`/api/workspaces/${ws.id}`).catch(() => undefined);
+    for (const id of ids) {
+      await page.request.post(`/api/subshells/${id}/terminate`).catch(() => undefined);
+      await page.request.delete(`/api/subshells/${id}`).catch(() => undefined);
+    }
+  }
+});
+
 test("deleting the open workspace from the sidebar drops you to the subshell", async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto("/workspaces");
