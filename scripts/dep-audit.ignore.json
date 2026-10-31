@@ -5,5 +5,15 @@
       "GHSA-gcqx-w48m-w2h4"
     ],
     "reason": "Expo configuration build/dev tooling. deepmerge 4.3.1 has no published fixed release (checked 2026-10-28). patches/deepmerge@4.3.1.patch blocks __proto__ in both target and source copy loops, including both distributed bundles. scripts/__tests__/fixtures/deepmerge-consumers.cjs exercises the installed Expo consumer under Node, reproducing null-prototype, nested-placeholder and target-copy poisoning while verifying ordinary configuration merges. The regression fails without the patch. bun audit matches the original version; remove this patch and exception when a fixed release ships."
+  },
+  {
+    "package": "glob",
+    "advisories": ["GHSA-3g3m-2fjr-6pw4"],
+    "reason": "Dev-only build tooling. The flaw is that an aborted glob walk can keep touching the filesystem past its caller's AbortSignal deadline; reaching it needs code that bounds a walk with a signal AND a pattern or directory an attacker steers. Both installed copies are dev-only and steer nothing: 13.0.6 under hash-runner@5 (the build:dev incremental hasher, pinned at exactly 13.0.6 by its consumer), and 10.5.0 under archiver-utils@5 (requires ^10.0.0) via testcontainers@12, the @internal/e2e container harness. Both walk the checkout's or the harness's own paths with patterns committed in package scripts. Nothing shipped bundles glob: release builds run the plain build task, not build:dev, and no server, node or desktop artifact imports it (checked 2026-10-31). The fixed 14.0.2 is out of reach of both pins (an exact pin and a ^10), and a forced jump would sit inside third-party code whose compatibility cannot be verified here. Remove this exception when hash-runner and archiver-utils move to a fixed glob, or when a verified override lands."
+  },
+  {
+    "package": "minimatch",
+    "advisories": ["GHSA-g3hv-75wg-m249"],
+    "reason": "Build-time tooling only. The flaw is CPU amplification when the GLOB PATTERN, not the tested path, is attacker-chosen and pathological. All three installed copies are pinned by dev-side consumers: 10.2.6 under @expo/fingerprint (requires ^10.2.2, mobile build tooling that runs at config/prebuild time and is never imported by the app bundle), and 5.1.9 plus 9.0.9 under readdir-glob and glob@10 inside the archiver@7 stack that testcontainers pulls into the @internal/e2e dev harness. Every pattern they match comes from repo config or hardcoded matchers on a developer's or CI's own machine; no request path evaluates attacker text through any of them, and no server, node or desktop binary ships minimatch (checked 2026-10-31). The first fixed release is 11.0.1, out of reach of a ^10.2.2 and a ^5/^9 pin, and forcing CJS consumers onto the ESM-only 11 is a breakage no consumer test here can rule out. Remove this exception when Expo's fingerprint and the archiver stack move to minimatch >= 11.0.1."
   }
 ]
