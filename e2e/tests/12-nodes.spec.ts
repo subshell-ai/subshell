@@ -308,6 +308,10 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   let agent: RunningNode | undefined;
   let nodeId: string | undefined;
   let subshellId: string | undefined;
+  // Collected in `finally`, judged AFTER it (below): throwing from inside a
+  // finally would overwrite the body's own failure — the more useful red —
+  // and biome rightly refuses the shape.
+  const leaks: string[] = [];
   try {
     agent = await startNode({ home, dataDir, tmuxBase, setupKey, name: nodeName });
 
@@ -544,7 +548,6 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
       return res.ok() && ((await res.json()) as { maintenance: boolean }).maintenance === false;
     });
   } finally {
-    const leaks: string[] = [];
     // Order matters: daemon first (the node must flip offline before DELETE),
     // then its tmux servers (outside the stack's scratch — our sweep only),
     // then the rows only this API can remove.
@@ -555,6 +558,24 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     }
     sweepTmuxServers(tmuxBase);
     if (nodeId) {
+      // Wait for the flip rather than deleting into it: the registry marks a
+      // node offline when its socket closes, and a force-delete attempted
+      // before that reads 409 NODE_ONLINE. The delete loop below still
+      // covers the sliver after the poll, but the poll is what makes the
+      // budget honest. A row left alive here is not a cosmetic leak: every
+      // later spec shares this database, and a phantom machine silently
+      // changes single-host behavior everywhere the Node field is supposed
+      // to hide.
+      try {
+        await pollUntil("node row never went offline or away", agent, async () => {
+          const res = await request.get("/api/nodes");
+          if (!res.ok()) return false;
+          const row = ((await res.json()) as { nodes: NodeRow[] }).nodes.find((n) => n.id === nodeId);
+          return row === undefined || row.status === "offline";
+        });
+      } catch (err) {
+        leaks.push(`node offline flip: ${String(err).slice(0, 300)}`);
+      }
       // The registry's offline flip rides the socket close — retry the delete
       // through a stale-409 window rather than racing it.
       for (let i = 0; i < 10; i++) {
@@ -582,6 +603,13 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     }
     rmSync(home, { recursive: true, force: true });
     rmSync(path.dirname(tmuxBase), { recursive: true, force: true });
-    if (leaks.length > 0) console.error(`[12-nodes] cleanup problems: ${leaks.join("; ")}`);
   }
+  // Fail on a leak when — and only when — the test itself passed: a body
+  // throw propagates past this line, which is the right ordering (the body
+  // failure is the diagnosis; the leak is its downstream fact). A green
+  // spec 12 must MEAN "the row is gone": the database is shared with every
+  // later spec, so an unremoved row silently turns single-host instances
+  // into two-host ones downstream. The red belongs on the spec that leaked,
+  // not on whichever later assertion happens to trip over the orphan.
+  if (leaks.length > 0) throw new Error(`[12-nodes] cleanup problems: ${leaks.join("; ")}`);
 });

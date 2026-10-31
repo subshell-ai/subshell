@@ -117,7 +117,18 @@ test.describe("instance plugins", () => {
       // AGENT select as where "the host has pi again" is observable — a
       // plugin the store lacks renders DISABLED, so `pickAgent` committing
       // this one is the same fact the old option-row assertion made.
-      await expect(page.getByLabel("Node")).toHaveCount(0);
+      //
+      // Target the combobox by id, not `getByLabel("Node")`: getByLabel is a
+      // case-insensitive SUBSTRING match, and once the node's display-readiness
+      // probe resolves the Virtual-display wrapper's aria-label — "...Allow
+      // virtual displays in the selected NODE's settings first" — also matches
+      // it. That wrapper mounts a beat after the form paints, so the loose
+      // selector held at 1 for the whole timeout and this went red on an
+      // otherwise-clean single-host instance whenever the probe won the race
+      // (identical trees passed and failed, 2026-10-31). `#picker-node` is the
+      // field's own e2e-pinned id, the sibling of the `#picker-agent` two
+      // lines below.
+      await expect(page.locator("#picker-node")).toHaveCount(0);
       await pickAgent(page.getByPlaceholder("Choose an agent"), "pi");
       await expect(page.locator("#picker-agent")).toHaveValue("pi");
       // And the form is launchable, which is the other half of "clean": the

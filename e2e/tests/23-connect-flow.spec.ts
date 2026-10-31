@@ -301,6 +301,14 @@ function requirePaneId(): string {
 }
 
 test("gate off: the form explains enablement on Start", async ({ page }) => {
+  // This is the file's FIRST test, and Playwright charges `beforeAll` to its
+  // budget: the hook builds the sshd container image from scratch, which a
+  // cold CI runner can take the better part of two minutes on. Every later
+  // test here raised its own timeout and never noticed; this one kept the
+  // 120s default and died at `login()` with "waiting for locator('#email')"
+  // while its own hook was still installing the fixture
+  // (release-verification red, 2026-10-31).
+  test.setTimeout(300_000);
   await login(page, ADMIN.email, ADMIN.password);
   await openConnectPage(page);
   await expect(page.locator("#ssh-wizard-destination")).toBeVisible();
