@@ -53,7 +53,10 @@
 #                 linux-arm64 is CROSS-BUILT — bytecode cross is proven on
 #                 bun 1.4.0; the hosted ubuntu-24.04-arm image exists and
 #                 moving this shard onto it is the open arm-Linux follow-up),
-#                 darwin-arm64 → macos-14 (GitHub-hosted Apple Silicon),
+#                 darwin-arm64 → macos-15 (GitHub-hosted Apple Silicon;
+#                 moved off macos-14 on 2026-10-31, the day GitHub's
+#                 retirement brownout began cancelling every macos-14 job
+#                 with no runner — actions/runner-images#13518),
 #                 darwin-x64 → macos-15-intel (GitHub-hosted Intel — see
 #                 the smoke-mode table in the plan job for why the x64
 #                 shards live on Intel hardware rather than translated).
@@ -446,7 +449,7 @@ jobs:
             esac
           }
           LINUX='"ubuntu-24.04"'
-          MAC='"macos-14"'
+          MAC='"macos-15"'
           # GitHub's hosted INTEL macOS label. The darwin-x64 shards build
           # and exec-smoke here rather than on Apple Silicon under
           # translation, because translation is a dead venue for these
@@ -455,12 +458,12 @@ jobs:
           # bun's x86_64 build needs AVX2 — no exec claim there can ever
           # pass, and SIGILL is not a flaky signal worth retrying.
           # The GENERATION follows the operator rule of 2026-09-25: match
-          # the macOS version the arm64 shards build on. The Intel line
-          # starts at 15 — no macos-14-intel image exists — so 15 is the
-          # closest to MAC's macos-14, and macos-26-intel would sit
-          # further from the arm64 build environment rather than closer.
-          # When MAC moves, this label moves with it, generation for
-          # generation.
+          # the macOS version the arm64 shards build on, and move the pair
+          # together when GitHub retires one. Both lines sit at 15 since
+          # 2026-10-31, the day the macos-14 brownout began cancelling
+          # every job naming it (actions/runner-images#13518); the pair
+          # stays matched by test (release-workflow-smoke.test.ts), so a
+          # one-line migration cannot drift.
           MAC_INTEL='"macos-15-intel"'
           entries=""
           appsjson=""

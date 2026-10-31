@@ -104,6 +104,19 @@ describe("release.yml darwin-x64 venue (settled by run 36196527394 + the hosted-
     expect(smokeTable()).toContain('linux-arm64) smoke="magic"');
   });
 
+  test("both Mac arches build on the same macOS generation (operator rule 2026-09-25)", () => {
+    // The Intel label tracks the Apple Silicon line generation for
+    // generation, and the pair moves together when GitHub retires one
+    // (macos-14's November 2026 brownout cancelled every job naming it,
+    // actions/runner-images#13518). A pin on the GENERATION PAIR rather
+    // than either version: the next migration edits one line in this
+    // workflow and must edit the other, or this test goes red.
+    const mac = WORKFLOW.match(/MAC='"macos-(\d+)"'/)?.[1];
+    const intel = WORKFLOW.match(/MAC_INTEL='"macos-(\d+)-intel"'/)?.[1];
+    expect({ mac, intel }).toEqual({ mac: intel, intel });
+    expect(mac).toBeDefined();
+  });
+
   test("the Smoke step carries no exec-prefix machinery of any kind", () => {
     const body = smokeStepBody();
     for (const dead of ["EXEC_PREFIX", "run_target", "install-rosetta", "arch -x86_64", "rosetta"]) {

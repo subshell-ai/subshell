@@ -317,17 +317,20 @@ floor for every Linux artifact this repo ships: the desktop apps by design
 server/node Linux shards build bare on that runner). That floor is **glibc
 2.39** for all of it, which excludes Ubuntu 22.04 and Debian 12 from running
 anything, not just the GUIs. The darwin release shards are split by arch:
-`macos-14` (GitHub-hosted Apple Silicon) builds darwin-arm64, and
+`macos-15` (GitHub-hosted Apple Silicon) builds darwin-arm64, and
 `macos-15-intel` (the hosted Intel label) builds darwin-x64. The split is
 correctness, not preference: bun's x86_64 build needs AVX2, while the Apple
 Silicon image's Rosetta tops out at SSE4.2 (run 36196527394's crash banner:
 `CPU: sse42 popcnt`), so a darwin-x64 build cannot exec there at all, under
 no amount of retrying. Each shard's runner is its artifact's arch. The
-Intel label tracks `macos-14` by generation as closely as the fleet
-allows: the operator rule (2026-09-25) is that both Mac arches build on
-the same macOS version, and the Intel line simply starts at 15 (no
-`macos-14-intel` image exists; `macos-26-intel` moves away from the
-arm64 environment, not toward it).
+Intel label tracks the arm64 line generation for generation: the operator
+rule (2026-09-25) is that both Mac arches build on the same macOS version,
+and `scripts/__tests__/release-workflow-smoke.test.ts` pins the PAIR rather
+than either version, so the next migration moves both labels or the test
+says so. Both moved from 14 to 15 on 2026-10-31, the day GitHub's
+macOS 14 retirement brownout began cancelling every job naming
+`macos-14` (actions/runner-images#13518; full unsupported by 2026-11-02),
+which is how a pinned runner image ages out from under a green CI.
 
 The reason was operability, and the cost is the accepted trade: the repo is
 public now, and hosted minutes are still metered on the free plan, so a push
@@ -639,7 +642,7 @@ which is why they share their own smoke, parameterized by app id.
   app×triple on GitHub-hosted runners, each triple on hardware of its own
   arch: linux on `ubuntu-24.04` (linux-x64 native; linux-arm64 cross-built
   there, so it alone gets the `file` magic check and is never exec'd),
-  darwin-arm64 on `macos-14`, darwin-x64 on `macos-15-intel`. Both Mac
+  darwin-arm64 on `macos-15`, darwin-x64 on `macos-15-intel`. Both Mac
   triples are native builds on native smoke since the hosted Intel label
   arrived: the `rosetta` smoke mode shipped first (launches through
   `arch -x86_64`) died on the SSE4.2/AVX2 proof above, and a venue where
