@@ -28,6 +28,10 @@ function nativeDragStart(): void {
 }
 
 const SOURCE = document.createElement("div");
+// The swallow now keys on release-over-source (round-4 MINOR-2): give the
+// detached press anchor a real rect so the geometry branch is exercised.
+SOURCE.getBoundingClientRect = () =>
+  ({ left: 0, top: 0, right: 1000, bottom: 1000, width: 1000, height: 1000 }) as DOMRect;
 
 function begin(opts: Partial<Parameters<typeof beginPointerSubshellDrag>[0]> = {}): void {
   beginPointerSubshellDrag({
@@ -296,5 +300,58 @@ describe("beginPointerSubshellDrag", () => {
     up(900, 900);
     begin({ enabled: false }); // a cross-agent row's pointerdown: refused…
     expect(consumePointerDragClick(SOURCE)).toBe(false); // …but the stale flag is gone
+  });
+
+  it("a release back over the row swallows the click EVEN when a zone took the drop", () => {
+    // Round-4 MINOR-2: a row living inside the zero-workspace create zone
+    // both drops and (browser-wise) fires its trailing click. The old
+    // "swallow only when nothing landed" rule let the click also open the
+    // tab on top of the create — a double action.
+    const dropped: string[] = [];
+    const off = registerPointerDragZone({
+      ...rectZone(0, 0, 1000, 1000), // covers the source rect entirely
+      onDrop: (id) => dropped.push(id),
+    });
+    begin();
+    move(500, 500);
+    up(500, 500); // released back over the row, over the zone
+    expect(dropped).toEqual(["s-1"]); // the drop landed…
+    expect(consumePointerDragClick(SOURCE)).toBe(true); // …AND the click is swallowed
+    off();
+  });
+
+  it("a release far from the row arms no swallow (no stale flag for a later Enter)", () => {
+    // Round-4 NIT: the old rule armed the flag on any promoted release,
+    // stranding it to eat that row's next keyboard Enter (no pointerdown
+    // clears it). Only a release inside the source subtree may arm.
+    begin();
+    move(1500, 1500);
+    up(1500, 1500); // outside SOURCE's rect, no zone → nothing lands anywhere
+    expect(consumePointerDragClick(SOURCE)).toBe(false);
+  });
+
+  it("a throwing zone callback (hitTest or onDrop) cannot brick the transport", () => {
+    // Round-4 MINOR-1: hitTest ran OUTSIDE the guarded block, so a throwing
+    // enabled()/contains() escaped before finish() — listeners and the
+    // gesture sentinel stranded, every later press early-returned.
+    const offA = registerPointerDragZone({
+      contains: () => {
+        throw new Error("contains exploded");
+      },
+      enabled: () => true,
+      onDrop: () => undefined,
+    });
+    begin();
+    move(250, 250);
+    up(250, 250); // hitTest throws here — finish must still run
+    offA();
+    expect(document.body.style.userSelect).toBe("");
+    const dropped: string[] = [];
+    const offB = registerPointerDragZone({ ...rectZone(0, 0, 500, 500), onDrop: (id) => dropped.push(id) });
+    begin(); // not bricked: a fresh gesture works
+    move(250, 250);
+    up(250, 250);
+    expect(dropped).toEqual(["s-1"]);
+    offB();
   });
 });

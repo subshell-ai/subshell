@@ -136,6 +136,26 @@ function hitTest(x: number, y: number): PointerDragZone | null {
 }
 
 /**
+ * Did the release happen over the row that started the press? The browser
+ * fires the trailing `click` on the nearest common ancestor of the down and
+ * up targets — so a click reaches the row exactly when the release lands
+ * back inside it. That is the only case needing a swallow, and the test
+ * mirrors the browser's own: the event target when a real one exists, the
+ * element's rect (or its topmost element) otherwise.
+ */
+function isPointInElementTree(el: HTMLElement, event: PointerEvent): boolean {
+  if (event.target instanceof Node && el.contains(event.target)) return true;
+  if (typeof document.elementFromPoint === "function") {
+    const top = document.elementFromPoint(event.clientX, event.clientY);
+    if (top && top !== document.body && top !== document.documentElement) {
+      return el.contains(top);
+    }
+  }
+  const r = el.getBoundingClientRect();
+  return event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom;
+}
+
+/**
  * Open a gesture on the source's pointerdown. The session either dies at
  * release (a click), yields to the native `dragstart`, or promotes into a
  * pointer drag. Callers render the row they own; this module owns the
@@ -157,11 +177,14 @@ export function beginPointerSubshellDrag(options: BeginPointerSubshellDragOption
   // CLEANUPS a promotion made (body selection, published state) must run
   // even when the gesture ends by handing over to the HTML5 transport.
   let everPromoted = false;
-  // Whether the release landed on a zone. A gesture that dropped never
-  // produces a trailing click, so it must NOT arm the click-swallow — only a
-  // release in empty space (the browser's own "drag that went nowhere") can
-  // be followed by a click on the source, and that is the one to swallow.
-  let landed = false;
+  // Whether the release landed back on the source row. A trailing `click`
+  // fires on the row exactly then (down and up share that subtree), so that
+  // is the one case needing a swallow — NOT "no zone took it": a row living
+  // inside the zero-workspace create zone both drops AND would click
+  // (review round 4, MINOR-2). A release over an unrelated point produces
+  // no click at all, so arming there would only strand a flag eager to eat a
+  // later keyboard Enter.
+  let releasedOverSource = false;
   let ghost: HTMLElement | null = null;
   let settled = false;
 
@@ -182,7 +205,7 @@ export function beginPointerSubshellDrag(options: BeginPointerSubshellDragOption
         publish(null);
       }
       if (wasPromoted) {
-        if (!landed) suppressClickFor = options.sourceElement;
+        if (releasedOverSource) suppressClickFor = options.sourceElement;
         options.onEnd?.();
       }
     } finally {
@@ -217,24 +240,38 @@ export function beginPointerSubshellDrag(options: BeginPointerSubshellDragOption
       ghost.style.left = `${event.clientX + 8}px`;
       ghost.style.top = `${event.clientY + 8}px`;
     }
-    publish({ subshellId: options.subshellId, overZone: hitTest(event.clientX, event.clientY) });
+    // A zone whose contains()/enabled()/rootElement() throws must not kill
+    // the move handler (happy-dom rethrows out of dispatchEvent, and a real
+    // listener throw is swallowed by the UA anyway — either way the gesture
+    // would strand). Degrade to "no zone" for that frame.
+    let over: PointerDragZone | null = null;
+    try {
+      over = hitTest(event.clientX, event.clientY);
+    } catch (err) {
+      console.error("subshell pointer hit-test failed", err);
+    }
+    publish({ subshellId: options.subshellId, overZone: over });
   };
 
   const onUp = (event: PointerEvent): void => {
-    if (promoted) {
-      const zone = hitTest(event.clientX, event.clientY);
-      if (zone) {
-        landed = true;
-        try {
+    // The whole body is guarded and finish() runs in the finally: a zone
+    // whose contains()/enabled()/rootElement()/onDrop() throws must never
+    // strand the listeners, the published state, or the gesture sentinel
+    // (round-4 MINOR-1 — hitTest used to sit outside any guard), nor escape
+    // the listener into the UA's error path.
+    try {
+      if (promoted) {
+        releasedOverSource = isPointInElementTree(options.sourceElement, event);
+        const zone = hitTest(event.clientX, event.clientY);
+        if (zone) {
           zone.onDrop(options.subshellId);
-        } catch (err) {
-          // A throwing zone must not brick the transport (gesture=null
-          // lives in finish's finally).
-          console.error("subshell pointer drop failed", err);
         }
       }
+    } catch (err) {
+      console.error("subshell pointer release failed", err);
+    } finally {
+      finish();
     }
-    finish();
   };
 
   const onCancel = (): void => {
