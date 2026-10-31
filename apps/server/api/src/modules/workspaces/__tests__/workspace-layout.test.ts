@@ -350,6 +350,24 @@ describe("backfillLayout", () => {
     expect(backfilled.grid.root.data[1].data.views).toEqual(["c"]);
   });
 
+  it("adds only the registry entry when the grid already names the pane as a view", () => {
+    // The hand-written shape pruneLayout's comment acknowledges: a view with
+    // no panels entry. Appending the id to the leaf again would store a
+    // duplicate view the deserializer walks twice — the entry is the repair.
+    const layout = {
+      grid: {
+        root: {
+          type: "branch",
+          data: [{ type: "leaf", data: { id: "1", views: ["b"], activeView: "b" }, size: 1000 }],
+        },
+      },
+      panels: {},
+    };
+    const backfilled = backfillLayout(layout, [{ id: "b", title: "B" }]) as any;
+    expect(panelIdsInLayout(backfilled)).toEqual(["b"]);
+    expect(backfilled.grid.root.data[0].data.views).toEqual(["b"]);
+  });
+
   it("is the mirror of pruneLayout: a backfilled layout prunes back to the original focus", () => {
     const pruned = pruneLayout(backfillLayout(oneLeafLayout(), [{ id: "b", title: "B" }]), new Set(["a"]));
     expect(panelIdsInLayout(pruned)).toEqual(["a"]);

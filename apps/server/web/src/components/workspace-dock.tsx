@@ -348,17 +348,22 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     // unless told otherwise, so a plain add would land the person on the LAST
     // pane the layout forgot — which, after a stale second device's flush, is
     // precisely the newest tab on every return to the page (operator report
-    // 2026-10-30, iPad PWA). Add them inactive; the restored `activeView` (or
-    // the first pane, on a dock that has nothing active at all) decides what
-    // is on screen.
-    const hadActive = !!event.api.activePanel;
+    // 2026-10-30, iPad PWA). But "always inactive" is its own bug: with no
+    // active group, a reference-less INACTIVE add never becomes the reference
+    // for the next one, so every pane stacks into a fresh group at position
+    // zero instead of landing as tabs in one group (measured against
+    // dockview 8.2's `_doAddPanel`). The rule is therefore: add INACTIVE when
+    // the dock already has something active (never move the person's tab),
+    // and ACTIVE when it has nothing (the first tile anchors the group the
+    // rest merge into, and a dock with panes never shows no terminal).
     for (const pane of panesMissingFromLayout(restored ? layout : null, detail.panes)) {
       // Same defensive check the reconciliation effect makes: a `fromJSON`
       // that threw partway can leave panels behind, and adding a duplicate id
       // would throw from inside dockview's own initialisation.
-      if (!event.api.getPanel(pane.id)) addPanel(event.api, pane, undefined, { inactive: true });
+      if (event.api.getPanel(pane.id)) continue;
+      addPanel(event.api, pane, undefined, { inactive: !!event.api.activePanel });
     }
-    if (!hadActive) {
+    if (!event.api.activePanel) {
       const first = detail.panes[0];
       if (first) event.api.getPanel(first.id)?.api.setActive();
     }
@@ -404,9 +409,12 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       }
       if (knownPaneIdsRef.current.has(pane.id)) continue;
       knownPaneIdsRef.current.add(pane.id);
-      // Inactive on purpose: a pane attached elsewhere must not move the
-      // tab this person is reading (see the same rule in `onReady` above).
-      addPanel(api, pane, undefined, { inactive: true });
+      // Inactive whenever the dock already has a focused tile: a pane
+      // attached elsewhere must not move the tab this person is reading.
+      // With nothing focused the add activates, so it anchors the group the
+      // rest merge into (see the same rule and measurement in `onReady` —
+      // an all-inactive cascade into an empty dock stacks tiles, not tabs).
+      addPanel(api, pane, undefined, { inactive: !!api.activePanel });
     }
     // The mirror of the loop above: a pane can also disappear without this
     // client doing anything — deleting its subshell from /subshells cascades
@@ -452,7 +460,13 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   // reason are in the comment at `arrivalTargetRef`'s declaration above.
   useEffect(() => {
     if (!ready) return;
-    if (!arrivalTargetRef.current) arrivalTargetRef.current = takePaneFocusOnArrive();
+    // A newer arm always wins over a held one: the rail's latest click is
+    // the live intent, and a target whose panel never lands (a pane this
+    // client closed locally, which reconciliation skips until the server
+    // stops returning the row) must not strand every later click in the
+    // same mount.
+    const fresh = takePaneFocusOnArrive();
+    if (fresh) arrivalTargetRef.current = fresh;
     const target = arrivalTargetRef.current;
     if (!target) return;
     const pane = detail.panes.find((p) => p.subshellId === target);

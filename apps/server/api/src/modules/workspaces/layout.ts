@@ -159,7 +159,9 @@ export interface LayoutPaneInput {
  * appending its view to the FIRST leaf of the grid.
  *
  * This is the write-side mirror of {@link pruneLayout}'s read-side filter: a
- * stored layout always describes every pane the workspace holds. Without it,
+ * stored layout describes every pane the workspace held at save time (a pane
+ * added in the same tick is healed by the client's own backfill, which is
+ * focus-neutral on this bug's account). Without it,
  * a stale client's debounced flush — a second device whose dock mounted
  * before the newest pane existed, then saves on hide or unmount — silently
  * deletes that pane's panel from the arrangement, and every dock that later
@@ -185,10 +187,12 @@ export function backfillLayout(layout: unknown, panes: readonly LayoutPaneInput[
   const missing = panes.filter((p) => !known.has(p.id));
   if (missing.length === 0) return layout;
 
-  const missingIds = missing.map((p) => p.id);
-  const appended = { current: false };
-  const root = appendToFirstLeaf(layout.grid.root, missingIds, appended);
-  if (!appended.current) return layout;
+  // A pane can be missing from `panels` yet already named by some leaf's
+  // views (the hand-written shape `pruneLayout`'s comment acknowledges):
+  // appending it again would store a duplicate view, which dockview's
+  // deserializer walks twice. Such an id gets only the registry entry.
+  const inGrid = new Set(collectViewIdsFromGrid(layout.grid.root));
+  const appendIds = missing.filter((p) => !inGrid.has(p.id)).map((p) => p.id);
 
   const panels: Record<string, unknown> = { ...layout.panels };
   for (const pane of missing) {
@@ -200,6 +204,12 @@ export function backfillLayout(layout: unknown, panes: readonly LayoutPaneInput[
       renderer: "always",
     };
   }
+
+  if (appendIds.length === 0) return { ...layout, panels };
+  const appended = { current: false };
+  const root = appendToFirstLeaf(layout.grid.root, appendIds, appended);
+  if (!appended.current) return layout;
+
   return { ...layout, grid: { ...layout.grid, root }, panels };
 }
 

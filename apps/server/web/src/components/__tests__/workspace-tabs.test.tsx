@@ -9,9 +9,10 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { WorkspaceTab, WorkspaceTabs } from "@/components/workspace-tabs";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
-import { requestWorkspacePaneFocus, resetWorkspaceFocusForTests } from "@/lib/workspace-focus";
+import { armPaneFocusOnArrive, requestWorkspacePaneFocus, resetWorkspaceFocusForTests } from "@/lib/workspace-focus";
 import { requestWorkspacePreview } from "@/lib/workspace-preview";
 import { setFetchRouter } from "@/test-setup";
 import type { WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
@@ -162,6 +163,98 @@ function renderStrip(): void {
   });
   render(<RouterProvider router={router} />);
 }
+
+/**
+ * Regression (review 2026-10-30): the arrival focus must survive the gap
+ * between arming and the pane row's arrival — a just-filed launch arms its
+ * pane before the create's refetch lands — and a NEWER arm must replace a
+ * held one, so a target whose row never arrives cannot strand every later
+ * click in the same mount. The dock shares the rule; the strip is the half
+ * unit-testable without a real dockview.
+ */
+describe("WorkspaceTabs: the arrival focus is held until it lands", () => {
+  afterEach(() => {
+    cleanup();
+    setFetchRouter(null);
+    resetWorkspaceFocusForTests();
+  });
+
+  /** Mounts the strip with mutable `detail`, honouring an external arm. */
+  function renderLiveStrip(initialPanes: WorkspacePaneRow[]): {
+    set: (panes: WorkspacePaneRow[]) => void;
+  } {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let current = initialPanes;
+    const holder = { set: (_: WorkspacePaneRow[]) => undefined as undefined };
+    const rootRoute = createRootRoute({ component: () => <Outlet /> });
+    const workspaceRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: "/workspaces/$id",
+      component: () => {
+        const [panes, setPanes] = useState(current);
+        holder.set = (next: WorkspacePaneRow[]) => {
+          current = next;
+          setPanes(next);
+        };
+        return (
+          <QueryClientProvider client={qc}>
+            <WorkspaceTabs
+              detail={{ ...stripDetail, panes }}
+              intent={null}
+              claimIntent={() => false}
+              onRefetch={async () => undefined}
+            />
+          </QueryClientProvider>
+        );
+      },
+    });
+    const router = createRouter({
+      routeTree: rootRoute.addChildren([workspaceRoute]),
+      history: createMemoryHistory({ initialEntries: ["/workspaces/w1"] }),
+    });
+    render(<RouterProvider router={router} />);
+    return holder;
+  }
+
+  it("selects the armed tab once its row arrives, and a newer arm replaces a held one", async () => {
+    setFetchRouter((input) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname === "/api/subshells") return Promise.resolve(new Response("[]"));
+      return Promise.resolve(new Response("{}"));
+    });
+    const strip = renderLiveStrip([stripPane("p0", "s-1"), stripPane("p1", "s-2")]);
+    await waitFor(() => {
+      if (!document.querySelector("[data-terminal-controls-scroller]")) {
+        throw new Error("the tab strip is not mounted yet");
+      }
+    });
+
+    // Arm a pane whose row does not exist yet: nothing selects, the target is held.
+    act(() => armPaneFocusOnArrive("s-3"));
+    act(() => strip.set([stripPane("p0", "s-1"), stripPane("p1", "s-2")]));
+    expect(document.querySelector('[data-pane-id="p0"]')?.querySelector("button")?.getAttribute("aria-current")).toBe(
+      "true",
+    );
+
+    // A stale held target must not strand the newer arm: s-2 is what the
+    // person clicked last, and its row is already here.
+    act(() => armPaneFocusOnArrive("s-2"));
+    act(() => strip.set([stripPane("p0", "s-1"), stripPane("p1", "s-2"), stripPane("p2", "s-3")]));
+    expect(document.querySelector('[data-pane-id="p1"]')?.querySelector("button")?.getAttribute("aria-current")).toBe(
+      "true",
+    );
+
+    // And the held-then-arriving case: arm, deliver the row a tick later.
+    act(() => armPaneFocusOnArrive("s-3"));
+    expect(document.querySelector('[data-pane-id="p1"]')?.querySelector("button")?.getAttribute("aria-current")).toBe(
+      "true",
+    );
+    act(() => strip.set([stripPane("p0", "s-1"), stripPane("p1", "s-2"), stripPane("p2", "s-3")]));
+    expect(document.querySelector('[data-pane-id="p2"]')?.querySelector("button")?.getAttribute("aria-current")).toBe(
+      "true",
+    );
+  });
+});
 
 describe("WorkspaceTabs: the active tab scrolls into view", () => {
   afterEach(() => {

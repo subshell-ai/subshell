@@ -211,7 +211,10 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
   // first-tab fallback instead of the tab that was clicked.
   const arrivalTargetRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!arrivalTargetRef.current) arrivalTargetRef.current = takePaneFocusOnArrive();
+    // A newer arm replaces a held one, so a target whose row never arrives
+    // cannot strand every later click in this mount (same rule in the dock).
+    const fresh = takePaneFocusOnArrive();
+    if (fresh) arrivalTargetRef.current = fresh;
     const target = arrivalTargetRef.current;
     if (!target) return;
     const pane = detail.panes.find((p) => p.subshellId === target);
@@ -329,9 +332,15 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
     void (async () => {
       // Never a second pane for one subshell (regression #13): reloading with
       // the params still in the URL must not add the same subshell twice.
-      // Already here (a reload with the params still present) counts as landed.
+      // Already here (a reload with the params still present, or the poll
+      // landing before this effect) counts as landed — and still gets its tab
+      // selected, the same intent the dock honours explicitly: the person
+      // chose this pane, so the strip must not sit on its first-tab fallback.
       let landed = true;
-      if (!detail.panes.some((p) => p.subshellId === intent.subshellId)) {
+      const existing = detail.panes.find((p) => p.subshellId === intent.subshellId);
+      if (existing) {
+        setSelectedId(existing.id);
+      } else {
         landed = await handleAdd(intent.subshellId, intent.direction);
       }
       await onRefetch();
