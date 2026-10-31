@@ -191,6 +191,10 @@ export function backfillLayout(layout: unknown, panes: readonly LayoutPaneInput[
   // views (the hand-written shape `pruneLayout`'s comment acknowledges):
   // appending it again would store a duplicate view, which dockview's
   // deserializer walks twice. Such an id gets only the registry entry.
+  // The walk covers `grid.root` alone, which is complete for anything this
+  // app produces — floating and edge groups appear only in hand-written PUTs,
+  // and pruneLayout drops those fields wholesale the moment anything in them
+  // goes stale.
   const inGrid = new Set(collectViewIdsFromGrid(layout.grid.root));
   const appendIds = missing.filter((p) => !inGrid.has(p.id)).map((p) => p.id);
 
