@@ -177,16 +177,23 @@ export function beginPointerSubshellDrag(options: BeginPointerSubshellDragOption
   // A fresh press ends any promoted gesture's claim on the next click,
   // whatever this press goes on to do — including a refused press.
   suppressClickFor = null;
-  // And it ends a live session outright. Implicit capture is touch-only, so
-  // a mouse release outside the window never arrives; returning here would
-  // brick every later drag AND leave the stale session's `onUp` armed, so the
-  // next unrelated pointerup could drop the old subshell id wherever the
-  // pointer happens to be. `finish` is idempotent and clears the slot in its
-  // finally, so this press proceeds to open its own session either way.
-  gesture?.cancel();
-  if (options.enabled === false) return;
+  // The gates first, because a press this transport could never own is not
+  // evidence of anything: a finger tap (touch, which the native transport
+  // owns) or a right-click can genuinely COEXIST with a promoted trackpad
+  // drag, and cancelling on those would abort a live gesture whose release
+  // then lands with nothing to swallow it.
   if (options.button !== 0) return;
   if (options.pointerType !== "mouse" && options.pointerType !== "pen") return;
+  // A fresh PRIMARY mouse/pen press, by contrast, is physical proof the old
+  // press ended — one mouse cannot press button 0 twice. So any session still
+  // live here is a stuck one (implicit capture is touch-only; a release
+  // outside the window never arrives): cancelling it is what unbricks later
+  // drags and disarms the `onUp` that would otherwise answer the next
+  // unrelated pointerup by dropping the stale id wherever the pointer is.
+  // This runs even for a row this press would refuse (`enabled`): the refusal
+  // decides whether a NEW session opens, not whether the old one may live.
+  gesture?.cancel();
+  if (options.enabled === false) return;
 
   const originX = options.clientX;
   const originY = options.clientY;

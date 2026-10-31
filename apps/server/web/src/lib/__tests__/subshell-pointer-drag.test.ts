@@ -295,6 +295,39 @@ describe("beginPointerSubshellDrag", () => {
     off();
   });
 
+  it("a refused primary press still ends the stuck session", () => {
+    // The refusal decides whether a NEW session opens, not whether a stuck
+    // one may live: a button-0 press anywhere is physical proof the old
+    // mouse press ended. Without this, a user whose next press lands on a
+    // cross-agent row would stay bricked with the old `onUp` armed.
+    const dropped: string[] = [];
+    const off = registerPointerDragZone({ ...rectZone(200, 200, 400, 400), onDrop: (id) => dropped.push(id) });
+    begin({ subshellId: "old" });
+    move(900, 900); // promoted; the release is lost
+    begin({ subshellId: "refused", enabled: false }); // opens nothing, ends the old
+    move(300, 300);
+    up(300, 300);
+    expect(dropped).toEqual([]);
+    off();
+  });
+
+  it("a coexisting press (touch, or a non-primary button) does NOT kill a live drag", () => {
+    // Round-5 MINOR: a finger tap or a right-click can arrive while the
+    // trackpad button is genuinely still held. Those presses cannot own a
+    // session, so they must not be read as the old press ending — aborting
+    // here would strand the release with no swallow and no drop.
+    const dropped: string[] = [];
+    const off = registerPointerDragZone({ ...rectZone(200, 200, 400, 400), onDrop: (id) => dropped.push(id) });
+    begin();
+    move(300, 300); // promoted and held — a drag in flight
+    begin({ pointerType: "touch" }); // a finger lands mid-drag
+    begin({ button: 2 }); // ...and a right-click, button 0 still down
+    expect(getPointerDragState()).not.toBe(null); // the session survived
+    up(300, 300); // the real release: the drag completes, exactly once
+    expect(dropped).toEqual(["s-1"]);
+    off();
+  });
+
   it("publishes only on change, and still clears state at the end", () => {
     // pointermove fires 60–120×/s; zone hosts keep the published object in
     // React state, so a fresh allocation per frame re-renders the whole dock

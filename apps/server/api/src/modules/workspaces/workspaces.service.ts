@@ -436,20 +436,25 @@ export class WorkspacesService extends BaseService {
     const workspace = await repo.findByIdForUser(id, userId);
     if (!workspace) throw new WorkspacesError("not_found", "Workspace not found", 404);
     let toStore = layout;
-    const [paneRows, visibleSubshells] = await Promise.all([
-      this.repos.workspacePanes.listByWorkspace(workspace.id),
-      this.repos.subshells.listVisibleTo(userId),
-    ]);
-    // id → name for everything the saver can see; one read, no per-pane chase.
-    const visibleNames = new Map(visibleSubshells.map((subshell) => [subshell.id, subshell.name]));
+    const paneRows = await this.repos.workspacePanes.listByWorkspace(workspace.id);
     const known = new Set(panelIdsInLayout(layout));
-    const missing = paneRows.filter((pane) => !known.has(pane.id) && visibleNames.has(pane.subshellId));
+    const missing = paneRows.filter((pane) => !known.has(pane.id));
     if (missing.length > 0) {
-      const titled: LayoutPaneInput[] = missing.map((pane) => ({
-        id: pane.id,
-        title: visibleNames.get(pane.subshellId) ?? "",
-      }));
-      toStore = backfillLayout(layout, titled);
+      // Only a flush that forgot something pays the second read; the steady
+      // state costs one SELECT. id → name is what `backfillLayout` titles the
+      // returned panels with.
+      const visibleNames = new Map(
+        (await this.repos.subshells.listVisibleTo(userId)).map((subshell) => [subshell.id, subshell.name]),
+      );
+      const titled: LayoutPaneInput[] = [];
+      for (const pane of missing) {
+        const title = visibleNames.get(pane.subshellId);
+        // A pane whose grant closed stays in the table but is not the saver's
+        // to write back; one whose subshell was deleted has no name to title.
+        if (title === undefined) continue;
+        titled.push({ id: pane.id, title });
+      }
+      if (titled.length > 0) toStore = backfillLayout(layout, titled);
     }
     await repo.update(id, { layoutJson: JSON.stringify(toStore) });
     return { ok: true };
