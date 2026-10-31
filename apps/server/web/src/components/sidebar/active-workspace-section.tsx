@@ -10,7 +10,7 @@ import { WorkspaceSidebarDrag, WorkspaceSidebarDropArea } from "@/components/sid
 import { WorkspaceBranch } from "@/components/sidebar/workspaces-section";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
-import { useSubshellDrop } from "@/hooks/use-subshell-drop";
+import { useSubshellDrop, useSubshellDropGuard } from "@/hooks/use-subshell-drop";
 import { useSubshellLabels } from "@/hooks/use-subshell-labels";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { useInvalidateWorkspaces, useWorkspaces } from "@/hooks/use-workspaces";
@@ -19,6 +19,7 @@ import { subshellIdFromPath, workspaceIdFromPath } from "@/lib/route-ids";
 import { sidebarWorkspace } from "@/lib/sidebar-context";
 import { splitCreateFailureMessage, splitWorkspaceRefusal } from "@/lib/split-workspace-refusal";
 import { acceptsSubshellDrag } from "@/lib/subshell-dnd";
+import { usePointerDragZone } from "@/lib/subshell-pointer-drag";
 import { workspaceSubshellIds } from "@/lib/subshell-tree";
 import { armPaneFocusOnArrive, useWorkspaceFocusedId } from "@/lib/workspace-focus";
 import { defaultWorkspaceName } from "@/lib/workspace-name";
@@ -41,6 +42,7 @@ const NEW_WORKSPACE = "__new_workspace__";
 export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: ReactNode; onQuickAdd?: () => void }) {
   const location = useLocation();
   const readSubshellDrop = useSubshellDrop();
+  const dropGuard = useSubshellDropGuard();
   const navigate = useNavigate();
   const quickAdd = useQuickAdd();
   const workspaces = useWorkspaces();
@@ -171,11 +173,13 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
     }
   }
 
-  function onZoneDrop(e: DragEvent): void {
-    if (!acceptsSubshellDrag(e.dataTransfer)) return;
-    e.preventDefault();
+  /**
+   * Accept a zero-workspace drop — the ONE body both transports run: the
+   * HTML5 onDrop below and the iPad pointer session
+   * (lib/subshell-pointer-drag, for which no dragstart ever comes).
+   */
+  function acceptZoneDrop(subshellId: string | null): void {
     setDropHint(false);
-    const subshellId = readSubshellDrop(e.dataTransfer);
     if (subshellId === null) return;
     // A second release while one create is in flight is inert, not a
     // duplicate window: the in-flight guard, not a toast, makes it so.
@@ -186,6 +190,30 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
     lastDrop.current = { id: subshellId, name };
     void createAround(subshellId, name);
   }
+
+  function onZoneDrop(e: DragEvent): void {
+    if (!acceptsSubshellDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    acceptZoneDrop(readSubshellDrop(e.dataTransfer));
+  }
+
+  // The pointer transport's view of this zone: the session hit-tests the
+  // section's rect while the zero state owns it, and its published state
+  // dresses the ring exactly like the document-level dragstart listeners
+  // above (which can never fire on iPadOS).
+  const zoneEl = useRef<HTMLDivElement>(null);
+  const pointerZone = usePointerDragZone({
+    contains: (x, y) => {
+      const el = zoneEl.current;
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    },
+    enabled: () => noWorkspaces && !createInFlight.current,
+    // Same drop-time cache recheck the HTML5 path runs (its transfer-reading
+    // half lives in the same hook), so both transports refuse alike.
+    onDrop: (id) => acceptZoneDrop(dropGuard(id)),
+  });
 
   const pickerRow = (
     <div className="flex min-w-0 items-center gap-2">
@@ -290,11 +318,14 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
           // gesture, not just the hover (operator rulings 2026-10-20).
           // biome-ignore lint/a11y/noStaticElementInteractions: MIME-scoped HTML5 drop target; a plain click on a subshell row files it the same way, and the picker's New workspace row opens the dialog
           <div
+            ref={zoneEl}
             data-workspace-drop="create"
             className={cn(
               "relative flex min-w-0 flex-col gap-1",
-              dragArmed && !dropHint && "rounded-lg border border-border border-dashed",
-              dropHint && "rounded-lg border border-primary border-solid",
+              (dragArmed || pointerZone.active) &&
+                !(dropHint || pointerZone.over) &&
+                "rounded-lg border border-border border-dashed",
+              (dropHint || pointerZone.over) && "rounded-lg border border-primary border-solid",
             )}
             onDragOver={onZoneDragOver}
             onDragLeave={onZoneDragLeave}
@@ -315,11 +346,11 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
                 busy={creating}
               />
             )}
-            {(dragArmed || dropHint) && (
+            {(dragArmed || dropHint || pointerZone.active) && (
               // The centered label rides the whole gesture, not just the
-              // hover: armed anywhere by a subshell-MIME drag, and one
-              // element across the armed→hover transition, so role="status"
-              // announces once.
+              // hover: armed anywhere by a subshell-MIME drag (or the iPad
+              // pointer session), and one element across the armed→hover
+              // transition, so role="status" announces once.
               <div className="pointer-events-none absolute inset-1 flex items-center justify-center rounded-md border border-primary border-solid bg-accent/95 p-3 text-center text-detail">
                 <span role="status">Drop to create a workspace</span>
               </div>

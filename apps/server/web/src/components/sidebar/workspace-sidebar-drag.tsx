@@ -2,10 +2,11 @@ import { cn, errMessage } from "@internal/node-admin";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { useSubshellDrop } from "@/hooks/use-subshell-drop";
+import { useSubshellDrop, useSubshellDropGuard } from "@/hooks/use-subshell-drop";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { useInvalidateWorkspaces } from "@/hooks/use-workspaces";
 import { acceptsSubshellDrag } from "@/lib/subshell-dnd";
+import { usePointerDragZone } from "@/lib/subshell-pointer-drag";
 import { requestWorkspacePaneFocus } from "@/lib/workspace-focus";
 import type { WorkspaceRow } from "@/types/workspace";
 
@@ -111,6 +112,7 @@ export function WorkspaceSidebarDropArea({
 }) {
   const drag = useWorkspaceSidebarDrag();
   const readSubshellDrop = useSubshellDrop();
+  const guard = useSubshellDropGuard();
   const [over, setOver] = useState(false);
   const member = drag?.workspace?.panes?.some((pane) => pane.subshellId === drag.id) ?? false;
   const offered = !!drag?.workspace && !!drag.id && (kind === "remove" ? member : !member);
@@ -118,9 +120,33 @@ export function WorkspaceSidebarDropArea({
   useEffect(() => {
     if (!drag?.id) setOver(false);
   }, [drag?.id]);
+  // The iPad-PWA transport (lib/subshell-pointer-drag.ts): a trackpad press
+  // drag never fires dragstart on iPadOS, so the session hit-tests this zone
+  // by rect and hands the id straight to the same acceptance path the HTML5
+  // onDrop below runs. Arming still rides the context (the row's onPromote
+  // calls drag.start, mirroring its onDragStart), so `offered` is one rule
+  // for both transports.
+  const zoneEl = useRef<HTMLDivElement>(null);
+  const pointer = usePointerDragZone({
+    contains: (x, y) => {
+      const el = zoneEl.current;
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    },
+    enabled: () => offered,
+    onDrop: (id) => {
+      if (!drag) return;
+      const guarded = guard(id);
+      if (guarded && guarded === drag.id && !blocked) (kind === "add" ? drag.add : drag.remove)(guarded);
+      drag.end();
+      setOver(false);
+    },
+  });
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: MIME-scoped drop area; row menus and links provide keyboard/touch equivalents
     <div
+      ref={zoneEl}
       data-sidebar-drop={kind}
       className={cn("relative min-h-16", className)}
       onDragOver={(event) => {
@@ -150,7 +176,7 @@ export function WorkspaceSidebarDropArea({
         <div
           className={cn(
             "pointer-events-none absolute inset-1 flex items-center justify-center rounded-md border border-primary border-dashed bg-card/90 p-3 text-center text-detail",
-            over && "border-solid bg-accent/95",
+            (over || pointer.over) && "border-solid bg-accent/95",
             blocked && "border-warning text-warning",
           )}
         >

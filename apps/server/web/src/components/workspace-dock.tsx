@@ -6,7 +6,7 @@ import {
   type DockviewReadyEvent,
   type IDockviewPanelProps,
 } from "dockview-react";
-import { useSubshellDrop } from "@/hooks/use-subshell-drop";
+import { useSubshellDropGuard } from "@/hooks/use-subshell-drop";
 import { previewResourceId } from "@/lib/workspace-preview";
 import "dockview-react/dist/styles/dockview.css";
 import { apiFetch, Button, errMessage } from "@internal/node-admin";
@@ -27,7 +27,8 @@ import { useDebouncedSave } from "@/hooks/use-debounced-save";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
 import { confirmCloseSubshell } from "@/lib/subshell-confirmations";
-import { acceptsSubshellDrag } from "@/lib/subshell-dnd";
+import { acceptsSubshellDrag, readSubshellDrag } from "@/lib/subshell-dnd";
+import { usePointerDragZone } from "@/lib/subshell-pointer-drag";
 import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId, takePaneFocusOnArrive } from "@/lib/workspace-focus";
 import {
   normalizeLegacyLayout,
@@ -107,7 +108,7 @@ export interface WorkspaceDockProps {
 export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: WorkspaceDockProps): JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const readSubshellDrop = useSubshellDrop();
+  const dropGuard = useSubshellDropGuard();
   const apiRef = useRef<DockviewApi | null>(null);
   // Pane ids this component currently has a reason to consider already
   // tiled. The ongoing reconciliation effect below diffs against this — not
@@ -675,13 +676,16 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     })();
   }, [ready, intent, claimIntent, detail.panes, detail.workspace.id, handleAdd, onRefetch, navigate]);
 
-  const handleDockDrop = useCallback(
-    (e: ReactDragEvent) => {
-      if (!isSubshellDrag(e)) return;
-      e.preventDefault();
-      dragDepthRef.current = 0;
-      setDropActive(false);
-      const id = readSubshellDrop(e.dataTransfer);
+  /**
+   * Accept a dropped subshell — the ONE body both transports run: the HTML5
+   * `onDrop` below and the iPad pointer session (lib/subshell-pointer-drag,
+   * which hit-tests this wrapper by rect and hands the id over directly).
+   * The id goes through the shared cache guard either way, so a cross-agent
+   * row is refused on both transports alike.
+   */
+  const attachDroppedSubshell = useCallback(
+    (rawId: string | null) => {
+      const id = dropGuard(rawId);
       if (!id) return;
       // If it is already here, just show it (regression #13). The server's
       // add is idempotent since 0058, so a stale pane list can no longer
@@ -696,8 +700,34 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       // the active panel, exactly what "add it over there" means.
       void handleAdd(id, "right");
     },
-    [detail.panes, handleAdd, readSubshellDrop],
+    [detail.panes, handleAdd, dropGuard],
   );
+
+  const handleDockDrop = useCallback(
+    (e: ReactDragEvent) => {
+      if (!isSubshellDrag(e)) return;
+      e.preventDefault();
+      dragDepthRef.current = 0;
+      setDropActive(false);
+      attachDroppedSubshell(readSubshellDrag(e.dataTransfer));
+    },
+    [attachDroppedSubshell],
+  );
+
+  // The pointer transport's drop surface: same wrapper, same acceptance,
+  // rect hit-testing (the session floats its own ghost, so nothing under the
+  // pointer is trusted).
+  const dockEl = useRef<HTMLDivElement>(null);
+  const pointerZone = usePointerDragZone({
+    contains: (x, y) => {
+      const el = dockEl.current;
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    },
+    enabled: () => true,
+    onDrop: (id) => attachDroppedSubshell(id),
+  });
 
   const contextValue = useMemo<WorkspaceDockContextValue>(
     () => ({
@@ -729,6 +759,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
           semantics to lose, and the keyboard-reachable equivalent of this
           gesture is the "Add subshell" dialog beside it. */}
       <div
+        ref={dockEl}
         className="relative flex-1 overflow-hidden bg-terminal-canvas"
         onDragEnter={(e) => {
           if (!isSubshellDrag(e)) return;
@@ -764,9 +795,10 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
             }
           />
         )}
-        {dropActive && (
+        {(dropActive || pointerZone.over) && (
           // Same visual language as the terminal's file-drop outline
-          // (TerminalDropOverlay) — one dashed-ring idiom for "drop here".
+          // (TerminalDropOverlay) — one dashed-ring idiom for "drop here",
+          // worn by the HTML5 hover and the pointer session alike.
           <div className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-lg border-2 border-primary/60 border-dashed bg-background/60 backdrop-blur-sm">
             <p className="rounded-md bg-background/95 px-3 py-1.5 text-sm shadow">Drop to add this subshell</p>
           </div>

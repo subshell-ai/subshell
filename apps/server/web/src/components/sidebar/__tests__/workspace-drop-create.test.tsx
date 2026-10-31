@@ -12,6 +12,7 @@ import { QuickAddProvider } from "@/components/quick-add";
 import { ActiveWorkspaceSection } from "@/components/sidebar/active-workspace-section";
 import { WORKSPACES_QUERY_KEY } from "@/hooks/use-workspaces";
 import { SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
+import { beginPointerSubshellDrag } from "@/lib/subshell-pointer-drag";
 import { resetWorkspaceFocusForTests } from "@/lib/workspace-focus";
 import { setFetchRouter } from "@/test-setup";
 
@@ -369,6 +370,32 @@ test("a stale failure banner does not survive the zone leaving and coming back",
   });
   await waitFor(() => expect(zoneOf(container) !== null).toBe(true));
   expect(screen.queryByRole("alert") === null).toBe(true);
+});
+
+test("the iPad pointer session dresses the create zone and files the pane on release", async () => {
+  // The transport iPadOS needs: no dragstart ever comes from a trackpad, so
+  // the ring and the create-with-pane POST must ride the pointer session
+  // alone (lib/subshell-pointer-drag).
+  const fx = rig();
+  const { container } = await mount(fx);
+  await screen.findByText("Select a workspace or drag a subshell here to get started.");
+  const zone = zoneOf(container) as HTMLElement;
+  // happy-dom lays out nothing: hand the session's hit-test a rect.
+  zone.getBoundingClientRect = () => ({ left: 0, top: 0, right: 300, bottom: 200, width: 300, height: 200 }) as DOMRect;
+  act(() => {
+    beginPointerSubshellDrag({ subshellId: "s1", pointerType: "mouse", button: 0, clientX: 10, clientY: 10 });
+    window.dispatchEvent(new MouseEvent("pointermove", { clientX: 150, clientY: 150 }));
+  });
+  // Promoted over the zone: the solid hover dressing and the label, exactly
+  // what the HTML5 dragover paints.
+  expect(zone.className.includes("border-primary")).toBe(true);
+  expect(within(zone).getByRole("status").textContent).toBe("Drop to create a workspace");
+  await act(async () => {
+    window.dispatchEvent(new MouseEvent("pointerup", { clientX: 150, clientY: 150 }));
+  });
+  // The same create-with-pane POST the HTML5 drop makes, same body.
+  await waitFor(() => expect(fx.posts.length).toBe(1));
+  expect(fx.posts[0]?.body).toEqual({ name: "Loose pane", subshellId: "s1" });
 });
 
 test("the drop zone is absent once the instance has a workspace", async () => {

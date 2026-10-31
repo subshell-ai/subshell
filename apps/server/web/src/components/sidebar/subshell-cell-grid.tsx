@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useCloseSubshellLanding } from "@/hooks/use-close-subshell-landing";
 import { filedWorkspaceFor, useOpenPaneAsTab } from "@/hooks/use-open-pane-as-tab";
 import { useWorkspaces } from "@/hooks/use-workspaces";
-import { encodeSubshellDrag } from "@/lib/subshell-dnd";
+import { cloneRowSnapshot, encodeSubshellDrag } from "@/lib/subshell-dnd";
 import {
   INDICATOR_LABEL,
   type SubshellIndicator,
@@ -18,6 +18,7 @@ import {
   subshellStatusRank,
 } from "@/lib/subshell-indicator";
 import type { SubshellNodeGroup } from "@/lib/subshell-node-groups";
+import { beginPointerSubshellDrag, consumePointerDragClick } from "@/lib/subshell-pointer-drag";
 import { subshellRowTooltip } from "@/lib/subshell-row-tooltip";
 import type { SubshellView } from "@/types/subshell";
 
@@ -265,6 +266,21 @@ export function SubshellCell({
               params={{ id: subshell.id }}
               draggable
               onDragStart={(e) => encodeSubshellDrag(e.dataTransfer, subshell.id)}
+              // The iPad-PWA transport beside the HTML5 one above: trackpad
+              // press-drags never fire dragstart on iPadOS, and a promoted
+              // session yields to native the instant one does (desktop
+              // unchanged). See lib/subshell-pointer-drag.ts.
+              onPointerDown={(e) => {
+                const cellEl = e.currentTarget;
+                beginPointerSubshellDrag({
+                  subshellId: subshell.id,
+                  pointerType: e.pointerType,
+                  button: e.button,
+                  clientX: e.clientX,
+                  clientY: e.clientY,
+                  createGhost: () => cloneRowSnapshot(cellEl),
+                });
+              }}
               // A plain left-click means the tab (spec 2026-10-17): focus it
               // on screen, else go where it IS a tab, else file it in a new
               // one. ⌘/ctrl/shift-click keeps the browser's open-in-new-tab
@@ -272,6 +288,7 @@ export function SubshellCell({
               onClick={(e) => {
                 if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
                 e.preventDefault();
+                if (consumePointerDragClick()) return;
                 void openAsTab(subshell);
               }}
               aria-label={`${subshell.name}: ${bell ? bellAnnouncement(INDICATOR_LABEL[indicator]) : INDICATOR_LABEL[indicator]}`}
