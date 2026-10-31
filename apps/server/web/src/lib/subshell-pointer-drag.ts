@@ -185,7 +185,10 @@ export function beginPointerSubshellDrag(options: BeginPointerSubshellDragOption
   if (options.button !== 0) return;
   if (options.pointerType !== "mouse" && options.pointerType !== "pen") return;
   // A fresh PRIMARY mouse/pen press, by contrast, is physical proof the old
-  // press ended — one mouse cannot press button 0 twice. So any session still
+  // press ended: one mouse cannot press button 0 twice (across a pen+mouse
+  // rig both satisfy this gate at once, and a held pen drag yields to the
+  // fresh press by design — the narrow exception to the proof, and the
+  // cheaper failure). So any session still
   // live here is a stuck one (implicit capture is touch-only; a release
   // outside the window never arrives): cancelling it is what unbricks later
   // drags and disarms the `onUp` that would otherwise answer the next
