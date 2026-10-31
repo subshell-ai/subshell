@@ -569,6 +569,112 @@ describe("workspaces route", () => {
     expect(Object.keys(body.workspace.layout?.panels ?? {})).toEqual([paneId]);
   });
 
+  it("a save that omits a live pane brings it back — a stale second device cannot delete a tab", async () => {
+    // The iPad-PWA-return bug (operator report 2026-10-30): another client's
+    // dock mounted before the newest pane existed, and its debounced flush on
+    // hide/unmount saved a layout that simply lacks that pane. Without the
+    // server's write-side backfill every other reader then re-appends the tile
+    // itself — and dockview activates what it appends, so the newest tab wins
+    // focus on every reload. The stored layout must never forget a live pane.
+    const token = await signIn(ownerEmail, password);
+    const id = await createWorkspace(token, `laystale-${crypto.randomUUID().slice(0, 8)}`);
+    const first = await addPane(token, id, await makeSubshell(ownerId));
+    const second = await addPane(token, id, await makeSubshell(ownerId));
+
+    const staleLayout = {
+      grid: {
+        root: {
+          type: "branch",
+          data: [{ type: "leaf", data: { id: "1", views: [first], activeView: first }, size: 1000 }],
+        },
+        width: 1000,
+        height: 660,
+        orientation: "HORIZONTAL",
+      },
+      panels: { [first]: { id: first, contentComponent: "subshell", params: { paneId: first }, renderer: "always" } },
+      activeGroup: "1",
+    };
+    const put = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${id}/layout`, token, {
+        method: "PUT",
+        body: JSON.stringify({ layout: staleLayout }),
+      }),
+    );
+    expect(put.status).toBe(200);
+
+    const read = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, token));
+    const body = (await read.json()) as {
+      workspace: {
+        layout: {
+          grid: { root: { data: { data: { views: string[]; activeView: string } }[] } };
+          panels: Record<string, unknown>;
+        } | null;
+      };
+    };
+    const leaf = body.workspace.layout?.grid.root.data[0]?.data;
+    // The forgotten pane is back, and the snapshot's own focus was not moved.
+    expect(leaf?.views).toEqual([first, second]);
+    expect(leaf?.activeView).toBe(first);
+    expect(Object.keys(body.workspace.layout?.panels ?? {}).sort()).toEqual([first, second].sort());
+  });
+
+  it("a layout flush cannot write a revoked pane's panel back into the stored layout", async () => {
+    // The write-side half of the 2026-10-17 read rule. The pane ROW outlives
+    // the grant by design, so a backfill that read raw rows would re-append
+    // the revoked pane's panel — named after the foreign subshell — on every
+    // flush, and the LIST response ships its layout unpruned: the exact
+    // re-disclosure `#visibleSubshellIds` exists to stop. A flush backfills
+    // only what the saver can still see.
+    const ownerToken = await signIn(ownerEmail, password);
+    const id = await createWorkspace(ownerToken, `layrevoked-${crypto.randomUUID().slice(0, 8)}`);
+    const mine = await addPane(ownerToken, id, await makeSubshell(ownerId));
+    const foreignId = await makeSubshell(otherId);
+    const shares = new SubshellSharesRepository(db);
+    await shares.replaceForSubshell(foreignId, [{ granteeUserId: null, permission: "view" }], otherId);
+    const filed = await addPane(ownerToken, id, foreignId);
+    await shares.replaceForSubshell(foreignId, [], otherId);
+
+    // The owner's client, whose read correctly shows only their own tab,
+    // flushes exactly that layout.
+    const flush = {
+      grid: {
+        root: {
+          type: "branch",
+          data: [{ type: "leaf", data: { id: "1", views: [mine], activeView: mine }, size: 1000 }],
+        },
+        width: 1000,
+        height: 660,
+        orientation: "HORIZONTAL",
+      },
+      panels: { [mine]: { id: mine, contentComponent: "subshell", params: { paneId: mine }, renderer: "always" } },
+      activeGroup: "1",
+    };
+    const put = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${id}/layout`, ownerToken, {
+        method: "PUT",
+        body: JSON.stringify({ layout: flush }),
+      }),
+    );
+    expect(put.status).toBe(200);
+
+    const read = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, ownerToken));
+    const body = (await read.json()) as { workspace: { layout: { panels: Record<string, unknown> } | null } };
+    expect(Object.keys(body.workspace.layout?.panels ?? {})).toEqual([mine]);
+
+    // The list carries the stored layout verbatim; it too must hold no panel
+    // for the pane the grant withdrew.
+    const list = (await (await workspaceRoutes.fetch(authedRequest("/api/workspaces", ownerToken))).json()) as {
+      id: string;
+      layout: { panels: Record<string, unknown> } | null;
+    }[];
+    expect(Object.keys(list.find((w) => w.id === id)?.layout?.panels ?? {})).toEqual([mine]);
+
+    // The premise of the whole test: the grant's withdrawal kept the pane
+    // row (it may return). A backfill keyed on raw rows is what leaked.
+    const rows = await db.selectFrom("workspacePanes").select("id").where("workspaceId", "=", id).execute();
+    expect(rows.map((r) => r.id).sort()).toEqual([mine, filed].sort());
+  });
+
   it("another user's layout save -> 404 (not 403)", async () => {
     const ownerToken = await signIn(ownerEmail, password);
     const otherToken = await signIn(otherEmail, password);

@@ -14,7 +14,8 @@ import { useCloseSubshellLanding } from "@/hooks/use-close-subshell-landing";
 import { useHarnessSubagents, useSelectHarnessAgent } from "@/hooks/use-harness-subagents";
 import { filedWorkspaceFor, useOpenPaneAsTab } from "@/hooks/use-open-pane-as-tab";
 import { useWorkspaces } from "@/hooks/use-workspaces";
-import { encodeSubshellDrag, setSubshellDragImage } from "@/lib/subshell-dnd";
+import { cloneRowSnapshot, encodeSubshellDrag, setSubshellDragImage } from "@/lib/subshell-dnd";
+import { beginPointerSubshellDrag, consumePointerDragClick } from "@/lib/subshell-pointer-drag";
 import { subshellRowTooltip } from "@/lib/subshell-row-tooltip";
 import { armPaneFocusOnArrive, requestWorkspacePaneFocus } from "@/lib/workspace-focus";
 import type { SubshellView } from "@/types/subshell";
@@ -161,6 +162,30 @@ export function SubshellRecentRow({
               to="/subshells/$id"
               params={{ id: subshell.id }}
               draggable={!subshell.crossAgent}
+              // The iPad-PWA transport: Safari never fires dragstart from a
+              // Magic Keyboard trackpad, so a press-drag here would fall
+              // through to text selection. The session yields the moment a
+              // native dragstart does fire (desktop stays on HTML5 DnD),
+              // arms the sidebar zones on promotion the way dragstart does,
+              // and swallows the trailing click so a finished drag does not
+              // also open the tab. See lib/subshell-pointer-drag.ts.
+              onPointerDown={(e) => {
+                const row = e.currentTarget;
+                beginPointerSubshellDrag({
+                  subshellId: subshell.id,
+                  pointerType: e.pointerType,
+                  button: e.button,
+                  clientX: e.clientX,
+                  clientY: e.clientY,
+                  sourceElement: row,
+                  // Refused presses still clear a stale click-swallow (the
+                  // check lives inside begin for exactly that reason).
+                  enabled: !subshell.crossAgent,
+                  createGhost: () => cloneRowSnapshot(row),
+                  onPromote: () => sidebarDrag?.start(subshell.id),
+                  onEnd: () => sidebarDrag?.end(),
+                });
+              }}
               onDragStart={(e) => {
                 if (subshell.crossAgent) {
                   e.preventDefault();
@@ -179,6 +204,12 @@ export function SubshellRecentRow({
               // stays the detail page.
               onClick={(e) => {
                 if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+                // A pointer drag that promoted is not a click (see
+                // beginPointerSubshellDrag on this row's pointerdown).
+                if (consumePointerDragClick(e.target)) {
+                  e.preventDefault();
+                  return;
+                }
                 e.preventDefault();
                 if (focused && hasChildren) {
                   setExpanded((value) => !value);

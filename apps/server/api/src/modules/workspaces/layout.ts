@@ -146,6 +146,95 @@ export function pruneLayout(layout: unknown, livePaneIds: ReadonlySet<string>): 
   return result;
 }
 
+/** A live pane the stored layout has no panel for, as the backfill needs it. */
+export interface LayoutPaneInput {
+  /** The pane row's id — also dockview's panel id, since the client adds panels keyed by pane id. */
+  id: string;
+  /** The subshell's display name, used for the tab title until the owning dock re-titles it. */
+  title: string;
+}
+
+/**
+ * Adds a minimal panel for every pane row the layout has no panel for,
+ * appending its view to the FIRST leaf of the grid.
+ *
+ * This is the write-side mirror of {@link pruneLayout}'s read-side filter: a
+ * stored layout describes every pane the workspace held at save time (a pane
+ * added in the same tick is healed by the client's own backfill, which is
+ * focus-neutral on this bug's account). Without it,
+ * a stale client's debounced flush — a second device whose dock mounted
+ * before the newest pane existed, then saves on hide or unmount — silently
+ * deletes that pane's panel from the arrangement, and every dock that later
+ * opens the workspace must re-append the tile itself (which dockview does as
+ * an activation, stealing focus to the newest tab on what the person experiences
+ * as a plain reload). The stored panels entry mirrors what the client's own
+ * `addPanel` produces for the subshell component; the title is rewritten
+ * client-side on the next reconcile either way, and `activeView`/`activeGroup`
+ * are left exactly as saved — the server restores an arrangement, it never
+ * decides which tab was focused.
+ *
+ * A layout with no leaf anywhere is returned unchanged: an orphan `panels`
+ * entry with no view would read as "known" to the client's backfill and leave
+ * the pane invisible, which is worse than letting the client lay it out.
+ *
+ * @param layout - The submitted layout, possibly malformed
+ * @param panes - Every live pane of the workspace, in membership order
+ * @returns The layout with any forgotten panes appended, or the input untouched
+ */
+export function backfillLayout(layout: unknown, panes: readonly LayoutPaneInput[]): unknown {
+  if (!isRecord(layout) || !isRecord(layout.panels) || !isRecord(layout.grid)) return layout;
+  const known = new Set(Object.keys(layout.panels));
+  const missing = panes.filter((p) => !known.has(p.id));
+  if (missing.length === 0) return layout;
+
+  // A pane can be missing from `panels` yet already named by some leaf's
+  // views (the hand-written shape `pruneLayout`'s comment acknowledges):
+  // appending it again would store a duplicate view, which dockview's
+  // deserializer walks twice. Such an id gets only the registry entry.
+  // The walk covers `grid.root` alone, which is complete for anything this
+  // app produces — floating and edge groups appear only in hand-written PUTs,
+  // and pruneLayout drops those fields wholesale the moment anything in them
+  // goes stale.
+  const inGrid = new Set(collectViewIdsFromGrid(layout.grid.root));
+  const appendIds = missing.filter((p) => !inGrid.has(p.id)).map((p) => p.id);
+
+  const panels: Record<string, unknown> = { ...layout.panels };
+  for (const pane of missing) {
+    panels[pane.id] = {
+      id: pane.id,
+      contentComponent: "subshell",
+      params: { paneId: pane.id },
+      title: pane.title,
+      renderer: "always",
+    };
+  }
+
+  if (appendIds.length === 0) return { ...layout, panels };
+  const appended = { current: false };
+  const root = appendToFirstLeaf(layout.grid.root, appendIds, appended);
+  if (!appended.current) return layout;
+
+  return { ...layout, grid: { ...layout.grid, root }, panels };
+}
+
+/**
+ * Rebuilds the grid subtree, appending `ids` to the views of the first leaf
+ * (depth-first) and leaving every other node byte-identical.
+ */
+function appendToFirstLeaf(node: unknown, ids: readonly string[], appended: { current: boolean }): unknown {
+  if (!isRecord(node)) return node;
+  if (appended.current) return node;
+  if (Array.isArray(node.data)) {
+    return { ...node, data: node.data.map((child) => appendToFirstLeaf(child, ids, appended)) };
+  }
+  if (isRecord(node.data)) {
+    const views = Array.isArray(node.data.views) ? node.data.views : [];
+    appended.current = true;
+    return { ...node, data: { ...node.data, views: [...views, ...ids] } };
+  }
+  return node;
+}
+
 /** Prunes one grid node, returning null when nothing in it survives. */
 function pruneNode(node: unknown, live: ReadonlySet<string>): GridNode | null {
   if (!isRecord(node)) return null;

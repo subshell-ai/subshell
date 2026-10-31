@@ -3,7 +3,7 @@ import type { SubshellStatus } from "@/db/types/subshell-status.js";
 import type { WorkspaceTable } from "@/db/types/workspaces.db-types.js";
 import { isNodeOffline } from "@/modules/nodes/node-registry.js";
 import { accessAtLeast, loadSubshellAccess } from "@/modules/subshells/access.js";
-import { pruneLayout } from "@/modules/workspaces/layout.js";
+import { backfillLayout, type LayoutPaneInput, panelIdsInLayout, pruneLayout } from "@/modules/workspaces/layout.js";
 import { logger } from "@/shared/logger.js";
 
 /** Route error carrying an HTTP status; Elysia maps `status` to the response code. */
@@ -412,14 +412,51 @@ export class WorkspacesService extends BaseService {
   }
 
   /**
-   * Saves the workspace's tiling layout (stored verbatim as JSON).
+   * Saves the workspace's tiling layout (stored as JSON, one repair applied).
+   *
+   * A submitted layout is kept verbatim EXCEPT that any pane row it has no
+   * panel for is appended to it first (`backfillLayout`): a stale client's
+   * flush — a second device whose dock mounted before a pane existed and then
+   * saves on hide or unmount — must not be able to silently delete a live
+   * pane from the arrangement, which would make every other reader re-append
+   * the tile on its own terms. Read-side visibility pruning (`getWorkspace`'s
+   * `pruneLayout`) still decides per caller what a reader actually sees.
+   *
+   * The backfill consults the saver's VISIBLE subshells, not raw rows: a pane
+   * whose grant closed stays in the table (see `#visibleSubshellIds`), and
+   * re-appending it would write the revoked subshell's name back into the
+   * stored layout on every flush — a channel the list response ships
+   * unpruned. A grant that comes back re-files the tab through the client's
+   * own reconciliation, and that flush persists it.
+   *
    * @throws WorkspacesError 404 when the workspace is absent or not the caller's.
    */
   async saveWorkspaceLayout(userId: string, id: string, layout: unknown): Promise<{ ok: true }> {
     const repo = this.repos.workspaces;
     const workspace = await repo.findByIdForUser(id, userId);
     if (!workspace) throw new WorkspacesError("not_found", "Workspace not found", 404);
-    await repo.update(id, { layoutJson: JSON.stringify(layout) });
+    let toStore = layout;
+    const paneRows = await this.repos.workspacePanes.listByWorkspace(workspace.id);
+    const known = new Set(panelIdsInLayout(layout));
+    const missing = paneRows.filter((pane) => !known.has(pane.id));
+    if (missing.length > 0) {
+      // Only a flush that forgot something pays the second read; the steady
+      // state costs one SELECT. id → name is what `backfillLayout` titles the
+      // returned panels with.
+      const visibleNames = new Map(
+        (await this.repos.subshells.listVisibleTo(userId)).map((subshell) => [subshell.id, subshell.name]),
+      );
+      const titled: LayoutPaneInput[] = [];
+      for (const pane of missing) {
+        const title = visibleNames.get(pane.subshellId);
+        // A pane whose grant closed stays in the table but is not the saver's
+        // to write back; one whose subshell was deleted has no name to title.
+        if (title === undefined) continue;
+        titled.push({ id: pane.id, title });
+      }
+      if (titled.length > 0) toStore = backfillLayout(layout, titled);
+    }
+    await repo.update(id, { layoutJson: JSON.stringify(toStore) });
     return { ok: true };
   }
 

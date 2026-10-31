@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { panelIdsInLayout, pruneLayout } from "@/modules/workspaces/layout.js";
+import { backfillLayout, panelIdsInLayout, pruneLayout } from "@/modules/workspaces/layout.js";
 
 /** A two-pane layout: one leaf with both panels side by side. */
 function twoPaneLayout() {
@@ -264,5 +264,113 @@ describe("preview tabs follow their parent pane's visibility", () => {
   });
   it("removes the preview when its parent is deleted or access is revoked", () => {
     expect(pruneLayout(layout(), new Set())).toBeNull();
+  });
+});
+
+describe("backfillLayout", () => {
+  /** One leaf holding "a"; the workspace gained pane "b" after the snapshot. */
+  function oneLeafLayout() {
+    return {
+      grid: {
+        root: {
+          type: "branch",
+          data: [{ type: "leaf", data: { id: "1", views: ["a"], activeView: "a" }, size: 1000 }],
+        },
+        width: 1000,
+        height: 660,
+        orientation: "HORIZONTAL",
+      },
+      panels: { a: { id: "a", contentComponent: "subshell", params: { paneId: "a" }, renderer: "always" } },
+      activeGroup: "1",
+    };
+  }
+
+  it("appends a pane the snapshot forgot, as a subshell panel and a view in the first leaf", () => {
+    const backfilled = backfillLayout(oneLeafLayout(), [{ id: "b", title: "New pane" }]) as any;
+    expect(panelIdsInLayout(backfilled).sort()).toEqual(["a", "b"]);
+    expect(backfilled.panels.b).toEqual({
+      id: "b",
+      contentComponent: "subshell",
+      params: { paneId: "b" },
+      title: "New pane",
+      renderer: "always",
+    });
+    expect(backfilled.grid.root.data[0].data.views).toEqual(["a", "b"]);
+    // The snapshot's own focus is nobody else's to move: activeView and
+    // activeGroup stay exactly as the client saved them.
+    expect(backfilled.grid.root.data[0].data.activeView).toBe("a");
+    expect(backfilled.activeGroup).toBe("1");
+  });
+
+  it("is the identity when every pane already has a panel", () => {
+    const layout = oneLeafLayout();
+    expect(backfillLayout(layout, [{ id: "a", title: "Alpha" }])).toBe(layout);
+  });
+
+  it("does not touch preview panels or a second client's arrangement", () => {
+    const layout = {
+      ...oneLeafLayout(),
+      panels: { ...oneLeafLayout().panels, "preview:a:screen": { id: "preview:a:screen" } },
+    };
+    const backfilled = backfillLayout(layout, [{ id: "b", title: "B" }]) as any;
+    expect(backfilled.panels["preview:a:screen"]).toEqual({ id: "preview:a:screen" });
+    expect(backfilled.grid.root.data[0].data.views).toEqual(["a", "b"]);
+  });
+
+  it("returns a malformed layout unchanged — nothing is safe to append to", () => {
+    expect(backfillLayout("garbage", [{ id: "b", title: "B" }])).toBe("garbage");
+    expect(backfillLayout(null, [{ id: "b", title: "B" }])).toBe(null);
+    expect(backfillLayout({ panels: {}, grid: {} }, [{ id: "b", title: "B" }])).toEqual({ panels: {}, grid: {} });
+    // A layout with no leaf anywhere cannot host a view: the client's own
+    // rebuild covers it, and an orphan panel entry would only hide the pane.
+    expect(
+      backfillLayout({ grid: { root: { type: "branch", data: [] } }, panels: {} }, [{ id: "b", title: "B" }]),
+    ).toEqual({ grid: { root: { type: "branch", data: [] } }, panels: {} });
+  });
+
+  it("appends into a nested branch's first leaf without disturbing the other groups", () => {
+    const layout = {
+      grid: {
+        root: {
+          type: "branch",
+          data: [
+            {
+              type: "branch",
+              data: [{ type: "leaf", data: { id: "1", views: ["a"], activeView: "a" }, size: 500 }],
+              size: 500,
+            },
+            { type: "leaf", data: { id: "2", views: ["c"], activeView: "c" }, size: 500 },
+          ],
+        },
+      },
+      panels: { a: { id: "a" }, c: { id: "c" } },
+    };
+    const backfilled = backfillLayout(layout, [{ id: "b", title: "B" }]) as any;
+    expect(backfilled.grid.root.data[0].data[0].data.views).toEqual(["a", "b"]);
+    expect(backfilled.grid.root.data[1].data.views).toEqual(["c"]);
+  });
+
+  it("adds only the registry entry when the grid already names the pane as a view", () => {
+    // The hand-written shape pruneLayout's comment acknowledges: a view with
+    // no panels entry. Appending the id to the leaf again would store a
+    // duplicate view the deserializer walks twice — the entry is the repair.
+    const layout = {
+      grid: {
+        root: {
+          type: "branch",
+          data: [{ type: "leaf", data: { id: "1", views: ["b"], activeView: "b" }, size: 1000 }],
+        },
+      },
+      panels: {},
+    };
+    const backfilled = backfillLayout(layout, [{ id: "b", title: "B" }]) as any;
+    expect(panelIdsInLayout(backfilled)).toEqual(["b"]);
+    expect(backfilled.grid.root.data[0].data.views).toEqual(["b"]);
+  });
+
+  it("is the mirror of pruneLayout: a backfilled layout prunes back to the original focus", () => {
+    const pruned = pruneLayout(backfillLayout(oneLeafLayout(), [{ id: "b", title: "B" }]), new Set(["a"]));
+    expect(panelIdsInLayout(pruned)).toEqual(["a"]);
+    expect(pruned?.panels).toEqual(oneLeafLayout().panels);
   });
 });

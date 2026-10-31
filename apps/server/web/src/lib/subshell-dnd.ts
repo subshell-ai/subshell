@@ -30,22 +30,30 @@ export function readSubshellDrag(dt: Pick<DataTransfer, "types" | "getData">): s
   return dt.getData(SUBSHELL_DND_TYPE) || null;
 }
 
-/** Snapshot only the row, excluding its child tree and destination overlays. */
-export function setSubshellDragImage(dt: DataTransfer, row: HTMLElement, clientX: number, clientY: number): void {
-  if (!dt.setDragImage) return;
-  const bounds = row.getBoundingClientRect();
+/** Snapshot only the row, excluding its child tree and destination overlays.
+ *  Returned detached and unpositioned: the HTML5 path parks it off-screen for
+ *  the capture, the pointer path floats it under the cursor. */
+export function cloneRowSnapshot(row: HTMLElement): HTMLElement {
   const preview = row.cloneNode(true) as HTMLElement;
   preview.removeAttribute("id");
   preview.classList.add("bg-card");
   Object.assign(preview.style, {
     position: "fixed",
-    left: "-10000px",
-    top: "0",
-    width: `${bounds.width}px`,
-    height: `${bounds.height}px`,
+    width: `${row.getBoundingClientRect().width}px`,
+    height: `${row.getBoundingClientRect().height}px`,
     margin: "0",
   });
   preview.setAttribute("aria-hidden", "true");
+  return preview;
+}
+
+/** The dragged row's live appearance, snapped by the browser for the drag image. */
+export function setSubshellDragImage(dt: DataTransfer, row: HTMLElement, clientX: number, clientY: number): void {
+  if (!dt.setDragImage) return;
+  const bounds = row.getBoundingClientRect();
+  const preview = cloneRowSnapshot(row);
+  preview.style.left = "-10000px";
+  preview.style.top = "0";
   document.body.append(preview);
   dt.setDragImage(preview, Math.max(0, clientX - bounds.left), Math.max(0, clientY - bounds.top));
   // The browser captures its image after dragstart returns.
