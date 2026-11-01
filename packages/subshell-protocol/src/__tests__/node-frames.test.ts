@@ -432,8 +432,9 @@ describe("parseNodeCommandBody", () => {
     // reports a mirror that moved underneath the connection, and a launch's
     // MCP wiring may be stripped by the node itself. Unlike ssh (16) a silent
     // mirror here reads ALLOWED, not refused, because MCP wiring predates the
-    // switch; the exact-match bump still stands, because a pre-27 agent runs
-    // the STRIP and mirror logic that only this protocol defines.
+    // switch; the exact-match bump still stands, because a pre-27 agent has
+    // neither the strip nor the mirror reader: it would refuse the push and
+    // launch with wiring the switch already refused.
     expect(NODE_PROTOCOL_VERSION).toBe(27);
   });
 

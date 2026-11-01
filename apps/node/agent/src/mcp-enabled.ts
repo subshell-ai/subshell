@@ -84,6 +84,9 @@ export function readMcpEnabled(dataDir: string): McpEnabledRead {
     if (!state) throw new SyntaxError("not an mcp-enabled state");
     return state.on ? { kind: "on", changedAt: state.changedAt } : { kind: "off", changedAt: state.changedAt };
   } catch (err) {
+    // Unlinked between the probe and the read: the file is genuinely absent,
+    // and absence is the ALLOWED answer, not a refusal.
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { kind: "absent" };
     logger.withError(err).warn(`mcp-enabled: ${file} unreadable; treating this node as MCP-DISABLED`);
     // The mtime, never `now`: this answer refuses, so the plane has to hear
     // about it (a row that says on pushes the clean file that repairs it), and

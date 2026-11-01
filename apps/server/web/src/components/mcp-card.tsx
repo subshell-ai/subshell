@@ -21,7 +21,7 @@ import { useEffect, useState } from "react";
  * notifications master switch is the precedent).
  */
 
-/** Module-level so the default prop is a STABLE reference — an inline arrow
+/** Module-level so the default prop is a STABLE reference: an inline arrow
  * would re-fire the load effect on every render (refetch loop). */
 const getMcpEnabled = () => apiFetch<{ mcpEnabled: boolean }>("/api/settings/mcp").then((r) => r.mcpEnabled);
 const setMcpEnabled = (on: boolean) =>
@@ -81,7 +81,7 @@ export function McpCard({ getEnabled = getMcpEnabled, setEnabled = setMcpEnabled
         <CardTitle>Subshell MCP</CardTitle>
         <CardDescription>
           Wire the subshell MCP into your panes so their agents can coordinate with your other subshells. Turning this
-          off removes those tools from panes you launch or restart, which narrows what a mislead agent can reach and
+          off removes those tools from panes you launch or restart, which narrows what a misled agent can reach and
           frees the context its tool list costs.
         </CardDescription>
       </CardHeader>

@@ -63,7 +63,8 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * commands `archive_create`, `file_read`, `transfer_write`, `archive_extract`
  * and `tree_manifest` (spec 2026-10-01 §4, protocol 15), and
  * `set_ssh_enabled` (spec 2026-10-07 §4.3, protocol 16 — the SSH gate's plane-
- * to-machine write), the two SSH read arms `ssh_discover_aliases` and
+ * to-machine write), `set_mcp_enabled` (protocol 27, the MCP gate's plane-to-
+ * machine write), the two SSH read arms `ssh_discover_aliases` and
  * `ssh_resolve_config` (spec 2026-10-07 §5, protocol 17 — both refuse on the
  * local gate mirror before any lookup or spawn), the M2 §4.3 bootstrap
  * `ssh_register_identity` (spec 2026-10-08 §4.3 - the machine's own signing

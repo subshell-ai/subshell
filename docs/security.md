@@ -763,12 +763,16 @@ output, or tmux pane metadata. Accepted (§11).
 
 **What that token actually carries.** `permissions: { channels: ["read",
 "write"], subshells: ["read", "write"], prompts: ["read", "write"] }`
-(`services/subshell-tokens.ts:33`):
+(`modules/subshells/tokens.ts:28`):
 the map is a coarse scope gate, not a row fence. That is the map when the
 pane's MCP wiring is ON, which is still the default at both levels; with the
 account or node switch off, the key is minted as `{ report: ["write"] }`
-instead, so the four harness-hook verbs and token self-extension keep
-working and none of the sibling surface below rides the key at all (§6). The MCP tools self-restrict
+instead, so the harness-hook verbs and token self-extension keep working and
+none of the sibling surface below rides the key at all (§6). One caveat
+travels with that sentence: on opencode, pi and oh-my-pi the child-roster
+reporter is a harness extension bundled into the MCP registration rather than
+a hook command line, so a disabled pane of those dialects simply reports no
+roster, the door for it notwithstanding. The MCP tools self-restrict
 the pane to its own row for reporting, but the raw REST surface resolves the
 token as its OWNER with shares switched off (§3), which means a
 prompt-injected pane can create, restart and **terminate** the owner's OTHER

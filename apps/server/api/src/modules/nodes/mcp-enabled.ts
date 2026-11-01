@@ -50,6 +50,10 @@ export async function setNodeMcpEnabled(nodeId: string, actorUserId: string, on:
   const changedAt = new Date().toISOString();
   const { repos } = getRequestlessContext();
   const row = await repos.nodes.setMcpEnabled(nodeId, { on, changedAt });
+  // The trail records changed that happened. If the row vanished between the
+  // gate's read and this UPDATE, nothing changed, so nothing is recorded or
+  // pushed.
+  if (!row) return;
   await audit({
     actorUserId,
     action: "node.mcp_enabled.update",
@@ -61,7 +65,7 @@ export async function setNodeMcpEnabled(nodeId: string, actorUserId: string, on:
   // command cannot be looking at a mirror the record has not caught up to, and
   // a push that fails (the node is offline) costs nothing: the value re-lands
   // at the node's next `ready` through {@link reconcileMcpEnabled}.
-  if (row) pushSetMcpEnabledBestEffort(nodeId, { on: row.mcpEnabled !== 0, changedAt });
+  pushSetMcpEnabledBestEffort(nodeId, { on: row.mcpEnabled !== 0, changedAt });
 }
 
 /** The node-row fields {@link decideMcpEnabled} reads. Nothing else is relevant. */
