@@ -118,7 +118,12 @@ const entries = new Map<string, Entry>();
  * only non-terminal priors (a terminal story is not resurrected), is written
  * only by {@link beginPreparing}, and is cleared for the node when the
  * replacing act dispatches (the new order genuinely supersedes the old
- * story) or when the hand-back happens.
+ * story) or when the hand-back happens. A capture can also go STALE
+ * unreaped, when the preparing slot itself terminalizes first (a `ready`
+ * landing mid-warm resolves it, and {@link updateRefused} then early-returns)
+ * — bounded and never misread: the only reader runs while the slot is a live
+ * preparing entry, and every {@link beginPreparing} overwrites or deletes
+ * the node's entry here.
  */
 const refusedReplacements = new Map<string, Entry>();
 
@@ -194,11 +199,28 @@ export function updateOrdered(nodeId: string): void {
  * nothing else: the stall clock keeps running from the order, because the
  * honest reading of "downloaded, installing, back in 10 seconds" that never
  * comes back is exactly as stalled as a download that never ended.
- * A no-op without a live entry (a late answer after some other seam ended it).
+ * A no-op without a live entry (a late answer after some other seam ended
+ * it), and while a `preparing` entry holds the slot it moves THAT entry
+ * nowhere: the answer is an older order's, and goes to the captured prior
+ * (see {@link refusedReplacements}) or is dropped.
  */
 export function updateSwapped(nodeId: string): void {
   const entry = entries.get(nodeId);
-  if (!entry || isTerminal(entry)) return;
+  if (!entry) return;
+  if (entry.phase === "preparing") {
+    // A swap answer describes an ORDERED update resuming its route's
+    // `await sendCommand`, and that resume can land while a newer press's
+    // warm fetch owns this slot. It must not mutate the preparing entry:
+    // the hand-back is keyed on that phase, and spending it here would let
+    // the newer press's failure terminalize the answering order's story.
+    // The fact belongs to the captured prior if one is there to carry it;
+    // with none (or one itself still preparing), the answer is not
+    // attributable and is dropped rather than claimed by the fetch.
+    const prior = refusedReplacements.get(nodeId);
+    if (prior && !isTerminal(prior) && prior.phase !== "preparing") prior.phase = "restarting";
+    return;
+  }
+  if (isTerminal(entry)) return;
   entry.phase = "restarting";
 }
 

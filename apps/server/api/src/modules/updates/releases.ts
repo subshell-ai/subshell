@@ -905,10 +905,12 @@ export interface FetchArtifactOptions {
    * coalescing: a caller who JOINS a fetch inherits that fetch's abort,
    * because it is genuinely the same request. So a node-driven download
    * that joins a signal-bound fetch can have its FIRST attempt killed by a
-   * plane-side timer, and that attempt spends node time before the
-   * in-request retry (its own, signal-free) takes over. What the token
-   * path is guaranteed never to pay is a killed RETRY; it pays no timer of
-   * its own, but not every wait it inherits is its own bound.
+   * plane-side timer, and the same applies to its in-request retry if that
+   * adopts a newer attempt someone else started with a timer (a second
+   * inherited failure then propagates; there is no third attempt). What a
+   * no-signal caller never pays is a timer of ITS OWN starting: an attempt
+   * it begins itself is bound-free, but every wait it JOINS is bounded by
+   * whoever started it.
    */
   signal?: AbortSignal;
 }

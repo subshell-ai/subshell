@@ -253,10 +253,12 @@ describe("POST /api/nodes/:id/update", () => {
         if (url.pathname === "/sha") return new Response(`${manifestDigest}\n`);
         if (url.pathname === "/bin") {
           binFetches += 1;
-          if (binFails) return new Response("nope", { status: 500 });
-          // The hold happens AFTER the request is counted, so a test can wait
-          // for the fetch to have STARTED and still catch the POST mid-warm.
+          // The hold happens AFTER the request is counted, so a test can
+          // wait for the fetch to have STARTED and still catch the POST
+          // mid-warm — and the failure check sits AFTER the hold so a test
+          // can arm it while a fetch is already in flight.
           if (binDelayMs > 0) await Bun.sleep(binDelayMs);
+          if (binFails) return new Response("nope", { status: 500 });
           // The bytes hash to RELEASE_BIN_SHA; when a test flips
           // manifestDigest it is testing a disk match, where the warm must
           // NOT need these at all — answering 404 here keeps that honest.
@@ -1003,6 +1005,44 @@ describe("POST /api/nodes/:id/update", () => {
     expect(restored?.phase).toBe("restarting"); // press ONE's story, not press two's failure
     expect(restored?.message).toBeNull();
     // The whole point: the node's eventual boot still resolves it.
+    recordNodeReady(id, RELEASE_VERSION);
+    expect(readView().nodes[id]?.phase).toBe("done");
+  });
+
+  it("a swap answer during a replacing press's warm lands on the order, not the warm", async () => {
+    // Review M2's HTTP shape of the same harm, across the seam boundary the
+    // tracker test cannot see: press 1's command is answered on its route's
+    // `await sendCommand`, which can resume while press 2 sits in its own
+    // warm fetch. The answer must move the CAPTURED prior to `restarting`
+    // and leave press 2's `preparing` entry (and with it the hand-back)
+    // intact; press 2's then-armed failure restores that restarting entry,
+    // and the node's boot resolves the whole story done.
+    useFakeRelease();
+    const id = await mkNode();
+    const sock = goOnline(id);
+    const res1P = req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    await waitFor(() => sock.sent.length > 0, "the first update command on the wire");
+    // Press two starts (its warm will fetch, and fetch slowly) BEFORE press
+    // one is answered, so the answer lands on press two's slot.
+    unpublishDiskFixture();
+    binDelayMs = 250;
+    const res2P = req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    await waitFor(() => binFetches === 2, "the second warm fetch to start");
+    const frame = JSON.parse(sock.sent[0] as string) as { jws: string };
+    const claim = JSON.parse(Buffer.from((frame.jws.split(".")[1] ?? "") as string, "base64url").toString()) as {
+      jti: string;
+    };
+    const record = getLive(id);
+    if (!record) throw new Error("no connection record");
+    expect(resolveResult(record, { type: "result", ref: claim.jti, ok: true })).toBe(true);
+    expect((await res1P).status).toBe(202);
+    expect(readView().nodes[id]?.phase).toBe("preparing"); // press two's slot, untouched by the answer
+    // Arm press two's failure inside its hold, and let it die.
+    binFails = true;
+    expect((await res2P).status).toBe(409);
+    const restored = readView().nodes[id];
+    expect(restored?.phase).toBe("restarting"); // press ONE's story carrying press ONE's swap
+    expect(restored?.message).toBeNull();
     recordNodeReady(id, RELEASE_VERSION);
     expect(readView().nodes[id]?.phase).toBe("done");
   });

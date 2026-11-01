@@ -201,6 +201,33 @@ describe("beginPreparing / updateOrdered — the plane's own fetch stage", () =>
     expect(readView().nodes.n1?.phase).toBe("failed");
   });
 
+  it("a swap answer lands on the captured order, not the replacing press's preparing entry", () => {
+    // Review M2: the swap answer arrives on some earlier press's `await
+    // sendCommand`, which can resume while a NEWER press's warm fetch owns the
+    // slot. Mutating the preparing slot there would cost it the hand-back
+    // (the restore is keyed on `preparing`) and terminalize press one's
+    // story over press two's failure, exactly the harm M1 closed. The fact
+    // belongs to the captured prior; the slot is left what it is.
+    beginUpdate("n1", { from: "0.8.0", to: "0.9.0" }); // press 1 dispatched, answer pending
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" }); // press 2 took the slot mid-warm
+    updateSwapped("n1"); // press 1's node answers during press 2's fetch
+    expect(readView().nodes.n1?.phase).toBe("preparing"); // press 2's entry untouched
+    updateRefused("n1", "press two died");
+    const restored = readView().nodes.n1;
+    expect(restored?.phase).toBe("restarting"); // the swap fact survived, on press 1's entry
+    recordNodeReady("n1", "0.9.0");
+    expect(readView().nodes.n1?.phase).toBe("done");
+  });
+
+  it("a swap answer on a preparing entry that replaced no order is dropped", () => {
+    // The answer can only describe an order, and this act has dispatched
+    // nothing with no prior order captured behind it: nothing to attribute
+    // it to, so it is honestly dropped rather than claimed by the fetch.
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    updateSwapped("n1");
+    expect(readView().nodes.n1?.phase).toBe("preparing");
+  });
+
   it("a terminal prior is not resurrected by a replacing press's refusal", () => {
     beginUpdate("n1", { from: "0.8.0", to: "0.9.0" });
     recordNodeReady("n1", "0.9.0"); // done
