@@ -87,7 +87,15 @@ it("shows the refusal state to a viewer who cannot manage it, with the owner as 
   mount(node({ mcpEnabled: false, access: "edit", canManage: false }));
   expect(screen.getByRole("switch", { name: "Allow the subshell MCP" }).getAttribute("aria-checked")).toBe("false");
   expect(screen.getByRole("switch").hasAttribute("data-disabled")).toBe(true);
-  expect(screen.getByText("Only this node’s owner can change this setting.")).toBeTruthy();
+  const reason = "Only this node’s owner can change this setting.";
+  expect(screen.getByText(reason)).toBeTruthy();
+  // A disabled control must explain itself to keyboard and touch too, not just
+  // print a paragraph: the switch points at the reason row, and a focusable
+  // wrapper carries the tooltip (the preview card's shape). A bare switch edit
+  // fails both lines.
+  const describedBy = screen.getByRole("switch").getAttribute("aria-describedby");
+  expect(describedBy ? document.getElementById(describedBy)?.textContent : null).toBe(reason);
+  expect(screen.getByRole("button", { name: reason })).toBeTruthy();
 });
 
 it("names the admin as the changer for the built-in node", () => {

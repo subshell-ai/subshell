@@ -8,6 +8,7 @@ import {
   type NodeDetail,
   Switch,
 } from "@internal/node-admin";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSetMcpEnabled } from "@/hooks/use-nodes";
 
 /**
@@ -16,10 +17,32 @@ import { useSetMcpEnabled } from "@/hooks/use-nodes";
  * the node enforces that on itself. The mirror is absent-tolerant in the
  * client the same way it is on the machine: `undefined` means a payload cached
  * before the switch existed, and that read is ALLOWED, not refused.
+ *
+ * A disabled switch explains itself the way the preview card beside it does:
+ * one reason string feeding the tooltip, the focusable wrapper, and the gold
+ * line under the control, so a keyboard user tabbing past a locked switch
+ * still learns who holds the change.
  */
 export function NodeMcpCard({ node }: { node: NodeDetail }) {
   const update = useSetMcpEnabled();
   const allowed = node.mcpEnabled !== false;
+  const reasonId = "node-mcp-enabled-reason";
+  const disabledReason = !node.canManage
+    ? node.kind === "local"
+      ? "An admin can change this setting."
+      : "Only this node’s owner can change this setting."
+    : update.isPending
+      ? "Saving the subshell MCP…"
+      : undefined;
+  const toggle = (
+    <Switch
+      id="node-mcp-enabled"
+      checked={allowed}
+      disabled={Boolean(disabledReason)}
+      aria-describedby={disabledReason ? reasonId : undefined}
+      onCheckedChange={(on) => update.mutate({ id: node.id, on })}
+    />
+  );
   return (
     <Card>
       <CardHeader>
@@ -27,12 +50,27 @@ export function NodeMcpCard({ node }: { node: NodeDetail }) {
       </CardHeader>
       <CardContent className="flex flex-col items-start gap-3">
         <div className="flex items-center gap-4">
-          <Switch
-            id="node-mcp-enabled"
-            checked={allowed}
-            disabled={!node.canManage || update.isPending}
-            onCheckedChange={(on) => update.mutate({ id: node.id, on })}
-          />
+          {disabledReason ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  // biome-ignore lint/a11y/useSemanticElements: a native button cannot wrap a switch; this focus target explains the disabled control.
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-disabled={true}
+                    aria-label={disabledReason}
+                    className="inline-flex"
+                  />
+                }
+              >
+                {toggle}
+              </TooltipTrigger>
+              <TooltipContent>{disabledReason}</TooltipContent>
+            </Tooltip>
+          ) : (
+            toggle
+          )}
           <Label htmlFor="node-mcp-enabled">Allow the subshell MCP</Label>
         </div>
         {node.canManage ? (
@@ -42,10 +80,8 @@ export function NodeMcpCard({ node }: { node: NodeDetail }) {
               : "Turning this on wires new launches here with the subshell MCP, unless the pane's owner has switched it off in their preferences. New launches and restarts pick up the change."}
           </p>
         ) : (
-          <p className="text-detail text-warning">
-            {node.kind === "local"
-              ? "An admin can change this setting."
-              : "Only this node’s owner can change this setting."}
+          <p id={reasonId} className="text-detail text-warning">
+            {disabledReason}
           </p>
         )}
         {update.isError && (

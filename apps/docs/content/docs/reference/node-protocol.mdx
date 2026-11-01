@@ -74,7 +74,7 @@ Registration is a pairing operation, not normal execution over plaintext. The no
 
 ## Readiness and machine reports
 
-The `ready` event identifies the node's release version, protocol version, operating system, architecture, hostname, data directory, and capabilities. It can also report its home directory, invocation path, runtime and service details, maintenance state, and system specs (OS release, CPU model, logical CPU count, total memory, and report time). System specs are optional so older nodes can still connect; the server retains the last report for offline discovery.
+The `ready` event identifies the node's release version, protocol version, operating system, architecture, hostname, data directory, and capabilities. It can also report its home directory, invocation path, runtime and service details, maintenance state, the machine's MCP-use preference, and system specs (OS release, CPU model, logical CPU count, total memory, and report time). System specs are optional so older nodes can still connect; the server retains the last report for offline discovery.
 
 These reports let the server plan launches for the execution machine rather than guessing its paths from the server host. They can disclose machine names, local paths, and selected environment information to the trusted control plane.
 
@@ -173,7 +173,7 @@ The server applies two distinct gates to readiness:
 1. The node release must meet the server's minimum supported release version.
 2. Its protocol version must match the server's protocol exactly.
 
-The implemented protocol is **26**. Its number is independent of the package release version. Additive wire changes also require a protocol bump and coordinated rollout; there is no per-feature compatibility window.
+The implemented protocol is **27**. Its number is independent of the package release version. Additive wire changes also require a protocol bump and coordinated rollout; there is no per-feature compatibility window.
 
 A refused node can remain connected in a **held** state for updates while staying unavailable for launches and ordinary management commands. Only `update` can use that held connection. Older nodes on the legacy path receive that update command in its frozen plaintext recovery format; they aren't admitted for normal plaintext operation. Invalid credentials and disabled owners are authentication failures, not update holds.
 
