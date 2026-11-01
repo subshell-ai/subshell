@@ -764,7 +764,11 @@ output, or tmux pane metadata. Accepted (§11).
 **What that token actually carries.** `permissions: { channels: ["read",
 "write"], subshells: ["read", "write"], prompts: ["read", "write"] }`
 (`services/subshell-tokens.ts:33`):
-the map is a coarse scope gate, not a row fence. The MCP tools self-restrict
+the map is a coarse scope gate, not a row fence. That is the map when the
+pane's MCP wiring is ON, which is still the default at both levels; with the
+account or node switch off, the key is minted as `{ report: ["write"] }`
+instead, so the four harness-hook verbs and token self-extension keep
+working and none of the sibling surface below rides the key at all (§6). The MCP tools self-restrict
 the pane to its own row for reporting, but the raw REST surface resolves the
 token as its OWNER with shares switched off (§3), which means a
 prompt-injected pane can create, restart and **terminate** the owner's OTHER
@@ -1122,6 +1126,17 @@ consequences are:
   `preview-display-unsupported`) instead of half-serving silently. Browser
   document isolation, bearer-link exposure, and local-user limits are accounted
   separately in §11.15.
+- **The subshell MCP wiring is switchable per account and per node, both
+  defaulting ON.** Off on either switch and a new launch or restart gets no MCP
+  wiring and a report-only token, so §4's sibling surface is gone from the key
+  rather than merely left without a tool naming it; a running pane keeps the
+  MCP child and token it already has. The node's half is enforced on the
+  machine: the row pushes to a local mirror, a launch frame that still carries
+  wiring material has it stripped, and `subshell mcp` refuses outright, so a
+  host-registered harness exits at identity registration instead of serving on
+  a report-only key. The node owner's no is not something a tenant account can
+  talk past. A disabled pane still holds its credential: the hooks' reporting
+  routes answer to it, and it can still read its own log like any pane.
 - **Node shares and subshell shares are independent axes.** Sharing a node does
   not hand out subshell tokens, but anything launched there trusts the machine.
 - **Whoever owns the node's OS user owns every pane launched there**, including
@@ -2878,6 +2893,7 @@ Audit events are written, grouped by family:
   `node.allowed_dirs.update`, `node.config.update`,
   `node.maintenance.update`, `node.ssh_enabled.update`,
   `node.ssh_wide_forwards.update` (the boolean itself; which node, who flipped it),
+  `node.mcp_enabled.update` (the boolean itself; which node, who flipped it),
   `node.ssh_identity.register` (spec 2026-10-08 §4.3: the signing-key
   bootstrap lands when the link's answer fills the EMPTY slot, `via: "link"`
   and nothing else in the metadata - never the key value; the idempotent

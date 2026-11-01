@@ -235,8 +235,26 @@ import {
  * the title and lists every listener it finds, so the same pane would offer a
  * different picker depending on which host ran it; the exact-match handshake
  * rejects one before discovery is ever asked.
+ *
+ * **26 -> 27:** the MCP-use switch. `set_mcp_enabled` mirrors a per-machine
+ * owner switch into the node's mirror file, `ready.mcpEnabled` states that
+ * mirror at connect, and the `mcp_enabled` event reports a mirror that moved
+ * underneath the connection (ssh's `ssh_enabled` twin). A launch frame that
+ * still carries `mcp` while the mirror says off drops the wiring material and
+ * launches the pane anyway, so a stale plane cannot wire what the machine's
+ * owner refused. Additive in shape, and breaking anyway because the gate is
+ * exact-match: what the bump buys is that the plane never sends a command an
+ * attached agent cannot parse.
+ *
+ * Note the polarity difference from the ssh gate it otherwise clones. There an
+ * absent mirror reads REFUSED, because pane-watching is opt-in and has no
+ * before to keep behaving like. Here an absent mirror reads ALLOWED: MCP
+ * wiring predates the switch, so a node nobody has pushed yet must stay
+ * exactly as it was. The row is still the record either way, and an upgrade
+ * that read silence as refusal would strip comms from a fleet that never
+ * opted out.
  */
-export const NODE_PROTOCOL_VERSION = 26;
+export const NODE_PROTOCOL_VERSION = 27;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -1153,6 +1171,27 @@ export type NodeCommandBody =
     }
   | {
       /**
+       * Write this node's MCP-use mirror file.
+       *
+       * The plane's only writing copy of the flag, so the `set_ssh_enabled`
+       * posture carries over whole: there is no keyboard verb to race, and the
+       * command writes the file and nothing else. Turning it off severs no
+       * running pane, because the switch reaches new launches and restarts, and
+       * a pane whose MCP child is already alive keeps that child until it
+       * stops.
+       *
+       * Carries the plane's own `changedAt` rather than letting the node stamp
+       * its own: both copies must end byte-identical, so a later `ready` report
+       * reads as agreement rather than a disagreement this process invented.
+       */
+      type: "set_mcp_enabled";
+      /** False = the subshell MCP is refused in every pane launched here. */
+      on: boolean;
+      /** The plane's stamp for this value; stored verbatim. */
+      changedAt: string;
+    }
+  | {
+      /**
        * Replace this agent's own binary and restart into it (spec 2026-09-15 §5.2).
        *
        * **THIS SHAPE IS FROZEN ACROSS FUTURE PROTOCOL BUMPS.** Every other
@@ -1417,6 +1456,31 @@ export function parseNodePreviewEnabled(value: unknown): NodePreviewEnabledWire 
     ...(value.displayProviders === undefined ? {} : { displayProviders: value.displayProviders as string[] }),
     ...(value.displayOn === undefined ? {} : { displayOn: value.displayOn as boolean }),
   };
+}
+
+/**
+ * Whether this machine's owner permits the subshell MCP to run in panes launched
+ * here, as it travels in either direction. Same `{ on, changedAt }` shape as the
+ * ssh and preview gates, and the same division of authorship: only the plane
+ * writes it, and `changedAt` rides verbatim so a relay can never outrank the
+ * decision it carries. Nothing compares stamps; the row is the record.
+ *
+ * What differs is what silence means. An absent mirror reads ALLOWED, not
+ * refused: MCP wiring predates this switch, and a node that has never been
+ * pushed a value must carry on exactly as it did. The refusal is carried by an
+ * explicit `on: false`.
+ */
+export interface NodeMcpEnabledWire {
+  /** False = nothing of the subshell MCP runs in a pane launched on this machine. */
+  on: boolean;
+  /** ISO 8601 stamp of the write that produced this value. */
+  changedAt: string;
+}
+
+/** A {@link NodeMcpEnabledWire}, or null when the value is not one. */
+export function parseNodeMcpEnabled(value: unknown): NodeMcpEnabledWire | null {
+  if (!isRecord(value) || !isBool(value.on) || !isStr(value.changedAt)) return null;
+  return { on: value.on, changedAt: value.changedAt };
 }
 
 /** Agent → control events, unsigned (socket-authed; spec §3.3). */
@@ -1855,6 +1919,17 @@ export type NodeEvent =
        * the switch.
        */
       previewEnabled?: NodePreviewEnabledWire;
+      /**
+       * This machine's MCP-use mirror, as its file reads at connect. Absent
+       * means the node has no file, which for MCP reads as ALLOWED, not
+       * refused: wiring predates the switch, so silence is agreement with the
+       * row's own default rather than a refusal to obey it.
+       *
+       * Dropped rather than fatal when malformed, exactly like `previewEnabled`
+       * and `sshEnabled`: the plane reconciles any disagreement from its own
+       * row on the very same `ready`.
+       */
+      mcpEnabled?: NodeMcpEnabledWire;
     }
   | {
       /**
@@ -1884,6 +1959,23 @@ export type NodeEvent =
        * to any disagreement is a push of its row, which is also the repair.
        */
       type: "ssh_enabled";
+      /** The refusal/allowance this machine is acting on, as its mirror reads. */
+      on: boolean;
+      /** ISO 8601 stamp from the file (its own mtime when the file is unreadable). */
+      changedAt: string;
+    }
+  | {
+      /**
+       * This machine's MCP-use mirror moved underneath the connection, the
+       * heartbeat belt's twin of `ssh_enabled`.
+       *
+       * There is no node-side writer, so what this carries is a file that
+       * changed by some other means: a repair, a hand edit, or corruption that
+       * flipped the machine from wiring panes to refusing them. The plane's
+       * answer to any disagreement is a push of its row, which is also the
+       * repair.
+       */
+      type: "mcp_enabled";
       /** The refusal/allowance this machine is acting on, as its mirror reads. */
       on: boolean;
       /** ISO 8601 stamp from the file (its own mtime when the file is unreadable). */
@@ -2235,6 +2327,10 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       const state = parseNodeSshEnabled(value);
       return state ? { type: "set_ssh_enabled", ...state } : null;
     }
+    case "set_mcp_enabled": {
+      const state = parseNodeMcpEnabled(value);
+      return state ? { type: "set_mcp_enabled", ...state } : null;
+    }
     case "update": {
       // Shape only, like `set_server_url` above: WHICH url is acceptable is
       // the plane's to decide, and the digest is checked against the bytes
@@ -2486,18 +2582,21 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
         maintenance: rawMaintenance,
         sshEnabled: rawSshEnabled,
         previewEnabled: rawPreviewEnabled,
+        mcpEnabled: rawMcpEnabled,
         ...rest
       } = value as Record<string, unknown> & {
         runtime?: unknown;
         maintenance?: unknown;
         sshEnabled?: unknown;
         previewEnabled?: unknown;
+        mcpEnabled?: unknown;
       };
       const systemSpecs = parseNodeSystemSpecs(rawSystemSpecs);
       const runtime = rawRuntime === undefined ? null : parseNodeRuntimeReport(rawRuntime);
       const maintenance = rawMaintenance === undefined ? null : parseNodeMaintenance(rawMaintenance);
       const sshEnabled = rawSshEnabled === undefined ? null : parseNodeSshEnabled(rawSshEnabled);
       const previewEnabled = rawPreviewEnabled === undefined ? null : parseNodePreviewEnabled(rawPreviewEnabled);
+      const mcpEnabled = rawMcpEnabled === undefined ? null : parseNodeMcpEnabled(rawMcpEnabled);
       return {
         ...(rest as unknown as Extract<NodeEvent, { type: "ready" }>),
         ...(systemSpecs ? { systemSpecs } : {}),
@@ -2505,6 +2604,7 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
         ...(maintenance ? { maintenance } : {}),
         ...(sshEnabled ? { sshEnabled } : {}),
         ...(previewEnabled ? { previewEnabled } : {}),
+        ...(mcpEnabled ? { mcpEnabled } : {}),
       };
     }
     case "inventory": {
@@ -2528,6 +2628,12 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
       // it is acting on; half of it is not an answer.
       const state = parseNodeSshEnabled(value);
       return state ? { type: "ssh_enabled", ...state } : null;
+    }
+    case "mcp_enabled": {
+      // Strict for the same reason as `ssh_enabled`: the frame is the machine
+      // reporting what it is acting on, and a half-state is not an answer.
+      const state = parseNodeMcpEnabled(value);
+      return state ? { type: "mcp_enabled", ...state } : null;
     }
     case "heartbeat": {
       if (!isStr(value.ts)) return null;

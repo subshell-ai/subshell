@@ -232,6 +232,36 @@ export class UserMetaRepository extends BaseRepository {
   }
 
   /**
+   * Whether this account's panes may be wired with the subshell MCP. A missing
+   * row or the column default reads as enabled: wiring is what every account
+   * got before the switch existed, so silence must not mean refusal — the same
+   * reading {@link getNotifyEnabled} gives.
+   * @param userId - better-auth user id
+   */
+  async getMcpEnabled(userId: string): Promise<boolean> {
+    const row = await this.db
+      .selectFrom("userMeta")
+      .select("mcpEnabled")
+      .where("userId", "=", userId)
+      .executeTakeFirst();
+    return (row?.mcpEnabled ?? 1) === 1;
+  }
+
+  /**
+   * Sets the account's MCP switch. Upserts for the same reason as
+   * {@link setNotifyEnabled}: an account whose `user_meta` row was never
+   * created still has to be able to answer, and `role` is used only if the row
+   * is being created.
+   */
+  async setMcpEnabled(userId: string, on: boolean): Promise<void> {
+    await this.db
+      .insertInto("userMeta")
+      .values({ userId, role: "user", mcpEnabled: on ? 1 : 0 })
+      .onConflict((oc) => oc.column("userId").doUpdateSet({ mcpEnabled: on ? 1 : 0 }))
+      .execute();
+  }
+
+  /**
    * The user's terminal attach history cap, or null when they have no
    * preference (the instance default applies). A missing row reads as "no
    * preference", exactly like a missing `notifyEnabled` row reads as "on".

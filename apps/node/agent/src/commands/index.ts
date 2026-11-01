@@ -30,6 +30,7 @@ import { execPromptDeliver } from "./prompt.js";
 import { execService } from "./service.js";
 import { execSetLogLevel } from "./set-log-level.js";
 import { execSetMaintenance } from "./set-maintenance.js";
+import { execSetMcpEnabled } from "./set-mcp-enabled.js";
 import { execSetPreviewEnabled } from "./set-preview-enabled-exec.js";
 import { execSetServerUrl } from "./set-server-url.js";
 import { execSetSshEnabled } from "./set-ssh-enabled.js";
@@ -178,6 +179,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return execSetPreviewEnabled(ctx, cmd);
       case "set_ssh_enabled":
         return execSetSshEnabled(ctx, cmd);
+      case "set_mcp_enabled":
+        return execSetMcpEnabled(ctx, cmd);
       case "ssh_discover_aliases":
         return await execSshDiscoverAliases(ctx);
       case "ssh_resolve_config":

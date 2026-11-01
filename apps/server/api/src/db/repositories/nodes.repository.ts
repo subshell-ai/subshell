@@ -69,6 +69,12 @@ export class NodesRepository extends BaseRepository {
         virtualDisplayEnabled: input.virtualDisplayEnabled ?? 0,
         previewEnabledAt: input.previewEnabledAt ?? null,
         sshWideForwards: 0,
+        // A new node wires the MCP: `1` is the column default (migration 0073),
+        // because wiring predates the switch. Mirroring it here keeps the read
+        // back complete, and it is the opposite of the two flags above: an
+        // enrolled machine starts exactly as every machine already behaves.
+        mcpEnabled: input.mcpEnabled ?? 1,
+        mcpEnabledAt: input.mcpEnabledAt ?? null,
         createdAt: input.createdAt ?? now,
         updatedAt: now,
       })
@@ -333,6 +339,35 @@ export class NodesRepository extends BaseRepository {
             }
           : { webPreviewsEnabled: state.on ? 1 : 0 }),
         previewEnabledAt: state.changedAt,
+        updatedAt: new Date().toISOString(),
+      })
+      .where("id", "=", id)
+      .returningAll()
+      .executeTakeFirst();
+  }
+
+  /**
+   * Write the MCP-use switch and its stamp.
+   *
+   * Same shape as {@link setSshEnabled} and {@link setPreviewEnabled}: both
+   * fields move together, and the caller supplies `changedAt`, because the
+   * stamp is the reconciliation protocol between this row and the machine's
+   * mirror file. A relay never re-stamps the fact it is carrying.
+   */
+  async setMcpEnabled(
+    id: string,
+    state: {
+      /** False = the subshell MCP is refused in every pane launched here. */
+      on: boolean;
+      /** ISO 8601 of the write that produced `on`. Never re-stamped on relay. */
+      changedAt: string;
+    },
+  ): Promise<NodeTable | undefined> {
+    return await this.db
+      .updateTable("nodes")
+      .set({
+        mcpEnabled: state.on ? 1 : 0,
+        mcpEnabledAt: state.changedAt,
         updatedAt: new Date().toISOString(),
       })
       .where("id", "=", id)

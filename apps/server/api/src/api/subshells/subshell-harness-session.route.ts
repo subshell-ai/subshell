@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { authGuard, requirePerm } from "@/api/auth-guard.js";
+import { authGuard, requireReportPerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/api/middleware/context.plugin.js";
 import { apiModels } from "@/api/schemas/index.js";
 import { HttpError } from "@/shared/errors.js";
@@ -31,11 +31,11 @@ export const subshellHarnessSessionRoute = new Elysia()
   .post(
     "/:id/harness-session",
     async ({ params, body, actor, principal, apiKeyPermissions, ctx }) => {
-      requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
-      // requirePerm is scope-wide, not per-row: a subshell key holds
-      // subshells:write for ITS subshell, so the cross-row check lives here —
-      // and the cookie actor is turned away entirely: this is the harness
-      // talking, not a browser (same rule as /attention).
+      requireReportPerm({ actor, apiKeyPermissions });
+      // The grant is scope-wide, not per-row: a pane holds this door for ITS
+      // own subshell, so the cross-row check lives here. And the cookie actor
+      // is turned away entirely: this is the harness talking, not a browser
+      // (same rule as /attention).
       if (actor !== "subshell-key" || principal !== `sess:${params.id}`) {
         throw new HttpError(403, "Only a subshell's own key may report its harness session");
       }

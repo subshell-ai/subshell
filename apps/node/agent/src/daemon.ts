@@ -9,6 +9,7 @@ import {
   NODE_PROTOCOL_VERSION,
   type NodeEvent,
   type NodeMaintenanceWire,
+  type NodeMcpEnabledWire,
   type NodePreviewEnabledWire,
   type NodeRuntimeReport,
   type NodeSshEnabledWire,
@@ -24,9 +25,11 @@ import { dispatchCommand } from "./commands/index.js";
 import {
   buildSubshellsReport,
   maybeReportMaintenance,
+  maybeReportMcpEnabled,
   maybeReportPreviewEnabled,
   maybeReportSshEnabled,
   seedMaintenanceMemo,
+  seedMcpEnabledMemo,
   seedPreviewEnabledMemo,
   seedSshEnabledMemo,
 } from "./commands/report.js";
@@ -368,6 +371,7 @@ function readyEvent(
   maintenance: NodeMaintenanceWire | undefined,
   sshEnabled: NodeSshEnabledWire | undefined,
   previewEnabled: NodePreviewEnabledWire | undefined,
+  mcpEnabled: NodeMcpEnabledWire | undefined,
 ): Extract<NodeEvent, { type: "ready" }> {
   return {
     type: "ready",
@@ -382,6 +386,12 @@ function readyEvent(
     // surface. `uploads` names the terminal-upload relay pipeline; `mcp`
     // (HAS_MCP, shipped in Task 13) is what lets the control plane register
     // `subshell mcp` for subshells launched here.
+    //
+    // `mcp` says this binary CAN serve the verb. It is NOT the owner's answer
+    // about whether they may: that is `mcpEnabled` below and the plane's row
+    // beside it, and it refuses panes while the capability stays advertised.
+    // Keep the two apart: a capability is a fact about the build, and a flip
+    // of the switch must not look like an agent that lost the command.
     capabilities: HAS_MCP ? ["uploads", "mcp"] : ["uploads"],
     // How to re-enter this binary, not `process.execPath`: under an
     // interpreter run execPath is `bun`, and `bun mcp` is not a command —
@@ -428,6 +438,13 @@ function readyEvent(
     // so the plane can repair the file instead of holding a silent
     // disagreement until the next reconnect.
     ...(previewEnabled ? { previewEnabled } : {}),
+    // This machine's MCP-use mirror, carried by the SAME rules as the two
+    // above with the OPPOSITE reading of silence. An absent file is omitted,
+    // and here absence means WIRES NORMALLY: the switch is younger than the
+    // behavior, so a machine nobody has pushed yet agrees with the plane's own
+    // default and has nothing to announce. An `off` file is always carried,
+    // because that refusal is the news the owner asked for.
+    ...(mcpEnabled ? { mcpEnabled } : {}),
   };
 }
 
@@ -1335,6 +1352,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
             seedMaintenanceMemo(ctx),
             seedSshEnabledMemo(ctx),
             seedPreviewEnabledMemo(ctx),
+            seedMcpEnabledMemo(ctx),
           ),
         );
         // Connect-time `subshells_report` (spec §3.3): re-projects the panes
@@ -1421,6 +1439,10 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
           // closes no panes here, so this tick is the only way the plane
           // learns the mirror moved before the next reconnect.
           maybeReportPreviewEnabled(ctx);
+          // The MCP-use switch's belt: same quiet shape, same single
+          // mid-session path. An MCP flip severs no live pane, so this tick is
+          // the only way the plane learns the mirror moved underneath it.
+          maybeReportMcpEnabled(ctx);
         }, heartbeatMs);
         // Periodic `inventory` push — the "every 5 min" leg of spec §7
         // (P3-T8c). The timer's lifecycle mirrors the heartbeat's — armed

@@ -23,6 +23,7 @@ import { EditableText } from "@/components/editable-text";
 import { DeleteNodeDialog } from "@/components/nodes/delete-node-dialog";
 import { NodeCrossAgentCard } from "@/components/nodes/node-cross-agent-card";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
+import { NodeMcpCard } from "@/components/nodes/node-mcp-card";
 import { NodePageShell } from "@/components/nodes/node-page-shell";
 import { NodePreviewCard } from "@/components/nodes/node-preview-card";
 import { NodeReregister } from "@/components/nodes/node-reregister";
@@ -241,6 +242,10 @@ function NodeDetailPage() {
           {/* Beside the SSH switch by shape and gate (pane-preview spec §7):
               the same owner-only posture, the same remedy lines. */}
           <NodePreviewCard key={`preview-${n.id}`} node={n} />
+
+          {/* The MCP-use switch, same owner-only family again. Off here beats
+              every account preference, and the node enforces it on itself. */}
+          <NodeMcpCard key={`mcp-${n.id}`} node={n} />
 
           {/* The same owner-or-edit-on-an-agent rule as the daemon sections and the route's gate.
               `local` updates with the server, which the page already cannot ask here. */}

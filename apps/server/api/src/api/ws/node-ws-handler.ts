@@ -1112,6 +1112,12 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // fire-and-forget push of the row's own value.
       if (hooks) await hooks.onPreviewEnabled(nodeId, event.previewEnabled);
       else logger.debug(`node ws: ready from ${nodeId} with no lifecycle hook to reconcile preview_enabled`);
+      // The MCP-use mirror rides the same door, with its own reading of
+      // silence: an absent mirror means wiring continues, so the reconcile is
+      // a no-op unless the row says no (then the file comes back) or the file
+      // says no while the row says yes (then the row is pushed again).
+      if (hooks) await hooks.onMcpEnabled(nodeId, event.mcpEnabled);
+      else logger.debug(`node ws: ready from ${nodeId} with no lifecycle hook to reconcile mcp_enabled`);
       // The §4.3 signing bootstrap (spec 2026-10-08): an agent whose identity
       // record has no signing key is ASKED ONCE, and the answer files itself.
       // Fire-and-forget for the same reason the detect kick above is: the
@@ -1207,6 +1213,19 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // lands dead. This arm is the whole dispatch for this frame.
       if (hooks) await hooks.onPreviewEnabled(nodeId, { on: event.on, changedAt: event.changedAt });
       else logger.warn(`node ws: preview_enabled from ${nodeId} with no lifecycle hook`);
+      return;
+    }
+    case "mcp_enabled": {
+      const hooks = getNodeLifecycleHooks();
+      // The machine's MCP-use mirror moved mid-session, the same story the ssh
+      // and preview arms tell: no node-side writer, so what arrives is a file
+      // that changed by other means, and the plane's answer is a push of its
+      // row. One difference worth stating: silence here means ALLOWED rather
+      // than refused, which is why an absent mirror is never announced and an
+      // `off` one always is. Same hook as `ready`, one reconciler, so a
+      // mid-session report and a connect-time state answer alike.
+      if (hooks) await hooks.onMcpEnabled(nodeId, { on: event.on, changedAt: event.changedAt });
+      else logger.warn(`node ws: mcp_enabled from ${nodeId} with no lifecycle hook`);
       return;
     }
     case "result": {

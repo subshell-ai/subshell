@@ -13,6 +13,7 @@ import { HARNESS_BINARY_PLACEHOLDER, NODE_RESULT_MAINTENANCE } from "@internal/s
 import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allowed-dirs.js";
 import { log } from "../log.js";
 import { readMaintenance, reportableMaintenance } from "../maintenance.js";
+import { mcpAllowed, readMcpEnabled } from "../mcp-enabled.js";
 import { pathAllowed, realpathRoots } from "../path-policy.js";
 import { PREVIEW_DISPLAY_UNSUPPORTED } from "../preview/display.js";
 import { getVirtualDisplayEnabled } from "../preview/flags.js";
@@ -38,6 +39,31 @@ import { gateOpen, SSH_GATE_REFUSAL } from "./ssh-shared.js";
  * parser refuses a launch without either before dispatch reaches this
  * function, so the command line and its binary rule are always present here.
  */
+
+/**
+ * Take the MCP dialect's own argv out of a command line the plane composed.
+ *
+ * Every harness splices its registration in as ONE contiguous run, so the run
+ * is found by exact sequence match and removed whole. Matching the run rather
+ * than each token by value is the point:
+ * codex's dialect is three `-c` overrides interleaved with their values, and
+ * deleting every argv entry that merely EQUALS one of them would also eat a
+ * `-c` belonging to something else.
+ *
+ * An argv that does not contain the run comes back untouched. That is not a
+ * failure to strip: it means the run was never in there, and removing
+ * something else on the strength of a near-miss would damage the command.
+ *
+ * @param argv - the plane-built command line, placeholder included or resolved
+ * @param args - the registration's own argv, from the same frame
+ * @returns argv without that one run, or argv unchanged
+ */
+export function withoutMcpArgs(argv: string[], args: string[] | undefined): string[] {
+  if (!args || args.length === 0) return argv;
+  const start = argv.findIndex((_, i) => args.every((token, offset) => argv[i + offset] === token));
+  if (start === -1) return argv;
+  return [...argv.slice(0, start), ...argv.slice(start + args.length)];
+}
 
 /**
  * Start one harness subshell on this node.
@@ -123,24 +149,41 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   // verbatim (spec §5; the args half is already inside the sent argv), so no
   // plugin function runs here and the old wire-vs-local drift rule has no
   // second source to disagree with.
+  // The owner's MCP switch, asked HERE and not only on the plane. The plane's
+  // row is the record and it composes no wiring for a node that says no, but a
+  // frame can still arrive carrying `mcp`: composed moments before the flip, or
+  // from a plane that never consulted the row at all. Dropping the material is
+  // the answer, and the pane still launches. Failing the launch would punish
+  // the user for a disagreement between two machines, and refusing is already
+  // complete on its own: the dialect is only ever the three things this block
+  // handles, the file, the argv run that names it, and the wiring env.
+  const mcp = cmd.mcp;
+  const mcpRefusedHere = mcp !== undefined && !mcpAllowed(readMcpEnabled(ctx.config.dataDir));
+  if (mcp && mcpRefusedHere) {
+    log(
+      `mcp-enabled mirror refuses wiring on this node: dropped MCP registration for subshell ${cmd.subshellId}; launching without it`,
+    );
+    argv = withoutMcpArgs(argv, mcp.args);
+  }
+
   let mcpPaneEnv: Record<string, string> | undefined;
-  if (cmd.mcp) {
-    if (!(await pathAllowed(cmd.mcp.path, await realpathRoots([ctx.config.dataDir])))) {
+  if (mcp && !mcpRefusedHere) {
+    if (!(await pathAllowed(mcp.path, await realpathRoots([ctx.config.dataDir])))) {
       return { ok: false, error: "mcp path refused" };
     }
-    mcpPaneEnv = cmd.mcp.env; // the sent dialect is the whole dialect
+    mcpPaneEnv = mcp.env; // the sent dialect is the whole dialect
     // Canonical location is <dataDir>/mcp/<id>.json (subshell-meta mcpPath twin);
     // mkdir the parent whatever the (already policy-passed) path names.
-    const dir = dirname(cmd.mcp.path);
+    const dir = dirname(mcp.path);
     await mkdir(dir, { recursive: true, mode: 0o700 });
     await enforceMode(dir, 0o700);
-    if (cmd.mcp.files) {
-      const companionDir = `${cmd.mcp.path}.d`;
+    if (mcp.files) {
+      const companionDir = `${mcp.path}.d`;
       if (!(await pathAllowed(companionDir, await realpathRoots([ctx.config.dataDir]))))
         return { ok: false, error: "integration path refused" };
       await mkdir(companionDir, { recursive: true, mode: 0o700 });
       await enforceMode(companionDir, 0o700);
-      for (const [name, content] of Object.entries(cmd.mcp.files)) {
+      for (const [name, content] of Object.entries(mcp.files)) {
         const target = `${companionDir}/${name}`;
         if (
           !/^[a-zA-Z0-9_-]+\.(mjs|py|json)$/.test(name) ||
@@ -151,8 +194,8 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
         await enforceMode(target, 0o600);
       }
     }
-    await writeFile(cmd.mcp.path, cmd.mcp.fileContent, { mode: 0o600 });
-    await enforceMode(cmd.mcp.path, 0o600); // Task-2 re-tightening: umask cannot leak bits here
+    await writeFile(mcp.path, mcp.fileContent, { mode: 0o600 });
+    await enforceMode(mcp.path, 0o600); // Task-2 re-tightening: umask cannot leak bits here
   }
 
   // (3b) SSH pane config (spec 2026-10-07 decision 4). The MCP block above is

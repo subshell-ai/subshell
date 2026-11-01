@@ -23,6 +23,19 @@ A pane token allows operations on its owner's sessions and prompt library withou
 
 The node list is owner-scoped for pane tokens. A human's token doesn't automatically receive the server-host node just because the human can launch there through the browser.
 
+## Turning coordination off
+
+The account and node switches under [MCP configuration](/mcp/configure) both
+default to on. With either one off, a new pane gets no MCP wiring, and its
+credential is minted with reporting rights only: the pane can still report its
+own state and extend its own token, but it cannot list, read, launch, or
+terminate any other subshell, post to channels, or touch the prompt library.
+That removes the sibling surface this page warns about rather than leaving the
+reach in the credential with no tool that names it. A node's refusal is also
+enforced on the machine itself, so a harness registered on that host years ago
+can't serve the tools anyway. A disabled pane still holds a credential: it
+belongs to its owner, and a local OS account on that machine can still read it.
+
 > [!warning] Trusted agents
 > Agents run with their execution account's filesystem access. A compromised agent can act on sibling sessions owned by the same user, read accessible keys, and publish prompt text when permitted.
 

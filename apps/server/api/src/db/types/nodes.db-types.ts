@@ -136,6 +136,23 @@ export interface NodeTable {
    */
   sshWideForwards: number;
   /**
+   * 1 = the subshell MCP may be wired into panes launched on this machine.
+   * Default 1, the inversion of {@link sshEnabled} and {@link webPreviewsEnabled}:
+   * those features are opt-in, while MCP wiring predates its own switch, so an
+   * upgrade has to leave every machine wiring exactly what it wired before. A
+   * 0 here refuses for everyone: it outranks any account's own preference,
+   * because the machine's owner gets the last word on what runs there.
+   */
+  mcpEnabled: number;
+  /**
+   * ISO 8601 of the write that last changed {@link mcpEnabled} (the wire's
+   * `changedAt`), or null when the flag was never written. Same role
+   * {@link sshEnabledAt} plays for SSH: the stamp rides the flag on every push
+   * so the two copies end byte-identical. Null is a real answer here, and it
+   * means "wiring is allowed, and no one has pushed a value yet".
+   */
+  mcpEnabledAt: string | null;
+  /**
    * JSON mirror of the ssh-fingerprint block from this node's last runtime
    * report (spec 2026-10-08 §4.5), so the trust card survives an offline node
    * or a plane restart. NULL until a post-M2 agent reports. Serialized only

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/server";
+import { ApiError } from "../api-client.js";
 import type { IdentityKeyPair } from "../crypto.js";
-import { createSubshellMcpServer } from "../server.js";
+import { createSubshellMcpServer, McpDisabledError, registerPaneIdentity } from "../server.js";
 import type { ToolApi } from "../tools.js";
 
 const api: ToolApi = {
@@ -163,5 +164,48 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     expect(byName.transfer_files.description).toContain("Round trips");
     expect(byName.transfer_files.description).toContain("update the node");
     expect(byName.transfer_files.description).toContain("Never restart your own pane");
+  });
+});
+
+/**
+ * The 403-fatal reading of the MCP-off switch. A host-registered `subshell mcp`
+ * child on a narrowed (report-only) token still starts and reaches
+ * POST /api/identities; a 403 there is the backend refusing this pane's MCP use,
+ * and it must be fatal so the off switch cannot be answered by a child that
+ * serves its `subshells`-scoped tools anyway. A 409 keeps today's
+ * degraded-but-live reading: it never gated registration, only create/join.
+ */
+describe("registerPaneIdentity", () => {
+  const own = { publicJwk: "{}", privateJwk: "{}" } as unknown as IdentityKeyPair;
+
+  function apiThrowing(err: unknown): ToolApi {
+    return {
+      async req() {
+        throw err;
+      },
+    };
+  }
+
+  it("a 403 is fatal: it throws McpDisabledError rather than serving anyway", async () => {
+    await expect(
+      registerPaneIdentity(apiThrowing(new ApiError(403, "no channels:write")), own, "p"),
+    ).rejects.toBeInstanceOf(McpDisabledError);
+  });
+
+  it("a 409 degrades live: it logs and resolves (read-only tools still serve)", async () => {
+    const errWrite = process.stderr.write;
+    let saw = "";
+    process.stderr.write = ((chunk: string) => {
+      saw += chunk;
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      await expect(
+        registerPaneIdentity(apiThrowing(new ApiError(409, "identity_required")), own, "p"),
+      ).resolves.toBeUndefined();
+      expect(saw).toInclude("identity registration failed");
+    } finally {
+      process.stderr.write = errWrite;
+    }
   });
 });

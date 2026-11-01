@@ -776,6 +776,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
         },
         onSshEnabled: () => {},
         onPreviewEnabled: () => {},
+        onMcpEnabled: () => {},
       });
       try {
         const ws = fakeSocket("n1");
@@ -834,6 +835,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
         },
         onSshEnabled: () => {},
         onPreviewEnabled: () => {},
+        onMcpEnabled: () => {},
       });
       return { seen, off: () => resetNodeEventsForTests() };
     }
@@ -917,6 +919,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
           seen.push([nodeId, reported]);
         },
         onPreviewEnabled: () => {},
+        onMcpEnabled: () => {},
       });
       return { seen, off: () => resetNodeEventsForTests() };
     }
@@ -1001,6 +1004,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
         onPreviewEnabled: (nodeId, reported) => {
           seen.push([nodeId, reported]);
         },
+        onMcpEnabled: () => {},
       });
       return { seen, off: () => resetNodeEventsForTests() };
     }

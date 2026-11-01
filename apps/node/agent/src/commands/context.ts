@@ -4,6 +4,7 @@ import type {
   NodeCommandBody,
   NodeEvent,
   NodeMaintenanceWire,
+  NodeMcpEnabledWire,
   NodePreviewEnabledWire,
   NodeRuntimeReport,
   NodeSshEnabledWire,
@@ -241,6 +242,14 @@ export interface CommandContext {
    * makes the plane push the row value back.
    */
   lastReportedPreviewEnabled?: NodePreviewEnabledWire;
+  /**
+   * The last MCP-use mirror value this connection spoke about, the same echo
+   * memo as {@link lastReportedSshEnabled} and for the same reason: the plane
+   * is the mirror's only writer, so the belt exists for a file that moved by
+   * accident and never for the plane's own push. Seeded at every connect from
+   * the same read that built `ready`.
+   */
+  lastReportedMcpEnabled?: NodeMcpEnabledWire;
   /**
    * Whether this connection has already reported a mirror it could not
    * rewrite (see `restoreMirrorFromMemo`).

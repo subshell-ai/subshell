@@ -65,6 +65,12 @@ The server host's node is named **Server** by default. Its internal ID remains `
 
 Node owners manage the machine's settings. A share may allow launching there without granting ownership of service, directory, or enrollment controls.
 
+## Subshell MCP
+
+In the server dashboard, open **Nodes**, select your node, and find the **Subshell MCP** card on its overview. **Allow the subshell MCP** controls whether Subshell wires its coordination server into panes launched on this machine. It's on by default, and only the node's owner can change it; an administrator manages it for the built-in node on the server host.
+
+Turning it off means new and restarted panes here get no subshell MCP and no sibling-coordination tools, whatever their owners prefer in their own [Preferences](/mcp/configure#turning-the-wiring-off). The refusal is enforced on this machine, so it also stops the MCP command for harnesses that registered it on the host directly. Panes already running keep their live MCP until they restart.
+
 ## Outgoing SSH
 
 In the server dashboard, open **Nodes**, select your node, and find the **SSH** card on its overview. **Allow SSH** lets Subshell make outgoing SSH connections from this node and use its SSH agent to supply keys to other nodes. It doesn’t enable incoming SSH access to the node.

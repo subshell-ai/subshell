@@ -200,6 +200,14 @@ export interface Node {
    * older than the field must keep typechecking, and absent reads closed.
    */
   webPreviewsEnabled?: boolean;
+  /**
+   * Whether panes launched on this machine may be wired with the subshell MCP.
+   * On by default: MCP wiring predates its own switch, so a payload cached by
+   * a client older than the field must read ALLOWED here, the opposite
+   * polarity of `webPreviewsEnabled`. Off strips the MCP from every new launch
+   * on this machine and outranks any account preference.
+   */
+  mcpEnabled?: boolean;
   /** Whether subshells may request a virtual display on this node. */
   virtualDisplayEnabled?: boolean;
   /** Provider selected for new virtual displays on this node. */

@@ -20,6 +20,7 @@ import { serviceNodeRoute } from "@/api/nodes/service-node.route.js";
 import { setNodeAllowedDirsRoute } from "@/api/nodes/set-node-allowed-dirs.route.js";
 import { setNodeCrossAgentRoute } from "@/api/nodes/set-node-cross-agent.route.js";
 import { setNodeMaintenanceRoute } from "@/api/nodes/set-node-maintenance.route.js";
+import { setNodeMcpEnabledRoute } from "@/api/nodes/set-node-mcp-enabled.route.js";
 import { setNodeServerUrlRoute } from "@/api/nodes/set-node-server-url.route.js";
 import { setNodeSharesRoute } from "@/api/nodes/set-node-shares.route.js";
 import { setNodeSshEnabledRoute } from "@/api/nodes/set-node-ssh-enabled.route.js";
@@ -59,6 +60,7 @@ const nodeRegistryRoutes = new Elysia()
 const nodeOperationsRoutes = new Elysia()
   .use(setNodeMaintenanceRoute)
   .use(setNodeSshEnabledRoute)
+  .use(setNodeMcpEnabledRoute)
   .use(setNodeViewsEnabledRoute)
   .use(displayReadinessRoute)
   .use(repairNodeMachinePinRoute)

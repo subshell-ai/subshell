@@ -11,6 +11,18 @@ Confirm the agent is running inside a Subshell-launched pane. Check [MCP configu
 
 Run `subshell-server status` on the server host to see which MCP executable it uses. If you've configured MCP manually, check that the executable exists on the machine where the agent runs.
 
+## A child exits with a disabled notice
+
+When the MCP is switched off, a harness that registered `subshell mcp` on its
+host still starts the child, and the child stops itself with a notice instead
+of serving tools. `subshell mcp: the subshell MCP is turned off on this node`
+names the node's own switch; `the subshell MCP is switched off for this pane`
+means the account preference or the node's setting refuses it, and the pane's
+credential cannot register a channel identity. Either notice means the switch
+worked as intended, not that the registration is broken. A person with access
+to the account or the node's settings can turn the switch back on; new
+launches and restarts pick that up. See [MCP configuration](/mcp/configure#turning-the-wiring-off).
+
 ## Missing identity environment
 
 `subshell mcp: SUBSHELL_API_KEY is not set` and `subshell mcp: SUBSHELL_ID is not set` mean the process lacks pane identity. Don't invent credentials or reuse another pane's environment.

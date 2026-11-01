@@ -55,6 +55,7 @@ import { prepareLocalPlugins } from "@/modules/plugins/store.js";
 import { reconcileMaintenance } from "@/modules/nodes/maintenance.js";
 import { setNodeLifecycleHooks } from "@/modules/nodes/node-events.js";
 import { listOnline } from "@/modules/nodes/node-registry.js";
+import { reconcileMcpEnabled } from "@/modules/nodes/mcp-enabled.js";
 import { reconcilePreviewEnabled } from "@/modules/nodes/preview-enabled.js";
 import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
 import { reconcileSshEnabled } from "@/modules/nodes/ssh-enabled.js";
@@ -334,6 +335,11 @@ async function bootServer(): Promise<void> {
     // The preview switch's sibling (pane-preview spec Task 3): same door, same
     // direction rule: the row is the record, so this reconcile only pushes.
     onPreviewEnabled: (nodeId, reported) => reconcilePreviewEnabled(nodeId, reported),
+    // The MCP-use switch's sibling: same door, same direction rule (the row is
+    // the record, so this only pushes), and one different default: an
+    // unreported mirror means the machine is still wiring, which is agreement
+    // with a default row rather than the refusal the other two gates read.
+    onMcpEnabled: (nodeId, reported) => reconcileMcpEnabled(nodeId, reported),
   });
   // Restore alive/exit state at boot: a backend restart mid-subshell must not
   // leave stale alive=1 rows (tmux subshells died with the old process).

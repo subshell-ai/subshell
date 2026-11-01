@@ -43,6 +43,11 @@ export const API_KEY_PERMISSION_GROUPS = [
         description: "Enable or disable apps and screens on a node.",
       },
       {
+        id: "nodes:mcp",
+        label: "Change subshell MCP access",
+        description: "Enable or disable the subshell MCP in panes launched on a node.",
+      },
+      {
         id: "nodes:ssh-wide-forwards",
         label: "Allow network-accessible forwards",
         description: "Allow SSH forwards to listen on addresses other machines can reach.",
