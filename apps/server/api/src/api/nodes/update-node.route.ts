@@ -26,7 +26,7 @@ import { NodeRpcError, sendCommand, UPDATE_COMMAND_TIMEOUT_MS } from "@/modules/
 import { artifactStat, diskArtifactSha256, staleArtifactRefusal } from "@/modules/updates/node-artifacts.js";
 import { mintUpdateToken } from "@/modules/updates/node-tokens.js";
 import { beginUpdate, updateOutcomeUnknown, updateRefused, updateSwapped } from "@/modules/updates/node-tracker.js";
-import { autoFetchEnabled, compatibleNodeRelease, fetchDigest } from "@/modules/updates/releases.js";
+import { autoFetchEnabled, compatibleNodeRelease, fetchArtifact, fetchDigest } from "@/modules/updates/releases.js";
 import { nodeUpdateBlockReason } from "@/modules/updates/server-update.js";
 import { ForbiddenError } from "@/shared/errors.js";
 
@@ -397,6 +397,38 @@ export const updateNodeRoute = new Elysia()
             apiErrorBody({
               code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE,
               message: staleArtifactRefusal(target),
+            }),
+          );
+        }
+      }
+
+      // WARM BEFORE THE ORDER (the 2026-10-31 fan-out fix). A cold shelf used
+      // to mean every node's download request waited — with no bytes flowing,
+      // token burning, and the five-minute command deadline ticking — for
+      // the plane's own first fetch of the release, and against an
+      // operator-published shelf each waiter paid for its OWN copy of those
+      // bytes. N clients turned one update into N simultaneous cold upstream
+      // fetches, which is the incident this fix closes: the batch failed
+      // while the same update pressed one machine at a time always worked.
+      // The POST pays the fetch once, here, where a failure is the plane's
+      // own honest 409 and nothing has been ordered or burned. A disk that
+      // already carries these bytes skips it; the bytes this fetch caches are
+      // the shelf the nodes then download from, and the bytes it must serve
+      // past are held by the serve-past lease for those downloads.
+      const warmDisk = await diskArtifactSha256(target).catch(() => null);
+      if (warmDisk !== sha256) {
+        try {
+          // Same cache rule the download route's token path applies: absent
+          // disk → cache the release (it becomes the shelf); present-but-
+          // different → serve past the operator's file, never overwrite it.
+          const warm = await fetchArtifact(target, { cache: warmDisk === null });
+          await warm.dispose();
+        } catch (err) {
+          return status(
+            409,
+            apiErrorBody({
+              code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE,
+              message: `This server could not fetch the ${target} release bytes, so it will not order a download it already knows will fail: ${err instanceof Error ? err.message : String(err)}`,
             }),
           );
         }

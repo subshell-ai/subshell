@@ -97,12 +97,23 @@ const RELEASE_VERSION = "9.9.9";
 const RELEASE_TAG = `cli-node-v${RELEASE_VERSION}`;
 
 /**
+ * The release's binary bytes. The update route WARMS them before sending the
+ * command (the 2026-10-31 fan-out fix), so the fake release has to serve a
+ * real file — and a real file has to hash to whatever the manifest names.
+ */
+const RELEASE_BIN = Buffer.from("fake-release-node-binary\n");
+const RELEASE_BIN_SHA = createHash("sha256").update(RELEASE_BIN).digest("hex");
+/**
  * The digest the fake manifest's `assets` map names for linux-x64. A `let`
  * rather than a constant so the disk-artifact-matches case can be built: no
  * real bytes hash to a fixed digest, so the test flips the manifest to name
  * the fixture's own hash and resets the release cache to re-read it.
  */
-let manifestDigest = "a".repeat(64);
+let manifestDigest = RELEASE_BIN_SHA;
+/** How many times the fake release has served `/bin` — the warm's observable. */
+let binFetches = 0;
+/** When true `/bin` answers 500: the fetch-before-command failure arm. */
+let binFails = false;
 
 /**
  * The disk artifact the stale-file tests publish, and its sha — a real,
@@ -236,6 +247,15 @@ describe("POST /api/nodes/:id/update", () => {
         }
         if (url.pathname === "/sig") return new Response(TEST_ARMOR);
         if (url.pathname === "/sha") return new Response(`${manifestDigest}\n`);
+        if (url.pathname === "/bin") {
+          binFetches += 1;
+          if (binFails) return new Response("nope", { status: 500 });
+          // The bytes hash to RELEASE_BIN_SHA; when a test flips
+          // manifestDigest it is testing a disk match, where the warm must
+          // NOT need these at all — answering 404 here keeps that honest.
+          if (manifestDigest !== RELEASE_BIN_SHA) return new Response("digest is not mine", { status: 404 });
+          return new Response(RELEASE_BIN);
+        }
         return new Response("no", { status: 404 });
       },
     });
@@ -263,7 +283,25 @@ describe("POST /api/nodes/:id/update", () => {
     resetNodeRegistryForTests();
     resetUpdateTokensForTests();
     resetForTests();
+    binFetches = 0;
+    binFails = false;
+    // The warm caches what it fetches: shelf file, sidecar and the ledger
+    // must not survive into the next test, which would hand it a disk
+    // fast-path (or an "ours" claim) it never published.
     unpublishDiskFixture();
+    try {
+      unlinkSync(`${DISK_FIXTURE_PATH}.sha256`);
+    } catch {
+      /* no sidecar written */
+    }
+    try {
+      unlinkSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"));
+    } catch {
+      /* no ledger yet */
+    }
+    // Drop the release memo AND any serve-past lease the warm left behind,
+    // so the next test's fetch count starts honest.
+    resetReleaseCacheForTests();
   });
 
   /** Point the release service at the fake source and drop its memo. */
@@ -705,7 +743,7 @@ describe("POST /api/nodes/:id/update", () => {
     // manifest digest, and the download route serves verified release bytes
     // past the stale file.
     expect(res.status).toBe(202);
-    expect(cmd.sha256).toBe("a".repeat(64));
+    expect(cmd.sha256).toBe(RELEASE_BIN_SHA);
   });
 
   it("a disk artifact from another release on a plane that fetches NOTHING → 409, nothing sent", async () => {
@@ -741,8 +779,11 @@ describe("POST /api/nodes/:id/update", () => {
     const { res, cmd } = await updateWithAnswer(id, aliceCookie, {}, { ok: true });
     expect(res.status).toBe(202);
     expect(cmd.sha256).toBe(DISK_FIXTURE_SHA);
+    // Warming is eager only where it must be: when the disk ALREADY IS the
+    // release, the POST orders the update without an upstream byte read.
+    expect(binFetches).toBe(0);
     // Restore the shared manifest before any later test reads it.
-    manifestDigest = "a".repeat(64);
+    manifestDigest = RELEASE_BIN_SHA;
     resetReleaseCacheForTests();
   });
 
@@ -752,7 +793,55 @@ describe("POST /api/nodes/:id/update", () => {
     const id = await mkNode();
     const { res, cmd } = await updateWithAnswer(id, aliceCookie, {}, { ok: true });
     expect(res.status).toBe(202);
-    expect(cmd.sha256).toBe("a".repeat(64));
+    expect(cmd.sha256).toBe(RELEASE_BIN_SHA);
+  });
+
+  it("fetches the release bytes before the update command reaches the node", async () => {
+    // "Update all" used to order every machine first and let each node's GET
+    // discover the plane had never fetched this release: N machines then all
+    // waited out — and N machines paid, per the uncoalesced serve-past arm,
+    // each its OWN — the plane's upstream download, racing the command
+    // deadline and burning single-use tokens in a stall. The POST now fetches
+    // the bytes once itself; the observable is that the upstream read had
+    // already completed when the order appeared on the wire.
+    useFakeRelease();
+    const id = await mkNode();
+    const sock = goOnline(id);
+    const resP = req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    await waitFor(() => sock.sent.length > 0, "update command on the wire");
+    expect(binFetches).toBe(1);
+    // Answer as the agent would, so the 202 lands, and the total stays 1:
+    // the node's download finds warmed bytes, it does not refetch them.
+    const frame = JSON.parse(sock.sent[0] as string) as { jws: string };
+    const claim = JSON.parse(Buffer.from((frame.jws.split(".")[1] ?? "") as string, "base64url").toString()) as {
+      jti: string;
+    };
+    const record = getLive(id);
+    if (!record) throw new Error("no connection record");
+    expect(resolveResult(record, { type: "result", ref: claim.jti, ok: true })).toBe(true);
+    expect((await resP).status).toBe(202);
+    expect(binFetches).toBe(1);
+  });
+
+  it("refuses with the fetch failure and orders nothing when the release bytes cannot be read", async () => {
+    // A dead download is the PLANE's fact, so the plane now eats it before
+    // ordering anything. The old shape sent the command anyway, and the node
+    // discovered the failure line by line — burning its token, its restart
+    // window, and reporting a node-shaped error for a plane-shaped problem.
+    useFakeRelease();
+    binFails = true;
+    const id = await mkNode();
+    const sock = goOnline(id);
+    const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    expect(res.status).toBe(409);
+    const err = (await res.json()) as { code: string; message: string };
+    expect(err.code).toBe("NODE_UPDATE_UNAVAILABLE");
+    expect(err.message).toMatch(/answered 500/);
+    // Ordered nothing: no wire frame, no tracker entry, no audit row.
+    expect(sock.sent).toEqual([]);
+    expect(readView().nodes[id]).toBeUndefined();
+    const rows = await new AuditRepository(db).listLatest(20);
+    expect(rows.find((r) => r.targetId === id)).toBeUndefined();
   });
 
   // ── the command, end to end ─────────────────────────────────────────────
@@ -776,7 +865,7 @@ describe("POST /api/nodes/:id/update", () => {
     // verified manifest + signature ride with the order (spec 2026-09-17 §6)
     // so the node re-verifies WHAT will run against its compiled-in pubkey
     // rather than trusting this server's bytes.
-    expect(cmd.sha256).toBe("a".repeat(64));
+    expect(cmd.sha256).toBe(RELEASE_BIN_SHA);
     expect(JSON.parse(Buffer.from(String(cmd.manifest), "base64").toString("utf8"))).toMatchObject({
       component: "cli-node",
       version: RELEASE_VERSION,
