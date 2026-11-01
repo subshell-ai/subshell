@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   NODE_PROTOCOL_VERSION,
@@ -47,6 +47,7 @@ import {
 } from "@/modules/updates/server-update.js";
 import { beginUpdate as beginServerTransaction, clearPending } from "@/modules/updates/update-transaction.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
+import { DAC_ENFORCES_READ } from "../../../testing/dac-enforces-read.js";
 
 /**
  * `POST /api/nodes/:id/update` (spec 2026-09-15 §5.3).
@@ -821,6 +822,35 @@ describe("POST /api/nodes/:id/update", () => {
     expect(resolveResult(record, { type: "result", ref: claim.jti, ok: true })).toBe(true);
     expect((await resP).status).toBe(202);
     expect(binFetches).toBe(1);
+  });
+
+  // chmod-000 only stages unreadability where the DAC enforces reads; a
+  // DAC_OVERRIDE process (root, the CI runners) reads it anyway. See
+  // DAC_ENFORCES_READ for the PR #348 history.
+  it.skipIf(!DAC_ENFORCES_READ)("serves past an UNREADABLE operator file during the warm, never over it", async () => {
+    // The warm must not treat "the disk file could not be READ" as "there is
+    // no disk file": a cached fetch renames the release OVER whatever sits at
+    // the shelf path, and a file the operator published is never ours to
+    // replace — even when its bytes are unreadable. The download route's
+    // token path made exactly this distinction (`undefined` is not an answer
+    // about content, and never a licence to overwrite); the warm mirrors it,
+    // and this is that mirror pinned: an unreadable file must ride the
+    // serve-past arm, the command must still go out, and the operator's
+    // bytes must still be there after.
+    useFakeRelease();
+    publishDiskFixture();
+    chmodSync(DISK_FIXTURE_PATH, 0o000);
+    try {
+      const id = await mkNode();
+      const { res, cmd } = await updateWithAnswer(id, aliceCookie, {}, { ok: true });
+      expect(res.status).toBe(202);
+      expect(cmd.sha256).toBe(RELEASE_BIN_SHA);
+      // One private upstream fetch, taken past the shelf, not onto it.
+      expect(binFetches).toBe(1);
+    } finally {
+      chmodSync(DISK_FIXTURE_PATH, 0o644);
+    }
+    expect(readFileSync(DISK_FIXTURE_PATH)).toEqual(DISK_FIXTURE);
   });
 
   it("refuses with the fetch failure and orders nothing when the release bytes cannot be read", async () => {

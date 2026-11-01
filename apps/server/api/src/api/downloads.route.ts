@@ -257,10 +257,11 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
       // prevent, one download later. So the comparison happens before the
       // first byte is served — and since the fetch verifies the whole file
       // before this line runs (the "Update all" fan-out fix of 2026-10-23), a
-      // mismatch now stops with NO byte served: `dispose` removes the temp
-      // copy the fetch wrote, and where the fetch cached, the
-      // newer release stays on the shelf because it IS the release an
-      // installer would serve next — the retry fast-paths on it.
+      // mismatch now stops with NO byte served: `dispose` hands back the
+      // handle to the serve-past copy the fetch wrote, which the lease then
+      // removes once its brief hold for late downloads expires, and where the
+      // fetch cached, the newer release stays on the shelf because it IS the
+      // release an installer would serve next — the retry fast-paths on it.
       if (fetched.digest !== expected) {
         await fetched.dispose();
         // Two causes, two sentences: a STALE DISK file is the operator's

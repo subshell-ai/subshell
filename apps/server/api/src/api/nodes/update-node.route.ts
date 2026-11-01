@@ -415,12 +415,18 @@ export const updateNodeRoute = new Elysia()
       // already carries these bytes skips it; the bytes this fetch caches are
       // the shelf the nodes then download from, and the bytes it must serve
       // past are held by the serve-past lease for those downloads.
-      const warmDisk = await diskArtifactSha256(target).catch(() => null);
+      // `undefined` (a READ failure) is not an answer about the file's
+      // content, and it never licenses renaming over it: the token path's
+      // distinction, mirrored exactly. Collapsing it into "absent" would
+      // hand an unreadable-but-present operator file to the cached arm,
+      // whose rename replaces it.
+      const warmDisk = await diskArtifactSha256(target).catch(() => undefined);
       if (warmDisk !== sha256) {
         try {
           // Same cache rule the download route's token path applies: absent
           // disk → cache the release (it becomes the shelf); present-but-
-          // different → serve past the operator's file, never overwrite it.
+          // different, or un-readable → serve past the operator's file,
+          // never overwrite it.
           const warm = await fetchArtifact(target, { cache: warmDisk === null });
           await warm.dispose();
         } catch (err) {

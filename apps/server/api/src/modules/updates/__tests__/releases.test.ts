@@ -10,7 +10,6 @@ import {
 } from "@internal/subshell-protocol";
 import { NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { artifactPath } from "@/modules/updates/node-artifacts.js";
-import * as releasesModule from "@/modules/updates/releases.js";
 import {
   autoFetchEnabled,
   checkReleaseManifest,
@@ -26,12 +25,12 @@ import {
   resolveReleases,
   STALE_DOWNLOAD_MAX_AGE_MS,
   setReleaseUrlForTests,
+  setServePastHoldMsForTests,
   signedAssetDigest,
 } from "@/modules/updates/releases.js";
 
-/** The serve-past hold-window seam, kept short so the expiry tests wait on a
- *  timer rather than on the production ten-minute hold. */
-const setServePastGraceMsForTests = releasesModule.setServePastHoldMsForTests;
+// The expiry tests shorten the serve-past hold-window seam (`setServePastHoldMsForTests`)
+// so they wait on a timer rather than on the production ten-minute hold.
 
 /**
  * A stand-in for the repository's releases endpoint.
@@ -462,7 +461,7 @@ describe("fetchArtifact", () => {
     // now, each caller opening its own read of it; the operator's shelf file
     // is still never touched, which is the only reason the arm exists.
     writeFileSync(artifactPath(TARGET), "the operator's own");
-    setServePastGraceMsForTests(10);
+    setServePastHoldMsForTests(10);
     const [a, b] = await Promise.all([
       fetchArtifact(TARGET, { cache: false }),
       fetchArtifact(TARGET, { cache: false }),
@@ -491,13 +490,36 @@ describe("fetchArtifact", () => {
     expect(readFileSync(artifactPath(TARGET), "utf8")).toBe("the operator's own");
   });
 
+  it("re-fetches when a live slot's held copy is swept from under it", async () => {
+    // The stray-download sweep unlinks `.download-` temps older than an hour,
+    // and a serve-past copy carries exactly that name. A ref leaked by a
+    // response that never streamed and was never cancelled keeps the hold
+    // unarmed, so the sweep becomes the only thing that removes the file —
+    // while the SLOT stays in the map. A joiner handed that dead path would
+    // answer its node with a body that dies at the first pull, token spent.
+    // The join re-checks the file on disk, so the stale slot is retired and
+    // the bytes refetched instead of served as a corpse.
+    writeFileSync(artifactPath(TARGET), "the operator's own");
+    const warmer = await fetchArtifact(TARGET, { cache: false });
+    // Deliberately leaked, and the point of the case: refs never drop, so
+    // nothing inside the module ever removes this temp.
+    void warmer;
+    const temp = readdirSync(NODE_ARTIFACTS_DIR).find((n) => n.includes(".download-"));
+    if (temp === undefined) throw new Error("no serve-past temp to sweep");
+    rmSync(join(NODE_ARTIFACTS_DIR, temp), { force: true });
+    const joiner = await fetchArtifact(TARGET, { cache: false });
+    expect(fake.assetFetches.get(BINARY)).toBe(2);
+    expect(await drain(joiner.body())).toBe(BINARY_PAYLOAD.bytes.byteLength);
+    await joiner.dispose();
+  });
+
   it("keeps the operator's file when asked not to cache, and its temp copy goes once the serve is done", async () => {
     // A file already sitting at the target path may be the operator's
     // hand-published binary: `cache: false` serves the release bytes from a
     // temp copy and leaves the path alone (the download route passes false
     // exactly when the disk holds a different digest).
     writeFileSync(artifactPath(TARGET), "the operator's own");
-    setServePastGraceMsForTests(10);
+    setServePastHoldMsForTests(10);
     const fetched = await fetchArtifact(TARGET, { cache: false });
     expect(await drain(fetched.body())).toBe(BINARY_PAYLOAD.bytes.byteLength);
     await Bun.sleep(60);
@@ -511,7 +533,7 @@ describe("fetchArtifact", () => {
     // bytes. What bounds the leftover is the hold window, not the caller's
     // own cleanup act.
     writeFileSync(artifactPath(TARGET), "the operator's own");
-    setServePastGraceMsForTests(10);
+    setServePastHoldMsForTests(10);
     const fetched = await fetchArtifact(TARGET, { cache: false });
     await fetched.dispose();
     expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(true);
@@ -524,7 +546,7 @@ describe("fetchArtifact", () => {
     // The node hung up mid-download — the response body is cancelled, its
     // reference releases, and with nobody left reading the copy expires.
     writeFileSync(artifactPath(TARGET), "the operator's own");
-    setServePastGraceMsForTests(10);
+    setServePastHoldMsForTests(10);
     const fetched = await fetchArtifact(TARGET, { cache: false });
     const reader = fetched.body().getReader();
     await reader.read();

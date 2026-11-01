@@ -95,7 +95,7 @@ export const MAX_ARTIFACT_BYTES = 300 * 1024 * 1024;
  *  older than this is a crashed attempt's corpse, not a live write. @internal */
 export const STALE_DOWNLOAD_MAX_AGE_MS = 60 * 60 * 1000;
 
-/** The digest-failure phrase, shared because {@link fetchArtifactUncoordinated}
+/** The digest-failure phrase, shared because {@link fetchVerifiedTemp}
  *  pattern-matches what {@link downloadVerified} throws to keep the artifact
  *  log line truthful. Tests pin the shipped string with a literal regex. */
 const DIGEST_MISMATCH_PHRASE = "did not match the published digest";
@@ -338,6 +338,12 @@ async function resolveReleasesUncached(api: string): Promise<ReleaseIndex> {
 /**
  * Drop the memoized index so the next read reaches the network — the Re-check
  * button, and the CLI's `update --check`.
+ *
+ * A read that is already in flight answers this one too: the join
+ * ({@link resolveReleases}) is deliberately unconditional, so a click that
+ * lands during a burst's fetch gets those bytes a moment later rather than
+ * opening a second GitHub request. The list is a cache by contract; the click
+ * proves eagerness to ask, not a demand to ask twice.
  */
 export async function refreshReleases(): Promise<ReleaseIndex> {
   cachedIndex = null;
@@ -1049,9 +1055,11 @@ async function fetchAndCacheArtifact(target: NodeTarget): Promise<FetchedArtifac
  * fetches the bytes, lets its own handle go, and only then sends the order;
  * the node's GET arrives seconds (or a redial) later and must find the
  * settled copy rather than trigger a fresh fetch. The window is bounded so a
- * batch that never showed up cannot park ~80 MB on the data volume forever;
- * a crashed lease is reaped by {@link sweepStaleDownloads} like any stray
- * download.
+ * batch that never showed up cannot park ~80 MB on the data volume forever. A
+ * copy left past the window (a crashed process, or a ref leaked by a response
+ * that never streamed) is reaped by {@link sweepStaleDownloads} like any stray
+ * download; the join's re-stat then retires the now-empty slot, so the sweep
+ * of the file also heals the map rather than leaving it to hand a dead path.
  */
 export const SERVE_PAST_HOLD_MS = 10 * 60 * 1000;
 let servePastHoldMs = SERVE_PAST_HOLD_MS;
@@ -1144,31 +1152,33 @@ function startServePast(target: NodeTarget): ServePastEntry {
  * tokened request.
  */
 async function acquireServePast(target: NodeTarget): Promise<FetchedArtifact> {
-  let entry = servePast.get(target) ?? startServePast(target);
+  // The ref is taken BEFORE the join is awaited: while a joiner is in flight,
+  // the copy's refs read above zero, so a hold that reaches its expiry
+  // mid-await cannot mistake the waiting joiner for nobody and delete the
+  // settled file out from under it. Every failure path hands the ref back.
+  let lease = adoptServePast(servePast.get(target) ?? startServePast(target));
   let bytes: ServePastBytes;
   try {
-    bytes = await joinServePast(entry);
+    bytes = await joinServePast(lease);
   } catch {
+    releaseServePastRef(lease);
     // One retry, same rule as the cached arm: onto a newer attempt if one
-    // started meanwhile, else a fresh one. A second failure propagates.
+    // started meanwhile, else a fresh one. A second failure propagates
+    // (having handed its ref back too).
     const retry = servePast.get(target);
-    entry = retry ?? startServePast(target);
-    bytes = await joinServePast(entry);
+    lease = adoptServePast(retry ?? startServePast(target));
+    try {
+      bytes = await joinServePast(lease);
+    } catch (error) {
+      releaseServePastRef(lease);
+      throw error;
+    }
   }
-  if (entry.holdTimer !== null) {
-    clearTimeout(entry.holdTimer);
-    entry.holdTimer = null;
-  }
-  // The entry THIS handle belongs to, captured after the retry has settled
-  // which one it is: the release must decrement the copy it actually joined.
-  const lease = entry;
-  lease.refs += 1;
   let released = false;
   const release = async (): Promise<void> => {
     if (released) return;
     released = true;
-    lease.refs -= 1;
-    if (lease.refs <= 0) armServePastHold(lease);
+    releaseServePastRef(lease);
   };
   return {
     digest: bytes.digest,
@@ -1178,7 +1188,26 @@ async function acquireServePast(target: NodeTarget): Promise<FetchedArtifact> {
   };
 }
 
-/** Await the entry's fetch, refusing a settled copy the release has moved past. */
+/** Join an entry as a live reader: disarm any pending hold, take the ref. */
+function adoptServePast(entry: ServePastEntry): ServePastEntry {
+  if (entry.holdTimer !== null) {
+    clearTimeout(entry.holdTimer);
+    entry.holdTimer = null;
+  }
+  entry.refs += 1;
+  return entry;
+}
+
+/** Hand back one reader's ref; zero refs arms the hold window. */
+function releaseServePastRef(entry: ServePastEntry): void {
+  entry.refs -= 1;
+  if (entry.refs <= 0) armServePastHold(entry);
+}
+
+/**
+ * Await the entry's fetch, refusing a settled copy the release has moved
+ * past, and a slot whose copy is no longer on disk at all.
+ */
 async function joinServePast(entry: ServePastEntry): Promise<ServePastBytes> {
   const bytes = await entry.promise;
   const expected = await fetchDigest(entry.target).catch(() => bytes.digest);
@@ -1191,6 +1220,22 @@ async function joinServePast(entry: ServePastEntry): Promise<ServePastBytes> {
     throw new Error(
       `${bytes.tag}'s ${bytes.assetName} serve-past copy (${bytes.digest.slice(0, 12)}…) is not the release this server now offers (${expected.slice(0, 12)}…)`,
     );
+  }
+  // The two awaits above outlive bookkeeping nobody else is obliged to
+  // preserve: the hourly stray sweep unlinks `.download-` temps that age past
+  // its bound (a leaked ref keeps the hold unarmed, so the sweep becomes the
+  // only remover), and a slot can be retired while its file goes with it.
+  // Handing out a dead path would answer a tokened download with a body that
+  // dies at the first pull, so re-ask both facts and fail the join — loudly,
+  // and with the slot retired — if either went stale.
+  if (servePast.get(entry.target) !== entry) {
+    throw new Error(`the ${bytes.tag} serve-past slot was retired while its copy was being read`);
+  }
+  if ((await stat(bytes.tmp).catch(() => null)) === null) {
+    // The stat is itself an await: the slot may have been replaced (or
+    // retired) since the line above. Only ever retire OUR OWN entry.
+    if (servePast.get(entry.target) === entry) servePast.delete(entry.target);
+    throw new Error(`the ${bytes.tag} serve-past copy's temp file vanished before it could be served`);
   }
   return bytes;
 }
