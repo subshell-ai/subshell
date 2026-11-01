@@ -898,6 +898,17 @@ export interface FetchArtifactOptions {
    * original deliberately-unshared one.
    */
   cache?: boolean;
+  /**
+   * Bounds the wait by ABORTING the fetch (the update route's warm step
+   * passes `AbortSignal.timeout()` so a plane whose link is slow says so in
+   * its own 409 rather than hanging the POST). One honest consequence of
+   * coalescing: a caller who JOINS a fetch inherits that fetch's abort,
+   * because it is genuinely the same request. The update route accepts this
+   * — every warm POST uses the same bound, and the download route's token
+   * path passes no signal, so the node-driven fetch is never the one a
+   * plane-side timer kills.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -928,7 +939,7 @@ export interface FetchArtifactOptions {
  * must not reach another's bytes.
  */
 export async function fetchArtifact(target: NodeTarget, options: FetchArtifactOptions = {}): Promise<FetchedArtifact> {
-  if (options.cache === false) return acquireServePast(target);
+  if (options.cache === false) return acquireServePast(target, options.signal);
   const existing = inFlight.get(target);
   if (existing) {
     // A failed fetch is NOT sticky for its joiners. The settled attempt is
@@ -945,7 +956,7 @@ export async function fetchArtifact(target: NodeTarget, options: FetchArtifactOp
       if (retry !== undefined && retry !== existing) return retry;
     }
   }
-  const work = fetchAndCacheArtifact(target).finally(() => inFlight.delete(target));
+  const work = fetchAndCacheArtifact(target, options.signal).finally(() => inFlight.delete(target));
   inFlight.set(target, work);
   return work;
 }
@@ -957,7 +968,7 @@ export async function fetchArtifact(target: NodeTarget, options: FetchArtifactOp
  * temp onto the shelf path when the bytes are ours to cache, and the
  * serve-past lease ({@link acquireServePast}) holds it as a temp instead.
  */
-async function fetchVerifiedTemp(target: NodeTarget): Promise<ServePastBytes> {
+async function fetchVerifiedTemp(target: NodeTarget, signal?: AbortSignal): Promise<ServePastBytes> {
   const { release, manifest } = await compatibleNodeReleaseOrThrow();
   // Resolving told us which tag is current, so this is the moment anything
   // older becomes removable. Before the download, so a plane low on disk
@@ -1004,6 +1015,7 @@ async function fetchVerifiedTemp(target: NodeTarget): Promise<ServePastBytes> {
       expectedDigest: expected,
       destDir: NODE_ARTIFACTS_DIR,
       destName: `subshell-node-cli-${target}.fetch`,
+      signal,
     });
   } catch (error) {
     // Keep the digest failure in the artifact log line the streaming design
@@ -1031,8 +1043,8 @@ interface ServePastBytes {
 }
 
 /** The cached arm: rename onto the shelf, announce, record, serve from the shelf. */
-async function fetchAndCacheArtifact(target: NodeTarget): Promise<FetchedArtifact> {
-  const bytes = await fetchVerifiedTemp(target);
+async function fetchAndCacheArtifact(target: NodeTarget, signal?: AbortSignal): Promise<FetchedArtifact> {
+  const bytes = await fetchVerifiedTemp(target, signal);
   await rename(bytes.tmp, artifactPath(target));
   // The sidecar is written from the MANIFEST's digest, not the other way
   // round: `install.sh` keeps reading the file, it just no longer decides
@@ -1106,7 +1118,7 @@ function purgeServePastForTests(): void {
 }
 
 /** Start (and register) a fresh serve-past fetch for one target. */
-function startServePast(target: NodeTarget): ServePastEntry {
+function startServePast(target: NodeTarget, signal?: AbortSignal): ServePastEntry {
   const entry = {
     target,
     refs: 0,
@@ -1114,7 +1126,7 @@ function startServePast(target: NodeTarget): ServePastEntry {
     holdTimer: null,
     promise: null as unknown as Promise<ServePastBytes>,
   } as ServePastEntry;
-  entry.promise = fetchVerifiedTemp(target)
+  entry.promise = fetchVerifiedTemp(target, signal)
     .then((bytes) => {
       entry.tmp = bytes.tmp;
       return bytes;
@@ -1151,12 +1163,12 @@ function startServePast(target: NodeTarget): ServePastEntry {
  * digest gate ({@link FetchedArtifact.digest}) remains the last word for a
  * tokened request.
  */
-async function acquireServePast(target: NodeTarget): Promise<FetchedArtifact> {
+async function acquireServePast(target: NodeTarget, signal?: AbortSignal): Promise<FetchedArtifact> {
   // The ref is taken BEFORE the join is awaited: while a joiner is in flight,
   // the copy's refs read above zero, so a hold that reaches its expiry
   // mid-await cannot mistake the waiting joiner for nobody and delete the
   // settled file out from under it. Every failure path hands the ref back.
-  let lease = adoptServePast(servePast.get(target) ?? startServePast(target));
+  let lease = adoptServePast(servePast.get(target) ?? startServePast(target, signal));
   let bytes: ServePastBytes;
   try {
     bytes = await joinServePast(lease);
@@ -1166,7 +1178,7 @@ async function acquireServePast(target: NodeTarget): Promise<FetchedArtifact> {
     // started meanwhile, else a fresh one. A second failure propagates
     // (having handed its ref back too).
     const retry = servePast.get(target);
-    lease = adoptServePast(retry ?? startServePast(target));
+    lease = adoptServePast(retry ?? startServePast(target, signal));
     try {
       bytes = await joinServePast(lease);
     } catch (error) {
@@ -1345,6 +1357,14 @@ export interface DownloadVerifiedInput {
   destName: string;
   /** Progress, called per chunk. `total` is null when the server sent no length. */
   onProgress?: (received: number, total: number | null) => void;
+  /**
+   * Aborts the read. A caller that must not wait forever (the update route's
+   * warm fetch) passes its own `AbortSignal.timeout(ms)`; the abort lands as
+   * an ordinary fetch failure — partial temp deleted, nothing cached, the
+   * error reaching the caller — the same shape every other failed download
+   * already has.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -1409,7 +1429,10 @@ export async function downloadVerified(input: DownloadVerifiedInput): Promise<st
   // same untrusted field the lazy fetch pins (C12), hops included, so the
   // pin belongs here too: this download writes a file and the CALLER
   // EXECUTES it.
-  const response = await fetchWithPinnedEgress(input.url);
+  const response = await fetchWithPinnedEgress(
+    input.url,
+    input.signal === undefined ? undefined : { signal: input.signal },
+  );
   if (!response.ok || response.body === null) throw new Error(`${input.url} answered ${response.status}`);
   const lengthHeader = response.headers.get("content-length");
   const total = lengthHeader === null ? null : Number.parseInt(lengthHeader, 10);

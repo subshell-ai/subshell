@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   NODE_PROTOCOL_VERSION,
@@ -19,6 +19,7 @@ import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { nodesRoutes } from "@/api/nodes/index.js";
+import { updateNodeRouteSeams } from "@/api/nodes/update-node.route.js";
 import { NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
@@ -34,7 +35,7 @@ import {
   type NodeSocket,
   resetNodeRegistryForTests,
 } from "@/modules/nodes/node-registry.js";
-import { failConnPendings, resolveResult } from "@/modules/nodes/node-rpc.js";
+import { failConnPendings, resolveResult, UPDATE_COMMAND_TIMEOUT_MS } from "@/modules/nodes/node-rpc.js";
 import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
 import { resetUpdateTokensForTests } from "@/modules/updates/node-tokens.js";
 import { readView, recordNodeReady, resetForTests } from "@/modules/updates/node-tracker.js";
@@ -115,6 +116,8 @@ let manifestDigest = RELEASE_BIN_SHA;
 let binFetches = 0;
 /** When true `/bin` answers 500: the fetch-before-command failure arm. */
 let binFails = false;
+/** Milliseconds `/bin` withholds its answer: makes the warm observable while it is still running. */
+let binDelayMs = 0;
 
 /**
  * The disk artifact the stale-file tests publish, and its sha — a real,
@@ -218,7 +221,7 @@ describe("POST /api/nodes/:id/update", () => {
     // (spec 2026-09-17: never the sidecar) rather than a guessed payload.
     release = Bun.serve({
       port: 0,
-      fetch(req) {
+      async fetch(req) {
         const url = new URL(req.url);
         if (url.pathname === "/releases") {
           const base = `http://127.0.0.1:${release?.port}`;
@@ -251,6 +254,9 @@ describe("POST /api/nodes/:id/update", () => {
         if (url.pathname === "/bin") {
           binFetches += 1;
           if (binFails) return new Response("nope", { status: 500 });
+          // The hold happens AFTER the request is counted, so a test can wait
+          // for the fetch to have STARTED and still catch the POST mid-warm.
+          if (binDelayMs > 0) await Bun.sleep(binDelayMs);
           // The bytes hash to RELEASE_BIN_SHA; when a test flips
           // manifestDigest it is testing a disk match, where the warm must
           // NOT need these at all — answering 404 here keeps that honest.
@@ -286,6 +292,10 @@ describe("POST /api/nodes/:id/update", () => {
     resetForTests();
     binFetches = 0;
     binFails = false;
+    binDelayMs = 0;
+    // A test may shorten the warm's patience; production's value is the
+    // command's own deadline, and no sibling test may inherit a truncation.
+    updateNodeRouteSeams.warmBudgetMs = UPDATE_COMMAND_TIMEOUT_MS;
     // The warm caches what it fetches: shelf file, sidecar and the ledger
     // must not survive into the next test, which would hand it a disk
     // fast-path (or an "ours" claim) it never published.
@@ -535,9 +545,17 @@ describe("POST /api/nodes/:id/update", () => {
     };
     const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
     expect(res.status).toBe(409);
-    expect(await codeOf(res)).toBe("UPDATE_IN_PROGRESS");
+    const err = (await res.json()) as { code: string; message: string };
+    expect(err.code).toBe("UPDATE_IN_PROGRESS");
     expect(sock.sent).toEqual([]);
-    expect(readView(Date.now()).nodes[id]).toBeUndefined();
+    // The late block orders nothing, and the row now says so out loud: the
+    // warm had already opened the story when this recheck answered, so the
+    // refusal CLOSES it with the same sentence the 409 carried — the entry
+    // opens at the fetch (2026-10-31), and every refusal after that point
+    // ends it rather than leaving nothing behind for the page to render.
+    const state = readView(Date.now()).nodes[id];
+    expect(state?.phase).toBe("failed");
+    expect(state?.message).toBe(err.message);
   });
 
   it("neither live nor held → 409 NODE_OFFLINE", async () => {
@@ -824,6 +842,40 @@ describe("POST /api/nodes/:id/update", () => {
     expect(binFetches).toBe(1);
   });
 
+  it("says preparing while the plane is fetching, and that the node was told only once it was", async () => {
+    // The warm makes the POST slow ON BEHALF of the node, and a pressed
+    // button with nothing server-side to show is what made "Update all" feel
+    // broken. The tracker entry opens BEFORE the fetch, so mid-warm the row's
+    // honest answer names both what is waiting (this server, not the machine)
+    // and for what (these versions) — and `working`, which claims the node
+    // was told, arrives exactly at the dispatch. This is that ordering,
+    // pinned at the wire: preparing while /bin is still answering, nothing
+    // sent, then working the moment the command is on it.
+    useFakeRelease();
+    binDelayMs = 400; // the POST parks in the fetch for the whole window
+    const id = await mkNode();
+    const sock = goOnline(id);
+    const resP = req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    await waitFor(() => binFetches === 1, "the warm fetch to start");
+    const mid = readView().nodes[id];
+    expect(mid?.phase).toBe("preparing");
+    expect(mid?.from).toBe("0.8.0");
+    expect(mid?.to).toBe(RELEASE_VERSION);
+    expect(mid?.message).toBeNull();
+    expect(sock.sent).toEqual([]); // the node has been told NOTHING yet
+
+    await waitFor(() => sock.sent.length > 0, "update command on the wire");
+    expect(readView().nodes[id]?.phase).toBe("working");
+    const frame = JSON.parse(sock.sent[0] as string) as { jws: string };
+    const claim = JSON.parse(Buffer.from((frame.jws.split(".")[1] ?? "") as string, "base64url").toString()) as {
+      jti: string;
+    };
+    const record = getLive(id);
+    if (!record) throw new Error("no connection record");
+    expect(resolveResult(record, { type: "result", ref: claim.jti, ok: true })).toBe(true);
+    expect((await resP).status).toBe(202);
+  });
+
   // chmod-000 only stages unreadability where the DAC enforces reads; a
   // DAC_OVERRIDE process (root, the CI runners) reads it anyway. See
   // DAC_ENFORCES_READ for the PR #348 history.
@@ -867,11 +919,48 @@ describe("POST /api/nodes/:id/update", () => {
     const err = (await res.json()) as { code: string; message: string };
     expect(err.code).toBe("NODE_UPDATE_UNAVAILABLE");
     expect(err.message).toMatch(/answered 500/);
-    // Ordered nothing: no wire frame, no tracker entry, no audit row.
+    // Ordered nothing: no wire frame, no audit row. The tracker entry DOES
+    // exist now (the story opens at the warm, not at the dispatch), and it
+    // ends `failed` carrying this same sentence — the row on the Updates page
+    // keeps saying what the toast said, which is the tracker's whole purpose.
     expect(sock.sent).toEqual([]);
-    expect(readView().nodes[id]).toBeUndefined();
+    const state = readView().nodes[id];
+    expect(state?.phase).toBe("failed");
+    expect(state?.message).toBe(err.message);
     const rows = await new AuditRepository(db).listLatest(20);
     expect(rows.find((r) => r.targetId === id)).toBeUndefined();
+  });
+
+  it("refuses with the patience it actually gave when the warm outlasts its budget", async () => {
+    // `preparing` can never hang a row, because the fetch behind it runs
+    // against a deadline (the same one the node's own download gets). Past
+    // it the POST answers its own 409 naming the budget that WAS applied,
+    // the entry ends `failed` rather than sitting in preparing forever, and
+    // the half-read bytes are deleted, not stranded as a temp for the hourly
+    // sweep to find an hour later.
+    useFakeRelease();
+    updateNodeRouteSeams.warmBudgetMs = 100;
+    binDelayMs = 5_000;
+    const id = await mkNode();
+    const sock = goOnline(id);
+    const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    expect(res.status).toBe(409);
+    const err = (await res.json()) as { code: string; message: string };
+    expect(err.code).toBe("NODE_UPDATE_UNAVAILABLE");
+    // The sentence states the test's own budget, not the production default:
+    // a refusal that promises patience it did not wait for is a lie of the
+    // worst kind on a page whose whole job is honesty about a wait.
+    expect(err.message).toContain("did not finish fetching the linux-x64 release bytes within 0.1 seconds");
+    expect(sock.sent).toEqual([]);
+    const state = readView().nodes[id];
+    expect(state?.phase).toBe("failed");
+    expect(state?.message).toBe(err.message);
+    // Nothing cached (the fetch never finished) and no partial left behind.
+    expect(existsSync(DISK_FIXTURE_PATH)).toBe(false);
+    const strays = existsSync(NODE_ARTIFACTS_DIR)
+      ? readdirSync(NODE_ARTIFACTS_DIR).filter((n) => n.includes(".download-"))
+      : [];
+    expect(strays).toEqual([]);
   });
 
   // ── the command, end to end ─────────────────────────────────────────────

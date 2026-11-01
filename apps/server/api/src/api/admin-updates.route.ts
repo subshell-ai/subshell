@@ -72,10 +72,17 @@ const UpdateStateSchema = t.Object({
     description: "ISO 8601 of the ordering — the stall clock's zero (for a self entry, of the swap that began)",
   }),
   phase: t.Union(
-    [t.Literal("working"), t.Literal("restarting"), t.Literal("done"), t.Literal("failed"), t.Literal("stalled")],
+    [
+      t.Literal("preparing"),
+      t.Literal("working"),
+      t.Literal("restarting"),
+      t.Literal("done"),
+      t.Literal("failed"),
+      t.Literal("stalled"),
+    ],
     {
       description:
-        "`working`: ordered, the swap unconfirmed. `restarting`: the node answered and is booting into the new binary. `done`/`failed`: terminal. `stalled`: nothing confirmed it within 2 minutes, and a later `ready` can STILL resolve it — which is why it is not a failure",
+        "`preparing`: the plane is fetching the release bytes before ordering the download (2026-10-31) — the node has been told nothing yet, and this phase never reads as stalled. `working`: ordered, the swap unconfirmed. `restarting`: the node answered and is booting into the new binary. `done`/`failed`: terminal. `stalled`: nothing confirmed it within 2 minutes, and a later `ready` can STILL resolve it — which is why it is not a failure",
     },
   ),
   message: t.Nullable(t.String(), {

@@ -55,6 +55,13 @@ export function rowState(row: NodeUpdateRow, fleet: Pick<NodeUpdates, "minNodeVe
  */
 function updateLine(row: NodeUpdateRow, update: UpdateTrackerState): string {
   switch (update.phase) {
+    case "preparing":
+      // The wait is THIS server's, and saying so is the whole point (the
+      // 2026-10-31 warm): the update orders nothing until the release bytes
+      // are in hand, and a row silent through that window reads as a machine
+      // ignoring us rather than a plane doing its fetch. Names who waits,
+      // for what, and that the node has heard nothing yet.
+      return `This server is fetching the ${update.to} release bytes; ${row.name} hasn't been told yet.`;
     case "working":
     case "restarting":
       // One sentence for both live phases: to the page they are the same
@@ -228,9 +235,14 @@ export function NodeRows({ fleet, serverUpdating = false }: { fleet: NodeUpdates
             {!serverUpdating && !row.canUpdate.ok && row.canUpdate.reason !== null && (
               <p className="col-span-full truncate text-detail text-muted-foreground">{row.canUpdate.reason}</p>
             )}
+            {/* True to the moment it renders: the request is in, the
+                server-side entry has not appeared yet, and the first thing
+                that entry will say is that THIS server is fetching (the
+                2026-10-31 warm). The old sentence had the node reporting
+                progress it has not been asked for yet. */}
             {pending && tracked == null && (
               <p role="status" className="col-span-full text-detail text-warning">
-                Starting the update. Waiting for the node to report progress.
+                Starting the update. This server is checking the release before the node is told.
               </p>
             )}
             {tracked != null && (

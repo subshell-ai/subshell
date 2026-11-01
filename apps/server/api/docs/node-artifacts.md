@@ -20,7 +20,13 @@ authorize a download of before the command goes out, because a whole fleet
 pressing that button at once used to have every machine's download stall on
 the plane's own cold first fetch, and on the serve-past arm pay for it again
 node by node. That is the fan-out incident the same section of this doc
-records from below.
+records from below. That fetch is bounded by the same deadline the node's own
+download gets, and it is VISIBLE: the update tracker opens the row's entry as
+`preparing` before the fetch starts (never deriving `stalled`, which would
+blame the machine for the plane's wait), ends it `failed` with the refusal's
+sentence if the fetch or a late gate refuses, and flips it to `working` the
+moment the command goes out, when the stall clock starts counting node
+silence.
 Since 2026-10-09 the tiny index/manifest reads behind the serve decision run
 on EVERY authenticated download request (TTL-cached; a failed read is backed
 off a minute), not just on the branch that ends in a fetch. The bytes are

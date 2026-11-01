@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
+  beginPreparing,
   beginSelfUpdate,
   beginUpdate,
   readView,
@@ -9,6 +10,7 @@ import {
   resolveSelfUpdate,
   STALL_MS,
   TERMINAL_EXPIRE_MS,
+  updateOrdered,
   updateOutcomeUnknown,
   updateRefused,
   updateSwapped,
@@ -97,6 +99,68 @@ describe("beginUpdate / updateSwapped", () => {
     updateRefused("ghost", "nothing began here");
     updateOutcomeUnknown("ghost");
     expect(readView().nodes.ghost).toBeUndefined();
+  });
+});
+
+describe("beginPreparing / updateOrdered — the plane's own fetch stage", () => {
+  it("opens a preparing entry that never reads as stalled", () => {
+    // The 2026-10-31 fan-out fix moved the fetch of the release bytes into
+    // the POST, before the command goes out. During that wait the PLANE is
+    // the actor and the node has heard nothing — calling it `stalled` ("the
+    // update was accepted, but the node has not reported") would describe a
+    // machine that was never told anything.
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    expect(readView().nodes.n1).toEqual({
+      from: "0.8.0",
+      to: "0.9.0",
+      startedAt: nowMs,
+      phase: "preparing",
+      message: null,
+      endedAt: null,
+    });
+    expect(readView(1_000_000 + STALL_MS).nodes.n1?.phase).toBe("preparing");
+    expect(readView(1_000_000 + STALL_MS + 300_000).nodes.n1?.phase).toBe("preparing");
+  });
+
+  it("updateOrdered moves preparing → working and restarts the stall clock at the ORDER", () => {
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    nowMs += 90_000; // a slow-but-legal fetch, inside the route's own budget
+    updateOrdered("n1");
+    expect(readView().nodes.n1?.phase).toBe("working");
+    // The stall clock counts from the order exactly as it did before the
+    // fetch stage existed: 90 s of PLANE-side fetching must not spend the
+    // node's silence allowance.
+    nowMs += STALL_MS - 1;
+    expect(readView().nodes.n1?.phase).toBe("working");
+    nowMs += 1;
+    expect(readView().nodes.n1?.phase).toBe("stalled");
+  });
+
+  it("a refusal lands the preparing entry as failed with the plane's own sentence", () => {
+    // The warm's failure is a PLANE-shaped refusal the page should keep
+    // saying after a refresh, the same posture a node's spoken refusal has.
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    updateRefused("n1", "This server could not fetch the linux-x64 release bytes");
+    expect(readView().nodes.n1?.phase).toBe("failed");
+    expect(readView().nodes.n1?.message).toBe("This server could not fetch the linux-x64 release bytes");
+  });
+
+  it("updateOrdered is a no-op without a live entry and never disturbs a terminal one", () => {
+    updateOrdered("ghost");
+    expect(readView().nodes.ghost).toBeUndefined();
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    updateRefused("n1", "refused");
+    updateOrdered("n1");
+    expect(readView().nodes.n1?.phase).toBe("failed");
+  });
+
+  it("a late second ordered does not re-zero a running stall clock", () => {
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    updateOrdered("n1");
+    const zero = readView().nodes.n1?.startedAt;
+    nowMs += 5_000;
+    updateOrdered("n1"); // already working: the clock belongs to the order, not to the call
+    expect(readView().nodes.n1?.startedAt).toBe(zero);
   });
 });
 

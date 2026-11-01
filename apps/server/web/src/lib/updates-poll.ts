@@ -9,10 +9,14 @@ export function isServerUpdating(view: ServerUpdateView | undefined): boolean {
 const ACTIVE_POLL_MS = 2_000;
 
 /**
- * Whether the server's tracker calls one update still moving: the machine is
- * mid-download, mid-swap or mid-restart and the answer will change without
- * anyone touching the page. The poll gate and the Nodes rows read busy the
- * same way through this one predicate so the two can never drift.
+ * Whether the server's tracker calls one update still moving: the answer will
+ * change without anyone touching the page. That includes `preparing`, where
+ * the moving is the SERVER fetching the release bytes before the order goes
+ * out (the 2026-10-31 warm) — a row parked there is one poll away from
+ * `working`, and stopping to ask would strand it mid-sentence. Then the
+ * machine's own halves: mid-download, mid-swap or mid-restart. The poll gate
+ * and the Nodes rows read busy the same way through this one predicate so the
+ * two can never drift.
  *
  * `stalled` deliberately reads as OVER, not live. It is not terminal on the
  * server (a late `ready` still resolves it to `done`), but as a poll gate it
@@ -26,7 +30,9 @@ const ACTIVE_POLL_MS = 2_000;
  * alike.
  */
 export function isUpdateLive(update: UpdateTrackerState | null | undefined): boolean {
-  return update != null && (update.phase === "working" || update.phase === "restarting");
+  return (
+    update != null && (update.phase === "preparing" || update.phase === "working" || update.phase === "restarting")
+  );
 }
 
 /**

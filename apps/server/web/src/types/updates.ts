@@ -108,8 +108,12 @@ export interface ServerUpdateView {
  * (`apps/server/api/src/modules/updates/node-tracker.ts`, design
  * 2026-09-25). `stalled` is NOT terminal: a late `ready` still resolves the
  * entry to `done`, which is the whole point of tracking it server-side.
+ * `preparing` is the wait that is the SERVER's own work (the 2026-10-31
+ * warm: the update fetches the release bytes before ordering the download),
+ * so the node has been told nothing yet and this phase never ages into
+ * `stalled`.
  */
-export type UpdateTrackerPhase = "working" | "restarting" | "done" | "failed" | "stalled";
+export type UpdateTrackerPhase = "preparing" | "working" | "restarting" | "done" | "failed" | "stalled";
 
 /**
  * One in-flight or recently-finished update, on a node row or (as

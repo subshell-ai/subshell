@@ -88,6 +88,18 @@ describe("row update state, read from the server's tracker", () => {
     expect(screen.getByText("alpha is installing 0.9.1 and will reconnect by itself.")).toBeTruthy();
   });
 
+  it("names the plane's own fetch while the node has been told nothing", () => {
+    // The 2026-10-31 warm: the row must say WHO waits (this server) and FOR
+    // WHAT (the release bytes), because a silent row through that window
+    // reads as a machine ignoring the press.
+    renderRows(fleet(updateState({ phase: "preparing" })));
+    expect(
+      screen.getByText("This server is fetching the 0.9.1 release bytes; alpha hasn't been told yet."),
+    ).toBeTruthy();
+    // And not the working sentence: nothing is installing yet.
+    expect(screen.queryByText(/is installing/)).toBeNull();
+  });
+
   it("says Updated to once the server has seen the machine back on the new version", () => {
     renderRows(fleet(updateState({ phase: "done", endedAt: "2026-09-25T12:01:00.000Z" })));
     expect(screen.getByText("Updated to 0.9.1.")).toBeTruthy();

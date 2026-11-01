@@ -51,12 +51,20 @@ export const TERMINAL_EXPIRE_MS = 10 * 60 * 1000;
 /** The map key of the server's own entry. Node ids are uuids, so nothing can collide. */
 const SELF_KEY = "server";
 
-/** What a stored entry is while still live. Terminal states are derived, so `done`/`failed`/`stalled` are NOT here. */
-type StoredPhase = "working" | "restarting";
+/**
+ * What a stored entry is while still live. Terminal states are derived, so
+ * `done`/`failed`/`stalled` are NOT here. `preparing` is the wait that is the
+ * PLANE's own work (2026-10-31: the update POST fetches the release bytes
+ * before it orders the download); it deliberately never derives to `stalled`
+ * — the silence it describes belongs to a fetch this process is running, not
+ * to a node that was told and went quiet.
+ */
+type StoredPhase = "preparing" | "working" | "restarting";
 
 /**
- * The phase a reader sees: the two stored ones, the two terminal ones derived
- * from the stamps, and `stalled` derived from the clock.
+ * The phase a reader sees: the three stored ones, the two terminal ones
+ * derived from the stamps, and `stalled` derived from the clock (never for
+ * `preparing`, which is its own honest answer for as long as it runs).
  */
 export type UpdatePhase = StoredPhase | "done" | "failed" | "stalled";
 
@@ -116,12 +124,41 @@ function isTerminal(entry: Entry): boolean {
  * Order an update against `nodeId`.
  *
  * REPLACES any prior entry for the node, terminal or not: a second press is a
- * second act, and its clock starts now. The route calls this only after every
- * 409 gate has passed — a refused offer never opens an entry, because the
- * plane never ordered anything in that case.
+ * second act, and its clock starts now. The server's own update opens here,
+ * at the swap; the node route's entries open at {@link beginPreparing} and
+ * reach `working` through {@link updateOrdered}.
  */
 export function beginUpdate(nodeId: string, facts: { from: string; to: string }): void {
   entries.set(nodeId, { from: facts.from, to: facts.to, startedAt: updateTrackerSeams.now(), phase: "working" });
+}
+
+/**
+ * Open the story BEFORE the order, while the wait is the PLANE's own work:
+ * since 2026-10-31 the update POST fetches the release bytes it is about to
+ * authorize, and the row must say as much during that window instead of
+ * waiting for the dispatch to have anything server-side to render (the page
+ * refreshes; the other admin tab never pressed).
+ *
+ * Replaces any prior entry like {@link beginUpdate}. Every way a preparing
+ * entry ends is the route's: {@link updateOrdered} when the order goes out,
+ * {@link updateRefused} when the fetch or a late gate refuses.
+ */
+export function beginPreparing(nodeId: string, facts: { from: string; to: string }): void {
+  entries.set(nodeId, { from: facts.from, to: facts.to, startedAt: updateTrackerSeams.now(), phase: "preparing" });
+}
+
+/**
+ * The wait is over and the order is real: `preparing` becomes `working`, and
+ * the stall clock's zero moves to THIS moment — the two minutes have always
+ * measured a node's silence after being told, and plane-side fetch time must
+ * not spend the node's allowance. A no-op on anything else (already ordered,
+ * terminal, or absent), which is also what makes a late duplicate harmless.
+ */
+export function updateOrdered(nodeId: string): void {
+  const entry = entries.get(nodeId);
+  if (!entry || isTerminal(entry) || entry.phase !== "preparing") return;
+  entry.phase = "working";
+  entry.startedAt = updateTrackerSeams.now();
 }
 
 /**
@@ -259,6 +296,12 @@ export function resolveSelfUpdate(
 function derive(entry: Entry, nowMs: number): UpdatePhase {
   if (entry.failedNote !== undefined) return "failed";
   if (entry.endedAt !== undefined) return "done";
+  // The one stored phase the stall clock does not speak for: `preparing` is
+  // this process fetching, and the fetch the route started is itself bounded
+  // (the update route races it against the same deadline it gives the
+  // command), so every preparing entry has a named ending coming. `stalled`
+  // means "a node was told and has gone quiet"; nothing was told yet.
+  if (entry.phase === "preparing") return "preparing";
   if (nowMs - entry.startedAt >= STALL_MS) return "stalled";
   return entry.phase;
 }
