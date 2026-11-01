@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { type NodeMcpEnabledWire, parseNodeMcpEnabled } from "@internal/subshell-protocol";
 import { logger } from "./log.js";
@@ -78,14 +78,16 @@ export function mcpAllowed(read: McpEnabledRead): boolean {
  */
 export function readMcpEnabled(dataDir: string): McpEnabledRead {
   const file = mcpEnabledPath(dataDir);
-  if (!existsSync(file)) return { kind: "absent" };
   try {
     const state = parseNodeMcpEnabled(JSON.parse(readFileSync(file, "utf8")));
     if (!state) throw new SyntaxError("not an mcp-enabled state");
     return state.on ? { kind: "on", changedAt: state.changedAt } : { kind: "off", changedAt: state.changedAt };
   } catch (err) {
-    // Unlinked between the probe and the read: the file is genuinely absent,
-    // and absence is the ALLOWED answer, not a refusal.
+    // No ENOENT probe before the read: the read itself answers the existence
+    // question, and the answer for "not there" is the ALLOWED one, because an
+    // unpinned node is exactly the pre-switch status quo. A probe would race
+    // the read it guards and tell the same lie a hand-deleted file already
+    // can.
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return { kind: "absent" };
     logger.withError(err).warn(`mcp-enabled: ${file} unreadable; treating this node as MCP-DISABLED`);
     // The mtime, never `now`: this answer refuses, so the plane has to hear
