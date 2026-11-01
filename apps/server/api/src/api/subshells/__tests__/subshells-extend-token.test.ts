@@ -175,7 +175,14 @@ describe("POST /api/subshells/:id/extend-token", () => {
       return res.status;
     }
 
-    it("still rings its own bell and reports its own exit", async () => {
+    it("passes all four hook doors: bell, exit, session id, roster", async () => {
+      // One POST per door the `subshell report` verbs hit, because a per-file
+      // revert of any ONE of them to requirePerm silently 403s an opted-out
+      // pane's reporting for that verb (runReport swallows failures as "a lost
+      // report") while every other suite stays green. `exit` goes LAST on
+      // purpose: it writes the death row, and the roster door 409s a row that
+      // is no longer live (the session door would answer 200 and silently
+      // drop it).
       const s = await subshellWithScopedToken(reportingTokenPermissions());
       expect(
         await bearer(
@@ -186,16 +193,33 @@ describe("POST /api/subshells/:id/extend-token", () => {
         ),
       ).toBe(200);
       expect(
+        await bearer(
+          subshellRoutes,
+          `/api/subshells/${s.id}/harness-session`,
+          { method: "POST", body: JSON.stringify({ sessionId: crypto.randomUUID() }) },
+          s.key,
+        ),
+      ).toBe(200);
+      expect(
+        await bearer(
+          subshellRoutes,
+          `/api/subshells/${s.id}/subagents/report`,
+          { method: "POST", body: '{"event":"snapshot","agents":[]}' },
+          s.key,
+        ),
+      ).toBe(200);
+      expect(
         await bearer(subshellRoutes, `/api/subshells/${s.id}/exit`, { method: "POST", body: '{"exitCode":0}' }, s.key),
       ).toBe(200);
     });
 
     it("still extends its own token: the door is ownership-only, so the 7-day wall never lands", async () => {
-      // Each `subshell report` verb rides this extend, and a report-only pane
-      // launches no MCP child to arm the periodic one. If a future pass gates
-      // this route on a scope (plausibly `subshells:write`, which every
-      // pre-switch pane key held), this cell goes red now rather than leaving
-      // a long-lived opted-out pane's hooks to silently 401 a week in.
+      // Every `subshell report` verb but `exit` rides this extend, and a
+      // report-only pane launches no MCP child to arm the periodic one. If a
+      // future pass gates this route on a scope (plausibly `subshells:write`,
+      // which every pre-switch pane key held), this cell goes red now rather
+      // than leaving a long-lived opted-out pane's hooks to silently 403 a
+      // week in.
       const s = await subshellWithScopedToken(reportingTokenPermissions());
       expect(await bearer(subshellRoutes, `/api/subshells/${s.id}/extend-token`, { method: "POST" }, s.key)).toBe(200);
     });
