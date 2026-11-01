@@ -190,6 +190,16 @@ describe("POST /api/subshells/:id/extend-token", () => {
       ).toBe(200);
     });
 
+    it("still extends its own token: the door is ownership-only, so the 7-day wall never lands", async () => {
+      // Each `subshell report` verb rides this extend, and a report-only pane
+      // launches no MCP child to arm the periodic one. If a future pass gates
+      // this route on a scope (plausibly `subshells:write`, which every
+      // pre-switch pane key held), this cell goes red now rather than leaving
+      // a long-lived opted-out pane's hooks to silently 401 a week in.
+      const s = await subshellWithScopedToken(reportingTokenPermissions());
+      expect(await bearer(subshellRoutes, `/api/subshells/${s.id}/extend-token`, { method: "POST" }, s.key)).toBe(200);
+    });
+
     it("cannot read a channel or register an identity: channels is absent from its map", async () => {
       const s = await subshellWithScopedToken(reportingTokenPermissions());
       // The channels read is the plain scope check.

@@ -41,9 +41,11 @@ export function paneTokenPermissions(): PaneTokenPermissions {
  * That is exactly the four `subshell report` verbs the harness hooks run, so
  * the pane still says when its turn ended, still rings and clears its own
  * waiting bell, still reports its exit code and session id, and still
- * self-extends its token (that door checks ownership, not a scope, and each
- * report verb fires the extend in parallel, so a hook-live pane never reaches
- * the TTL wall even with no MCP child to arm the periodic one). What
+ * self-extends its token (that door checks ownership, not a scope, though a
+ * derived execution key still meets its `subshells:execute` grant, exactly as
+ * the MCP child did; and every report verb but `exit` rides the extend in
+ * parallel, so a hook-live pane never reaches the TTL wall even with no MCP
+ * child to arm the periodic one). What
  * it cannot do is read another pane, send input to one, create or terminate
  * one, post to a channel, touch the prompt library, or move a file: the
  * sibling surface §4 of docs/security.md accounts for is gone from this key

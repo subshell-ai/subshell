@@ -762,8 +762,8 @@ also visible to any local process that can read `/proc/<pid>/environ`, `ps`
 output, or tmux pane metadata. Accepted (§11).
 
 **What that token actually carries.** `permissions: { channels: ["read",
-"write"], subshells: ["read", "write"], prompts: ["read", "write"] }`
-(`modules/subshells/tokens.ts:28`):
+"write"], subshells: ["read", "write"], prompts: ["read", "write"],
+transfers: ["read", "write"] }` (`modules/subshells/tokens.ts:28`):
 the map is a coarse scope gate, not a row fence. That is the map when the
 pane's MCP wiring is ON, which is still the default at both levels; with the
 account or node switch off, the key is minted as `{ report: ["write"] }`
@@ -1142,9 +1142,11 @@ consequences are:
   serves on a report-only key, and the node owner's no is not something a
   tenant account can talk past. A disabled pane still holds its credential:
   the four report verbs and token self-extension answer to it, and that is its
-  whole API reach now, since reading even its own log asks for the `subshells`
-  scope it no longer carries (the log stays readable on disk by whoever owns
-  that OS account, §11).
+  whole scope-gated reach now, since reading even its own log asks for the
+  `subshells` scope it no longer carries (the log stays readable on disk by
+  whoever owns that OS account, §11). The §3 deliberately-public bearer reads
+  answer to any valid credential, this one included; the switch is not a
+  per-pane instance of that posture, and it does not narrow it either.
 - **Node shares and subshell shares are independent axes.** Sharing a node does
   not hand out subshell tokens, but anything launched there trusts the machine.
 - **Whoever owns the node's OS user owns every pane launched there**, including
