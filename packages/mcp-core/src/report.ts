@@ -162,6 +162,10 @@ export async function runReport(argv: string[], io: ReportIo = {}): Promise<void
       // event reports keep the full one (see postTimeoutMs).
       signal: AbortSignal.timeout(postTimeoutMs(argv)),
     });
+    // Handled from the moment it exists: the await below only runs if the
+    // lines between stay quiet, and a rejection stranded by one that throws
+    // would surface as a process-level unhandled rejection inside a hook.
+    post.catch(() => {});
     // The extend the MCP child arms at its boot, the report verbs arm at
     // theirs: an MCP-disabled pane launches no child, and without this its
     // hooks would quietly 401 once the 7-day TTL ran out under a pane in

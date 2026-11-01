@@ -261,9 +261,13 @@ describe("the connect seed and the heartbeat belt", () => {
   });
 
   it("goes quiet when the mirror simply is not there", () => {
-    // Deletion is not an event to announce: absent agrees with a default row,
-    // and chasing it with a frame would push noise onto every never-flipped
-    // machine.
+    // Deletion is not an event to announce: silence reads ALLOWED plane-side,
+    // and chasing absence with a frame would push noise onto every
+    // never-flipped machine. If the row is actually OFF, the belt's silence
+    // does not strand it: the next `ready` carries no mirror either, and the
+    // reconciler's row-off-plus-silence cell (mcp-enabled.test.ts, the plane
+    // suite) pushes the refusal back down. Same-connection divergence is the
+    // OS-user's own doing, and that account already owns every pane here.
     const dataDir = freshDataDir();
     const ctx = makeCtx(dataDir);
     writeMcpEnabled(dataDir, { on: false, changedAt: STAMP });

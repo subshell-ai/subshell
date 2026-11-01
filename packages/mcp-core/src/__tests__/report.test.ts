@@ -343,6 +343,14 @@ describe("runReport", () => {
     const reporting: Array<[string[], () => Promise<string>]> = [
       [["attention", "turn_complete"], async () => "{}"],
       [["attention", "resumed"], async () => "{}"],
+      [["attention", "needs_attention"], async () => "{}"],
+      // Every REPORT_VERBS member that earns a POST, so a future verb that
+      // forgets its extend shows up here.
+      [
+        ["subagents"],
+        async () =>
+          JSON.stringify({ hook_event_name: "subagent_start", extra: { child_session_id: "c1", child_goal: "x" } }),
+      ],
       [["session"], async () => JSON.stringify({ session_id: "sess-1" })],
     ];
     for (const [argv, readStdin] of reporting) {
