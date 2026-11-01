@@ -118,7 +118,10 @@ const entries = new Map<string, Entry>();
  * only non-terminal priors (a terminal story is not resurrected), is written
  * only by {@link beginPreparing}, and is cleared for the node when the
  * replacing act dispatches (the new order genuinely supersedes the old
- * story) or when the hand-back happens. A capture can also go STALE
+ * story), when the hand-back happens, or when a TERMINAL redirected fact
+ * (the node's spoken refusal, a resolving boot) lands on the captured
+ * order. A redirected swap answer is not terminal and deliberately leaves
+ * the capture where it is. A capture can also go STALE
  * unreaped, when the preparing slot itself terminalizes while a capture sits
  * behind it — bounded and never misread: the only readers
  * ({@link updateRefused}, {@link updateSwapped}, {@link recordNodeReady})
