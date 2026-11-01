@@ -41,13 +41,15 @@ export function paneTokenPermissions(): PaneTokenPermissions {
  * That is exactly the four `subshell report` verbs the harness hooks run, so
  * the pane still says when its turn ended, still rings and clears its own
  * waiting bell, still reports its exit code and session id, and still
- * self-extends its token (that door checks ownership, not a scope). What
+ * self-extends its token (that door checks ownership, not a scope, and each
+ * report verb fires the extend in parallel, so a hook-live pane never reaches
+ * the TTL wall even with no MCP child to arm the periodic one). What
  * it cannot do is read another pane, send input to one, create or terminate
  * one, post to a channel, touch the prompt library, or move a file: the
  * sibling surface §4 of docs/security.md accounts for is gone from this key
  * rather than merely left without a tool that names it.
  *
- * One dialect caveat: for opencode, pi, and oh-my-pi the CHILD ROSTER reporter
+ * One dialect caveat: for opencode and pi the CHILD ROSTER reporter
  * is a harness extension that ships inside the MCP registration, not a hook
  * command line, so a switched-off pane of those dialects loads no bridge and
  * reports no roster. The door stays open for it (a report-only key passes

@@ -143,6 +143,16 @@ describe("decideMcpEnabled: silence allows, and the plane is still the only auth
 /* ------------------ the act, on a real row -------------------------- */
 
 describe("setNodeMcpEnabled: write, audit, push, one function", () => {
+  it("records nothing at all for a node that is no longer there", async () => {
+    // The trail records changed that happened. A row that vanished between
+    // the route's gate read and this UPDATE must not leave an audit line or
+    // a push behind: pinning the guard, because moving the audit above the
+    // UPDATE (or dropping the guard) would otherwise pass every other cell.
+    const ghost = crypto.randomUUID();
+    await expect(setNodeMcpEnabled(ghost, "no-such-actor", false)).resolves.toBeUndefined();
+    expect(await auditFor(ghost)).toEqual([]);
+  });
+
   it("writes the row, audits EXACTLY ONE row naming the actor, and pushes the stamped value", async () => {
     const nodeId = await mkNode();
     const scripted = attachScriptedNode(nodeId, { set_mcp_enabled: ok });

@@ -85,7 +85,7 @@ principals; the fourth is a websocket credential and nothing else.
 | `principal` | `user:<id>` | `user:<systemUserId>` | `sess:<subshellId>` | none |
 | Minted by | sign-up / sign-in / passkey | admin, Server Settings → API keys | the server at subshell start | `POST /api/nodes/enroll` |
 | Scope | the user's own data; **the only actor admin surfaces accept**; the only actor that may mint an UNBOUND WS attach token | explicit versioned grants on new keys; legacy keys retain their previous non-node access. Scoped keys need `subshells:execute` to mint a WS attach token, restricted to a system-owned subshell; legacy keys may bind to any single subshell | pane permission map plus any inherited system-key ceiling; may mint a WS attach token only for its OWN subshell | open `/ws/node` as that node |
-| Lifetime | better-auth session | until disabled or deleted | 7 days, self-extending while the MCP child runs | long-lived |
+| Lifetime | better-auth session | until disabled or deleted | 7 days, self-extending while the MCP child runs, or (a switched-off pane) while its report hooks fire | long-lived |
 | Revocation | sign-out / password change / account disable (see "Disabling an account" below) | instant | **instant** on terminate/delete; rotated on auto-restart | delete the node |
 | Stored as | session row | hash only | hash only | hash only |
 
@@ -769,7 +769,7 @@ pane's MCP wiring is ON, which is still the default at both levels; with the
 account or node switch off, the key is minted as `{ report: ["write"] }`
 instead, so the harness-hook verbs and token self-extension keep working and
 none of the sibling surface below rides the key at all (§6). One caveat
-travels with that sentence: on opencode, pi and oh-my-pi the child-roster
+travels with that sentence: on opencode and pi the child-roster
 reporter is a harness extension bundled into the MCP registration rather than
 a hook command line, so a disabled pane of those dialects simply reports no
 roster, the door for it notwithstanding. The MCP tools self-restrict

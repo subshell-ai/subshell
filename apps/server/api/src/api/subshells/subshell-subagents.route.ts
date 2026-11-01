@@ -196,8 +196,8 @@ export const subshellSubagentsRoute = new Elysia()
   )
   // The reporting door stays open to a report-only token, which is what an
   // MCP-disabled pane holds. WHO walks through is the dialect story: hook-
-  // driven dialects report regardless of the switch, while opencode, pi and
-  // oh-my-pi ship their reporter as an extension inside the MCP registration,
+  // driven dialects report regardless of the switch, while opencode and pi
+  // ship their reporter as an extension inside the MCP registration,
   // so a switched-off pane of those dialects loads no bridge and never calls
   // this route. Shipping the bridge without the wiring would need a
   // reporting-only registration variant in each plugin.

@@ -109,6 +109,12 @@ export interface ReportIo {
 const POST_TIMEOUT_MS = 2000;
 const RESUMED_POST_TIMEOUT_MS = 750;
 const STDIN_TIMEOUT_MS = 2000;
+/**
+ * The self-extension that rides every report, capped BELOW the slowest main
+ * POST so it never lengthens a hook's worst case: the two run in parallel and
+ * the process lives for the max, which stays the main budget's number.
+ */
+const EXTEND_TIMEOUT_MS = 750;
 
 /**
  * The POST budget for one report argv — the whole per-verb decision, as a
@@ -148,7 +154,7 @@ export async function runReport(argv: string[], io: ReportIo = {}): Promise<void
     if (!body) return;
 
     const doFetch = io.fetch ?? fetch;
-    await doFetch(`${baseUrl}/api/subshells/${subshellId}/${body.path}`, {
+    const post = doFetch(`${baseUrl}/api/subshells/${subshellId}/${body.path}`, {
       method: "POST",
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
       body: JSON.stringify(body.json),
@@ -156,6 +162,21 @@ export async function runReport(argv: string[], io: ReportIo = {}): Promise<void
       // event reports keep the full one (see postTimeoutMs).
       signal: AbortSignal.timeout(postTimeoutMs(argv)),
     });
+    // The extend the MCP child arms at its boot, the report verbs arm at
+    // theirs: an MCP-disabled pane launches no child, and without this its
+    // hooks would quietly 401 once the 7-day TTL ran out under a pane in
+    // daily use. Same door, same ownership check, still best-effort; `exit`
+    // skips it because the token dies with the pane anyway.
+    const extend =
+      argv[0] === "exit"
+        ? undefined
+        : doFetch(`${baseUrl}/api/subshells/${subshellId}/extend-token`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(EXTEND_TIMEOUT_MS),
+          }).catch(() => {});
+    await post;
+    await extend;
   } catch {
     // Every failure is a lost report: an unreachable server, a refused POST,
     // a malformed payload, an incomplete env. None of them is the hook's
