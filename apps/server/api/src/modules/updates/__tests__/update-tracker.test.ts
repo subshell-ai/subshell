@@ -228,6 +228,48 @@ describe("beginPreparing / updateOrdered — the plane's own fetch stage", () =>
     expect(readView().nodes.n1?.phase).toBe("preparing");
   });
 
+  it("a spoken refusal from the ordered act lands on that order, not the fetch owning the slot", () => {
+    // Review M3: the node's spoken refusal is answered on the ORDERED act's
+    // `await sendCommand`, which can resume while a newer press's preparing
+    // entry owns the slot. It must not consume the hand-back (the restored
+    // `working` would render "is installing" for a node that just refused),
+    // and it must not be dropped; it belongs to the captured prior. The
+    // capture is spent either way, so the fetch's own unordered refusal then
+    // terminalizes the fetch's entry.
+    beginUpdate("n1", { from: "0.8.0", to: "0.9.0" }); // press 1 dispatched, node answers it
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" }); // press 2 owns the slot
+    updateRefused("n1", "That node is not supervised", { nodeAnswered: true });
+    expect(readView().nodes.n1?.phase).toBe("preparing"); // press 2's entry neither restored-over nor stamped
+    updateRefused("n1", "press two's fetch died"); // press 2's own, unordered
+    expect(readView().nodes.n1?.phase).toBe("failed");
+    expect(readView().nodes.n1?.message).toBe("press two's fetch died");
+  });
+
+  it("a spoken refusal is dropped when no order is captured behind the fetch", () => {
+    // The answer describes an order, and there is none to describe: dropping
+    // is honest, stamping the fetch's entry would speak through it.
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    updateRefused("n1", "a stray refusal for no live order", { nodeAnswered: true });
+    expect(readView().nodes.n1?.phase).toBe("preparing");
+  });
+
+  it("a rollback ready lands on the witnessed order behind a fetch, not the fetch", () => {
+    // Review m-r3: the rollback boot IS the restart the `restarting` entry
+    // exists for, and its old-version `ready` is the decisive fact. Landing
+    // it on a newer press's preparing entry returned unheard (the rollback
+    // note has no second chance — that boot does not re-dial reporting the
+    // failure). It goes to the captured prior.
+    beginUpdate("n1", { from: "0.8.0", to: "0.9.0" });
+    updateSwapped("n1"); // press 1's swap witnessed; the rollback boot follows
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" }); // press 2 owns the slot
+    recordNodeReady("n1", "0.8.0"); // the rollback reports the old version
+    expect(readView().nodes.n1?.phase).toBe("preparing"); // the fetch story is still the fetch
+    // The captured order is spent by the redirect, so press 2's own refusal
+    // terminalizes its own entry rather than restoring a story that ended.
+    updateRefused("n1", "press two died");
+    expect(readView().nodes.n1?.message).toBe("press two died");
+  });
+
   it("a terminal prior is not resurrected by a replacing press's refusal", () => {
     beginUpdate("n1", { from: "0.8.0", to: "0.9.0" });
     recordNodeReady("n1", "0.9.0"); // done

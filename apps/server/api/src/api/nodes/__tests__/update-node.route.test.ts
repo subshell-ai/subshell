@@ -1047,6 +1047,43 @@ describe("POST /api/nodes/:id/update", () => {
     expect(readView().nodes[id]?.phase).toBe("done");
   });
 
+  it("a spoken refusal during a replacing press's warm lands on the order, not the hand-back", async () => {
+    // Review M3's HTTP shape: press 1's refusal arrives on its route's
+    // `await sendCommand` while press 2's warm fetch owns the slot. A
+    // spoken refusal is the NODE answering — it must terminalize press
+    // one's entry (shadowed by the newer act, which is the honest order of
+    // stories) and must neither restore it to `working` (the row would say
+    // "is installing" about a node that just refused) nor stamp press two's
+    // fetch. Press two's own unordered failure then terminalizes its own
+    // entry with its own sentence.
+    useFakeRelease();
+    const id = await mkNode();
+    const sock = goOnline(id);
+    const res1P = req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    await waitFor(() => sock.sent.length > 0, "the first update command on the wire");
+    unpublishDiskFixture();
+    binDelayMs = 250;
+    const res2P = req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    await waitFor(() => binFetches === 2, "the second warm fetch to start");
+    const frame = JSON.parse(sock.sent[0] as string) as { jws: string };
+    const claim = JSON.parse(Buffer.from((frame.jws.split(".")[1] ?? "") as string, "base64url").toString()) as {
+      jti: string;
+    };
+    const record = getLive(id);
+    if (!record) throw new Error("no connection record");
+    expect(
+      resolveResult(record, { type: "result", ref: claim.jti, ok: false, error: NODE_RESULT_NOT_SUPERVISED }),
+    ).toBe(true);
+    const res1 = await res1P;
+    expect(res1.status).toBe(409);
+    expect(readView().nodes[id]?.phase).toBe("preparing"); // press two's slot untouched by press one's answer
+    binFails = true; // armed inside press two's own hold
+    expect((await res2P).status).toBe(409);
+    const after = readView().nodes[id];
+    expect(after?.phase).toBe("failed"); // press two's OWN failure, its own sentence
+    expect(after?.message).toContain("could not fetch");
+  });
+
   // ── the command, end to end ─────────────────────────────────────────────
 
   it("202 on success, with the version, a tokenless url, and an audit row", async () => {

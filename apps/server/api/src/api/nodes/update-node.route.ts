@@ -578,7 +578,11 @@ export const updateNodeRoute = new Elysia()
           // the words this 409 carries. A non-RPC throw re-raises untouched:
           // the entry stalls, the honest answer to a failure nobody witnessed.
           if (err.code !== "timeout" && err.code !== "offline") {
-            updateRefused(gate.row.id, refusal.message);
+            // `nodeAnswered`: this refusal is the NODE'S ANSWER to the
+            // command this route sent, which can arrive on this `await`
+            // while a newer press's warm fetch owns the tracker slot. It
+            // must land on this act's entry, not spend the hand-back.
+            updateRefused(gate.row.id, refusal.message, { nodeAnswered: true });
           }
           return status(409, apiErrorBody({ code: refusal.code, message: refusal.message }));
         }

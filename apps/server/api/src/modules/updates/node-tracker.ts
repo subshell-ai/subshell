@@ -119,11 +119,11 @@ const entries = new Map<string, Entry>();
  * only by {@link beginPreparing}, and is cleared for the node when the
  * replacing act dispatches (the new order genuinely supersedes the old
  * story) or when the hand-back happens. A capture can also go STALE
- * unreaped, when the preparing slot itself terminalizes first (a `ready`
- * landing mid-warm resolves it, and {@link updateRefused} then early-returns)
- * — bounded and never misread: the only reader runs while the slot is a live
- * preparing entry, and every {@link beginPreparing} overwrites or deletes
- * the node's entry here.
+ * unreaped, when the preparing slot itself terminalizes while a capture sits
+ * behind it — bounded and never misread: the only readers
+ * ({@link updateRefused}, {@link updateSwapped}, {@link recordNodeReady})
+ * consult it from a `preparing` slot, and every {@link beginPreparing}
+ * overwrites or deletes the node's capture here.
  */
 const refusedReplacements = new Map<string, Entry>();
 
@@ -225,25 +225,48 @@ export function updateSwapped(nodeId: string): void {
 }
 
 /**
- * The node REFUSED and did nothing — terminal `failed` carrying the sentence
- * the route answered with, so the row says what the error toast said and keeps
- * saying it after a refresh.
+ * A refusal, terminal `failed` carrying the sentence the route answered with,
+ * so the row says what the error toast said and keeps saying it after a
+ * refresh. While a `preparing` entry holds the slot the caller must say
+ * WHICH act spoke: `nodeAnswered: true` is the node refusing an ORDERED
+ * command (the route's spoken-refusal seam, resumable during a newer press's
+ * warm) and lands on the captured prior, never the fetch's entry; without
+ * it, the refusing act ordered nothing, so the entry owning the slot is the
+ * one that failed — unless it replaced a live order, in which case the slot
+ * is handed back (see {@link refusedReplacements}).
  */
-export function updateRefused(nodeId: string, message: string): void {
+export function updateRefused(nodeId: string, message: string, opts: { nodeAnswered?: boolean } = {}): void {
   const entry = entries.get(nodeId);
   if (!entry || isTerminal(entry)) return;
   if (entry.phase === "preparing") {
-    // The refusing act never got to order anything. If its preparing entry
-    // REPLACED a live order, hand the slot back rather than terminalize
-    // someone else's running download out of its only resolvable story (see
-    // refusedReplacements). The tab that pressed still sees its own refusal:
-    // it is in the 409 this route is answering.
     const prior = refusedReplacements.get(nodeId);
-    if (prior) {
+    if (opts.nodeAnswered) {
+      // The node ANSWERED an order with this refusal (the route's spoken-
+      // refusal seam on an earlier press's `await sendCommand`), and the
+      // slot merely happens to be a newer press's fetch. The fact lands on
+      // the captured prior — restoring it here would render "is installing"
+      // for a machine that just refused, and dropping it would lose the
+      // sentence this tracker exists to keep saying. With nothing live
+      // captured the answer describes no order being told, and it is
+      // dropped rather than claimed by the fetch.
+      if (prior && !isTerminal(prior)) {
+        refusedReplacements.delete(nodeId);
+        prior.failedNote = message;
+        prior.endedAt = updateTrackerSeams.now();
+      }
+      return;
+    }
+    if (prior && !isTerminal(prior)) {
+      // A refusal that never got to order anything hands the slot back to
+      // the live order it replaced rather than terminalizing that order out
+      // of its only resolvable story (see refusedReplacements). The tab
+      // that pressed still sees its own refusal: it is in the 409.
       refusedReplacements.delete(nodeId);
       entries.set(nodeId, prior);
       return;
     }
+    // A first press (or one whose prior was already terminal): the refusing
+    // act owns this entry, and it failed.
   }
   entry.failedNote = message;
   entry.endedAt = updateTrackerSeams.now();
@@ -287,14 +310,31 @@ export function updateOutcomeUnknown(nodeId: string): void {
  * A terminal or absent entry records nothing — the story already has an end.
  */
 export function recordNodeReady(nodeId: string, agentVersion: string): void {
-  const entry = entries.get(nodeId);
-  if (!entry || isTerminal(entry)) return;
+  let entry = entries.get(nodeId);
+  if (!entry) return;
+  let redirected = false;
+  if (entry.phase === "preparing") {
+    // A `ready` reports a BOOT, and a boot is evidence about an ORDER (done,
+    // rollback, or a flap), never about a fetch: with a newer press's
+    // preparing entry holding the slot the fact belongs to the captured
+    // prior. The rollback note especially: the boot that could not migrate
+    // IS the restart the `restarting` entry waits for, and it does not dial
+    // again to repeat itself. Nothing live captured means no order to
+    // describe, and the ready is dropped; the entry the redirect lands on is
+    // decided below, and a drop there (unreadable version, a flap) leaves
+    // the capture in place for the hand-back.
+    const prior = refusedReplacements.get(nodeId);
+    if (!prior || isTerminal(prior)) return;
+    entry = prior;
+    redirected = true;
+  } else if (isTerminal(entry)) return;
   if (!VERSION_SHAPE.test(agentVersion)) return;
   if (semverLt(agentVersion, entry.to)) {
     if (entry.phase !== "restarting") return;
     entry.failedNote = `rolled back to ${agentVersion}`;
   }
   entry.endedAt = updateTrackerSeams.now();
+  if (redirected) refusedReplacements.delete(nodeId);
 }
 
 /** What counts as a readable version: a `MAJOR.MINOR.PATCH` prefix (build suffix allowed). */
