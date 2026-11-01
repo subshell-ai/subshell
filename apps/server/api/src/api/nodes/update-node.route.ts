@@ -456,12 +456,15 @@ export const updateNodeRoute = new Elysia()
         // own download will get: a POST that must eat the whole cold fetch
         // gets the patience it is about to ask of the machine, and past that
         // the act fails honestly instead of spinning forever.
-        const warmSignal = AbortSignal.timeout(updateNodeRouteSeams.warmBudgetMs);
+        // ONE read of the seam: the patience the refusal names is the
+        // patience the signal actually enforced, structurally, however the
+        // seam moves between the two moments.
+        const budget = updateNodeRouteSeams.warmBudgetMs;
+        const warmSignal = AbortSignal.timeout(budget);
         try {
           const warm = await fetchArtifact(target, { cache: warmDisk === null, signal: warmSignal });
           await warm.dispose();
         } catch (err) {
-          const budget = updateNodeRouteSeams.warmBudgetMs;
           const patience = budget >= 60_000 ? `${budget / 60_000} minutes` : `${budget / 1000} seconds`;
           const message = warmSignal.aborted
             ? `This server did not finish fetching the ${target} release bytes within ${patience}, so it ordered nothing. Press Update again, or update that machine at its own terminal with subshell update`

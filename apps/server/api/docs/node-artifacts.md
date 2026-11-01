@@ -26,7 +26,12 @@ download gets, and it is VISIBLE: the update tracker opens the row's entry as
 blame the machine for the plane's wait), ends it `failed` with the refusal's
 sentence if the fetch or a late gate refuses, and flips it to `working` the
 moment the command goes out, when the stall clock starts counting node
-silence.
+silence. One hand-back rule sits under all of that: a press that replaces a
+STILL-LIVE order (the row went `stalled` and its button came back, or a
+second tab pressed) and then refuses before dispatching does not get to
+terminalize that order: the node from the first press may still boot onto
+the new version, and a terminal entry drops its `ready`. The refusal belongs
+to its own tab's 409; the tracker hands the interrupted order's entry back.
 Since 2026-10-09 the tiny index/manifest reads behind the serve decision run
 on EVERY authenticated download request (TTL-cached; a failed read is backed
 off a minute), not just on the branch that ends in a fetch. The bytes are

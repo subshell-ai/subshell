@@ -903,10 +903,12 @@ export interface FetchArtifactOptions {
    * passes `AbortSignal.timeout()` so a plane whose link is slow says so in
    * its own 409 rather than hanging the POST). One honest consequence of
    * coalescing: a caller who JOINS a fetch inherits that fetch's abort,
-   * because it is genuinely the same request. The update route accepts this
-   * — every warm POST uses the same bound, and the download route's token
-   * path passes no signal, so the node-driven fetch is never the one a
-   * plane-side timer kills.
+   * because it is genuinely the same request. So a node-driven download
+   * that joins a signal-bound fetch can have its FIRST attempt killed by a
+   * plane-side timer, and that attempt spends node time before the
+   * in-request retry (its own, signal-free) takes over. What the token
+   * path is guaranteed never to pay is a killed RETRY; it pays no timer of
+   * its own, but not every wait it inherits is its own bound.
    */
   signal?: AbortSignal;
 }

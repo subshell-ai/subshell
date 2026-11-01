@@ -934,10 +934,13 @@ describe("POST /api/nodes/:id/update", () => {
   it("refuses with the patience it actually gave when the warm outlasts its budget", async () => {
     // `preparing` can never hang a row, because the fetch behind it runs
     // against a deadline (the same one the node's own download gets). Past
-    // it the POST answers its own 409 naming the budget that WAS applied,
-    // the entry ends `failed` rather than sitting in preparing forever, and
-    // the half-read bytes are deleted, not stranded as a temp for the hourly
-    // sweep to find an hour later.
+    // it the POST answers its own 409 naming the budget that WAS applied and
+    // the entry ends `failed` rather than sitting in preparing forever. The
+    // shelf checks below observe this request cached nothing and left no
+    // stray behind; this fake slows the RESPONSE, so no bytes are ever
+    // half-read here, and the temp deletion on a mid-body failure is pinned
+    // where a body does stream before it throws (the digest-mismatch case in
+    // `releases.test.ts`).
     useFakeRelease();
     updateNodeRouteSeams.warmBudgetMs = 100;
     binDelayMs = 5_000;
@@ -961,6 +964,47 @@ describe("POST /api/nodes/:id/update", () => {
       ? readdirSync(NODE_ARTIFACTS_DIR).filter((n) => n.includes(".download-"))
       : [];
     expect(strays).toEqual([]);
+  });
+
+  it("a second press that fails before ordering leaves the first order resolvable", async () => {
+    // Review M1's boundary case, through HTTP: press one orders (entry
+    // `working`); press two re-presses the same row (stalled re-enables it
+    // client-side, and a second tab never saw the spinner anyway), opens its
+    // preparing story OVER it, then fails at the warm. Failing there must
+    // not terminalize the FIRST order's slot: the first node may still boot
+    // onto the new version, and a terminal entry drops its `ready`. Press
+    // two's refusal belongs to press two's tab (its 409), and the tracker
+    // hands press one's story back.
+    useFakeRelease();
+    const id = await mkNode();
+    // Press one, driven by hand because the test needs the SAME fake socket
+    // afterwards to count frames across press two.
+    const sock = goOnline(id);
+    const res1P = req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    await waitFor(() => sock.sent.length > 0, "the first update command on the wire");
+    const frame = JSON.parse(sock.sent[0] as string) as { jws: string };
+    const claim = JSON.parse(Buffer.from((frame.jws.split(".")[1] ?? "") as string, "base64url").toString()) as {
+      jti: string;
+    };
+    const record = getLive(id);
+    if (!record) throw new Error("no connection record");
+    expect(resolveResult(record, { type: "result", ref: claim.jti, ok: true })).toBe(true);
+    expect((await res1P).status).toBe(202);
+    expect(readView().nodes[id]?.phase).toBe("restarting");
+    // Press two: no shelf match any more, and the release source is dead.
+    unpublishDiskFixture();
+    binFails = true;
+    const beforeSent = sock.sent.length;
+    const res2 = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    expect(res2.status).toBe(409);
+    expect(((await res2.json()) as { code: string }).code).toBe("NODE_UPDATE_UNAVAILABLE");
+    expect(sock.sent.length).toBe(beforeSent); // nothing ordered: no second command
+    const restored = readView().nodes[id];
+    expect(restored?.phase).toBe("restarting"); // press ONE's story, not press two's failure
+    expect(restored?.message).toBeNull();
+    // The whole point: the node's eventual boot still resolves it.
+    recordNodeReady(id, RELEASE_VERSION);
+    expect(readView().nodes[id]?.phase).toBe("done");
   });
 
   // ── the command, end to end ─────────────────────────────────────────────

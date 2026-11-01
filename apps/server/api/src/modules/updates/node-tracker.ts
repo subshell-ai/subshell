@@ -107,6 +107,22 @@ interface Entry {
 const entries = new Map<string, Entry>();
 
 /**
+ * The live order a `preparing` entry REPLACED, by node id, and the reason a
+ * refused preparing entry is not simply failed: because the warm moved entry
+ * opening BEFORE the dispatch, a second press can fail having ordered
+ * nothing while the FIRST press's command still lives on the machine.
+ * Terminalizing the shared slot there would retire the only story that can
+ * still become true (`recordNodeReady` returns at once on a terminal entry,
+ * so the node's eventual boot onto the new version would land on stone).
+ * {@link updateRefused} hands the slot back when it holds one. The map holds
+ * only non-terminal priors (a terminal story is not resurrected), is written
+ * only by {@link beginPreparing}, and is cleared for the node when the
+ * replacing act dispatches (the new order genuinely supersedes the old
+ * story) or when the hand-back happens.
+ */
+const refusedReplacements = new Map<string, Entry>();
+
+/**
  * The clock seam (the repo's `Seams` idiom): every stamp and the default
  * `readView` time come through it, so the stall and expiry boundaries are
  * testable at the exact millisecond. @internal
@@ -141,9 +157,16 @@ export function beginUpdate(nodeId: string, facts: { from: string; to: string })
  *
  * Replaces any prior entry like {@link beginUpdate}. Every way a preparing
  * entry ends is the route's: {@link updateOrdered} when the order goes out,
- * {@link updateRefused} when the fetch or a late gate refuses.
+ * {@link updateRefused} when the fetch or a late gate refuses. One wrinkle
+ * the pre-warm shape never had to face: when the prior entry is a still-live
+ * order, {@link updateRefused} RESTORES it (see {@link refusedReplacements})
+ * — a press that failed before ordering has no story to terminalize over
+ * someone else's running download.
  */
 export function beginPreparing(nodeId: string, facts: { from: string; to: string }): void {
+  const prior = entries.get(nodeId);
+  if (prior && !isTerminal(prior)) refusedReplacements.set(nodeId, prior);
+  else refusedReplacements.delete(nodeId);
   entries.set(nodeId, { from: facts.from, to: facts.to, startedAt: updateTrackerSeams.now(), phase: "preparing" });
 }
 
@@ -159,6 +182,10 @@ export function updateOrdered(nodeId: string): void {
   if (!entry || isTerminal(entry) || entry.phase !== "preparing") return;
   entry.phase = "working";
   entry.startedAt = updateTrackerSeams.now();
+  // From this moment the replacing act IS an order, and its failure seams
+  // (a node refusal, a timeout) speak for the slot honestly. The superseded
+  // story is no longer owed a hand-back.
+  refusedReplacements.delete(nodeId);
 }
 
 /**
@@ -183,6 +210,19 @@ export function updateSwapped(nodeId: string): void {
 export function updateRefused(nodeId: string, message: string): void {
   const entry = entries.get(nodeId);
   if (!entry || isTerminal(entry)) return;
+  if (entry.phase === "preparing") {
+    // The refusing act never got to order anything. If its preparing entry
+    // REPLACED a live order, hand the slot back rather than terminalize
+    // someone else's running download out of its only resolvable story (see
+    // refusedReplacements). The tab that pressed still sees its own refusal:
+    // it is in the 409 this route is answering.
+    const prior = refusedReplacements.get(nodeId);
+    if (prior) {
+      refusedReplacements.delete(nodeId);
+      entries.set(nodeId, prior);
+      return;
+    }
+  }
   entry.failedNote = message;
   entry.endedAt = updateTrackerSeams.now();
 }
@@ -345,4 +385,5 @@ export function readView(nowMs: number = updateTrackerSeams.now()): UpdateSnapsh
 /** Empties the tracker. Test seam only; @internal. */
 export function resetForTests(): void {
   entries.clear();
+  refusedReplacements.clear();
 }
