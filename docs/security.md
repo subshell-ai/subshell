@@ -1136,11 +1136,15 @@ consequences are:
   rather than merely left without a tool naming it; a running pane keeps the
   MCP child and token it already has. The node's half is enforced on the
   machine: the row pushes to a local mirror, a launch frame that still carries
-  wiring material has it stripped, and `subshell mcp` refuses outright, so a
-  host-registered harness exits at identity registration instead of serving on
-  a report-only key. The node owner's no is not something a tenant account can
-  talk past. A disabled pane still holds its credential: the hooks' reporting
-  routes answer to it, and it can still read its own log like any pane.
+  wiring material has it stripped, and `subshell mcp` refuses at the command
+  itself; a child whose node never learned the mirror, or whose account alone
+  is off, instead exits at identity registration. Either way the MCP never
+  serves on a report-only key, and the node owner's no is not something a
+  tenant account can talk past. A disabled pane still holds its credential:
+  the four report verbs and token self-extension answer to it, and that is its
+  whole API reach now, since reading even its own log asks for the `subshells`
+  scope it no longer carries (the log stays readable on disk by whoever owns
+  that OS account, §11).
 - **Node shares and subshell shares are independent axes.** Sharing a node does
   not hand out subshell tokens, but anything launched there trusts the machine.
 - **Whoever owns the node's OS user owns every pane launched there**, including

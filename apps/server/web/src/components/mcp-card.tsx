@@ -15,8 +15,11 @@ import { useEffect, useState } from "react";
  * Account → Preferences: the per-user subshell MCP switch. One value stored in
  * `user_meta`, so it follows the account across devices. Off means new panes
  * and restarts launch with no MCP registration and a report-only token: the
- * agent keeps its self-reporting (the attention bell, exit codes, subagent
- * roster) but loses the sibling-coordination tools. The two hooks are
+ * agent keeps its self-reporting (the attention bell, exit codes, session id;
+ * the subagent roster survives only on the hook-driven dialects, because
+ * opencode, pi and oh-my-pi ship their reporter inside the registration a
+ * switched-off pane never writes) but loses the sibling-coordination tools.
+ * The two hooks are
  * injectable so the read/write cycle is testable without stubbing fetch (the
  * notifications master switch is the precedent).
  */
