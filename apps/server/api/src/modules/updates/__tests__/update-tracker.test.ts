@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
+  beginPreparing,
   beginSelfUpdate,
   beginUpdate,
   readView,
@@ -9,6 +10,7 @@ import {
   resolveSelfUpdate,
   STALL_MS,
   TERMINAL_EXPIRE_MS,
+  updateOrdered,
   updateOutcomeUnknown,
   updateRefused,
   updateSwapped,
@@ -97,6 +99,196 @@ describe("beginUpdate / updateSwapped", () => {
     updateRefused("ghost", "nothing began here");
     updateOutcomeUnknown("ghost");
     expect(readView().nodes.ghost).toBeUndefined();
+  });
+});
+
+describe("beginPreparing / updateOrdered — the plane's own fetch stage", () => {
+  it("opens a preparing entry that never reads as stalled", () => {
+    // The 2026-10-31 fan-out fix moved the fetch of the release bytes into
+    // the POST, before the command goes out. During that wait the PLANE is
+    // the actor and the node has heard nothing — calling it `stalled` ("the
+    // update was accepted, but the node has not reported") would describe a
+    // machine that was never told anything.
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    expect(readView().nodes.n1).toEqual({
+      from: "0.8.0",
+      to: "0.9.0",
+      startedAt: nowMs,
+      phase: "preparing",
+      message: null,
+      endedAt: null,
+    });
+    expect(readView(1_000_000 + STALL_MS).nodes.n1?.phase).toBe("preparing");
+    expect(readView(1_000_000 + STALL_MS + 300_000).nodes.n1?.phase).toBe("preparing");
+  });
+
+  it("updateOrdered moves preparing → working and restarts the stall clock at the ORDER", () => {
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    nowMs += 90_000; // a slow-but-legal fetch, inside the route's own budget
+    updateOrdered("n1");
+    expect(readView().nodes.n1?.phase).toBe("working");
+    // The stall clock counts from the order exactly as it did before the
+    // fetch stage existed: 90 s of PLANE-side fetching must not spend the
+    // node's silence allowance.
+    nowMs += STALL_MS - 1;
+    expect(readView().nodes.n1?.phase).toBe("working");
+    nowMs += 1;
+    expect(readView().nodes.n1?.phase).toBe("stalled");
+  });
+
+  it("a refusal lands the preparing entry as failed with the plane's own sentence", () => {
+    // The warm's failure is a PLANE-shaped refusal the page should keep
+    // saying after a refresh, the same posture a node's spoken refusal has.
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    updateRefused("n1", "This server could not fetch the linux-x64 release bytes");
+    expect(readView().nodes.n1?.phase).toBe("failed");
+    expect(readView().nodes.n1?.message).toBe("This server could not fetch the linux-x64 release bytes");
+  });
+
+  it("updateOrdered is a no-op without a live entry and never disturbs a terminal one", () => {
+    updateOrdered("ghost");
+    expect(readView().nodes.ghost).toBeUndefined();
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    updateRefused("n1", "refused");
+    updateOrdered("n1");
+    expect(readView().nodes.n1?.phase).toBe("failed");
+  });
+
+  it("a late second ordered does not re-zero a running stall clock", () => {
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    updateOrdered("n1");
+    const zero = readView().nodes.n1?.startedAt;
+    nowMs += 5_000;
+    updateOrdered("n1"); // already working: the clock belongs to the order, not to the call
+    expect(readView().nodes.n1?.startedAt).toBe(zero);
+  });
+
+  it("a replacing press that orders nothing hands the slot back to the live order", () => {
+    // The warm moved entry-opening BEFORE the dispatch, so a second press can
+    // now fail having ordered NOTHING while the first press's command still
+    // lives on the machine. Terminalizing the shared slot there would retire
+    // the only story that can still become true: the first node may boot onto
+    // the new version, and `recordNodeReady` returns at once on a terminal
+    // entry, so the row would say "didn't finish" forever over an update that
+    // finished. The refused act hands the slot back instead.
+    beginUpdate("n1", { from: "0.8.0", to: "0.9.0" });
+    nowMs += 10_000;
+    const firstZero = readView().nodes.n1?.startedAt;
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    nowMs += 310_000; // the replacing press burns its own window, past the first order's stall
+    updateRefused("n1", "This server did not finish fetching the release bytes");
+    const restored = readView().nodes.n1;
+    expect(restored?.phase).toBe("stalled"); // derived off the FIRST order's clock, not `failed`
+    expect(restored?.startedAt).toBe(firstZero);
+    expect(restored?.message).toBeNull();
+    // And still resolvable, which is the entire point of handing it back:
+    recordNodeReady("n1", "0.9.0");
+    expect(readView().nodes.n1?.phase).toBe("done");
+  });
+
+  it("a restoring hand-back works for a restarting order too, and a dispatched press keeps the slot", () => {
+    beginUpdate("n1", { from: "0.8.0", to: "0.9.0" });
+    updateSwapped("n1");
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    updateRefused("n1", "the second fetch died");
+    expect(readView().nodes.n1?.phase).toBe("restarting");
+    // A replacing press that DOES order owns the slot from that dispatch on:
+    // the prior story is genuinely superseded, exactly as it was when
+    // `beginUpdate` replaced at dispatch.
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    updateOrdered("n1");
+    updateRefused("n1", "the node spoke a refusal");
+    expect(readView().nodes.n1?.phase).toBe("failed");
+  });
+
+  it("a swap answer lands on the captured order, not the replacing press's preparing entry", () => {
+    // Review M2: the swap answer arrives on some earlier press's `await
+    // sendCommand`, which can resume while a NEWER press's warm fetch owns the
+    // slot. Mutating the preparing slot there would cost it the hand-back
+    // (the restore is keyed on `preparing`) and terminalize press one's
+    // story over press two's failure, exactly the harm M1 closed. The fact
+    // belongs to the captured prior; the slot is left what it is.
+    beginUpdate("n1", { from: "0.8.0", to: "0.9.0" }); // press 1 dispatched, answer pending
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" }); // press 2 took the slot mid-warm
+    updateSwapped("n1"); // press 1's node answers during press 2's fetch
+    expect(readView().nodes.n1?.phase).toBe("preparing"); // press 2's entry untouched
+    updateRefused("n1", "press two died");
+    const restored = readView().nodes.n1;
+    expect(restored?.phase).toBe("restarting"); // the swap fact survived, on press 1's entry
+    recordNodeReady("n1", "0.9.0");
+    expect(readView().nodes.n1?.phase).toBe("done");
+  });
+
+  it("a swap answer on a preparing entry that replaced no order is dropped", () => {
+    // The answer can only describe an order, and this act has dispatched
+    // nothing with no prior order captured behind it: nothing to attribute
+    // it to, so it is honestly dropped rather than claimed by the fetch.
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    updateSwapped("n1");
+    expect(readView().nodes.n1?.phase).toBe("preparing");
+  });
+
+  it("a spoken refusal from the ordered act lands on that order, not the fetch owning the slot", () => {
+    // Review M3: the node's spoken refusal is answered on the ORDERED act's
+    // `await sendCommand`, which can resume while a newer press's preparing
+    // entry owns the slot. It must not consume the hand-back (the restored
+    // `working` would render "is installing" for a node that just refused),
+    // and it must not be dropped; it belongs to the captured prior. The
+    // capture is spent either way, so the fetch's own unordered refusal then
+    // terminalizes the fetch's entry.
+    beginUpdate("n1", { from: "0.8.0", to: "0.9.0" }); // press 1 dispatched, node answers it
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" }); // press 2 owns the slot
+    updateRefused("n1", "That node is not supervised", { nodeAnswered: true });
+    expect(readView().nodes.n1?.phase).toBe("preparing"); // press 2's entry neither restored-over nor stamped
+    updateRefused("n1", "press two's fetch died"); // press 2's own, unordered
+    expect(readView().nodes.n1?.phase).toBe("failed");
+    expect(readView().nodes.n1?.message).toBe("press two's fetch died");
+  });
+
+  it("a spoken refusal is dropped when no order is captured behind the fetch", () => {
+    // The answer describes an order, and there is none to describe: dropping
+    // is honest, stamping the fetch's entry would speak through it.
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    updateRefused("n1", "a stray refusal for no live order", { nodeAnswered: true });
+    expect(readView().nodes.n1?.phase).toBe("preparing");
+  });
+
+  it("a rollback ready lands on the witnessed order behind a fetch, not the fetch", () => {
+    // Review m-r3: the rollback boot IS the restart the `restarting` entry
+    // exists for, and its old-version `ready` is the decisive fact. Landing
+    // it on a newer press's preparing entry returned unheard (the rollback
+    // note has no second chance — that boot does not re-dial reporting the
+    // failure). It goes to the captured prior.
+    beginUpdate("n1", { from: "0.8.0", to: "0.9.0" });
+    updateSwapped("n1"); // press 1's swap witnessed; the rollback boot follows
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" }); // press 2 owns the slot
+    recordNodeReady("n1", "0.8.0"); // the rollback reports the old version
+    expect(readView().nodes.n1?.phase).toBe("preparing"); // the fetch story is still the fetch
+    // The captured order is spent by the redirect, so press 2's own refusal
+    // terminalizes its own entry rather than restoring a story that ended.
+    updateRefused("n1", "press two died");
+    expect(readView().nodes.n1?.message).toBe("press two died");
+  });
+
+  it("a terminal prior is not resurrected by a replacing press's refusal", () => {
+    beginUpdate("n1", { from: "0.8.0", to: "0.9.0" });
+    recordNodeReady("n1", "0.9.0"); // done
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" });
+    updateRefused("n1", "refused");
+    expect(readView().nodes.n1?.phase).toBe("failed");
+  });
+
+  it("two preparations in flight: the failed one restores the other, which can still dispatch", () => {
+    // Two POSTs (two tabs, or Update all racing a press) can both sit in the
+    // warm. Whichever refuses gives back the slot it took; the other POST's
+    // own story stays intact and its dispatch still lands.
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" }); // press A
+    beginPreparing("n1", { from: "0.8.0", to: "0.9.0" }); // press B replaces it
+    updateRefused("n1", "press B died");
+    expect(readView().nodes.n1?.phase).toBe("preparing"); // A's stage is back
+    nowMs += 1_000;
+    updateOrdered("n1"); // A dispatches
+    expect(readView().nodes.n1?.phase).toBe("working");
   });
 });
 

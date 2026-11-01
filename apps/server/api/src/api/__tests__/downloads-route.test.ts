@@ -34,7 +34,17 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { originRegistry } from "@/modules/network/trusted-origins.js";
 import { mintUpdateToken, resetUpdateTokensForTests } from "@/modules/updates/node-tokens.js";
-import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/modules/updates/releases.js";
+import {
+  releaseSeams,
+  resetReleaseCacheForTests,
+  setReleaseUrlForTests,
+  setServePastHoldMsForTests,
+} from "@/modules/updates/releases.js";
+
+/** The serve-past hold shortened for the refusal test, whose hygiene
+ *  assertion must watch the refused copy expire rather than wait ten minutes. */
+const SERVE_PAST_TEST_HOLD_MS = 20;
+
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 // Assembled like createApp(): the GLOBAL error handler is mounted before the
@@ -1458,6 +1468,8 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
   let release: { url: string; stop: () => void; serveDigest: string; digestB: string };
   /** Flip the source to release B: /bin serves its bytes and /manifest names them. */
   let servingReleaseB = false;
+  /** How many times `/bin` was fetched — the one-fetch-per-batch observable. */
+  let binFetches = 0;
 
   beforeAll(async () => {
     await setupAuthTables();
@@ -1502,7 +1514,10 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
             },
           ]);
         }
-        if (url.pathname === "/bin") return new Response(servingReleaseB ? BODY_B : BODY);
+        if (url.pathname === "/bin") {
+          binFetches += 1;
+          return new Response(servingReleaseB ? BODY_B : BODY);
+        }
         if (url.pathname === "/sha") return new Response(`${release.serveDigest}\n`);
         if (url.pathname === "/sig") return new Response(TEST_ARMOR);
         if (url.pathname === "/manifest") {
@@ -1698,6 +1713,43 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
     }
   });
 
+  it("serves THREE simultaneous update downloads off one serve-past fetch", async () => {
+    // The 2026-10-31 half of the same story, on the arm the 2026-10-23 fix
+    // left unshared: with an operator-published file on the shelf, every
+    // tokened download asked for `cache: false` bytes and every such fetch
+    // ran ALONE — a three-node batch meant three upstream ~80 MB fetches
+    // racing the command deadline, and real fleets lost most of their first
+    // attempts. The downloads now share one verified temp copy (the serve-
+    // past lease); the operator's file is still never touched.
+    setReleaseUrlForTests(`${release.url}/releases`);
+    resetReleaseCacheForTests();
+    resetUpdateTokensForTests();
+    rmSync(binaryPath, { force: true });
+    rmSync(`${binaryPath}.sha256`, { force: true });
+    rmSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), { force: true });
+    binFetches = 0;
+    const STALE = "the operator's own darwin binary";
+    writeFileSync(binaryPath, STALE);
+    try {
+      const tokens = [1, 2, 3].map((n) => mintUpdateToken(`past${n}`, TARGET, release.serveDigest));
+      const resps = await Promise.all(
+        tokens.map((token) =>
+          app.handle(
+            new Request(`http://localhost/api/downloads/node/${TARGET}?update_token=${encodeURIComponent(token)}`),
+          ),
+        ),
+      );
+      const bodies = await Promise.all(resps.map((res) => res.text()));
+      expect(bodies.every((body) => body === BODY)).toBe(true);
+      expect(binFetches).toBe(1);
+      expect(readFileSync(binaryPath, "utf8")).toBe(STALE);
+    } finally {
+      rmSync(binaryPath, { force: true });
+      rmSync(`${binaryPath}.sha256`, { force: true });
+      rmSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"), { force: true });
+    }
+  });
+
   it("an update token refuses a release the source has moved past, before any byte is served", async () => {
     // Release-coherent serving, the second half: the token names release A's
     // digest, but the index's 15-minute TTL means the source may answer B by
@@ -1719,6 +1771,7 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
       // entry, so the memo must drop too.
       servingReleaseB = true;
       resetReleaseCacheForTests();
+      setServePastHoldMsForTests(SERVE_PAST_TEST_HOLD_MS);
 
       const token = mintUpdateToken("n1", TARGET, release.serveDigest);
       const res = await app.handle(
@@ -1729,12 +1782,17 @@ describe("/api/downloads/node/* — the lazy fetch", () => {
       expect(body.code).toBe("NODE_UPDATE_UNAVAILABLE");
       expect(body.message).toContain("node-artifacts");
       expect(body.message).toContain("release:cli-node");
-      // Nothing served: the fetched B bytes went through a temp copy that the
-      // refusal deleted, the stale file stands untouched, and nothing was
+      // Nothing served: the stale file stands untouched and nothing was
       // recorded as ours — the comparison now lands BEFORE the first byte,
-      // because the fetch verifies the whole file before handing anything out.
+      // because the fetch verifies the whole file before handing anything
+      // out. The refused copy (release B, the token's A is what failed) is
+      // held briefly by the serve-past lease — a retry press after the
+      // source moved will want exactly these bytes — and then its hold
+      // window expires and the copy is gone. (The window is what replaced
+      // outright deletion on dispose, 2026-10-31.)
       expect(readFileSync(binaryPath, "utf8")).toBe(STALE);
       expect(existsSync(join(NODE_ARTIFACTS_DIR, ".fetched.json"))).toBe(false);
+      await Bun.sleep(SERVE_PAST_TEST_HOLD_MS + 60);
       expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(false);
       // The token was spent by the refused request.
       expect(

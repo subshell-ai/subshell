@@ -12,8 +12,32 @@ A binary-only server install ships that dir EMPTY. That used to mean the
 install one-liner 404ed until someone published; since 2026-09-12 the server
 FETCHES a missing binary from the project's own `cli-node-v*` GitHub release the
 first time a machine asks for it (`modules/updates/releases.ts`). Binary bytes are
-still lazy: served on request, never warmed up, no admin button, no poll, so a
-plane whose nodes are all one platform never spends a byte on the others.
+still lazy in the sense that mattered: served on request, no admin button, no
+poll, no boot-time sweep, so a plane whose nodes are all one platform never
+spends a byte on the others. One act fetches ahead of a request: since
+2026-10-31 `POST /api/nodes/:id/update` fetches the bytes IT is about to
+authorize a download of before the command goes out, because a whole fleet
+pressing that button at once used to have every machine's download stall on
+the plane's own cold first fetch, and on the serve-past arm pay for it again
+node by node. That is the fan-out incident the same section of this doc
+records from below. That fetch is bounded by the same deadline the node's own
+download gets, and it is VISIBLE: the update tracker opens the row's entry as
+`preparing` before the fetch starts (never deriving `stalled`, which would
+blame the machine for the plane's wait), ends it `failed` with the refusal's
+sentence if the fetch or a late gate refuses, and flips it to `working` the
+moment the command goes out, when the stall clock starts counting node
+silence. One hand-back rule sits under all of that: a press that replaces a
+STILL-LIVE order (the row went `stalled` and its button came back, or a
+second tab pressed) and then refuses before dispatching does not get to
+terminalize that order: the node from the first press may still boot onto
+the new version, and a terminal entry drops its `ready`. The refusal belongs
+to its own tab's 409; the tracker hands the interrupted order's entry back.
+And because an answer arrives on the ORDERED act's own `await sendCommand`,
+which can resume mid-fetch of a later press, the three seams that speak for
+an order (the swap answer, the node's spoken refusal, flagged
+`nodeAnswered`, and the boot's `ready`, the rollback note especially) never
+talk through a `preparing` entry: they land on the captured prior, or are
+dropped when nothing attributable is captured.
 Since 2026-10-09 the tiny index/manifest reads behind the serve decision run
 on EVERY authenticated download request (TTL-cached; a failed read is backed
 off a minute), not just on the branch that ends in a fetch. The bytes are
@@ -65,7 +89,9 @@ the update command named from the signed manifest, so the disk file is served
 only when it hashes to it, and anything else is fetched around: an absent disk
 file is cached exactly as the installer lazy fetch always did, while a
 present-but-different file is served from a temp copy and never overwritten
-(the hand-published-binary rule holds; the temp goes when the response ends).
+(the hand-published-binary rule holds; the shared temp goes when the last
+reader finishes and its brief hold window expires; see the serve-past lease
+below).
 A download killed outright strands its uniquely-named temp, because no
 in-process path cleans what a SIGKILL interrupted, so each download sweeps
 strays older than an hour first; the age bound is what makes that safe beside
@@ -81,8 +107,17 @@ download whose disk copy is stale with a 409 naming the remedy, and the
 narrowed guard in `update-node.route.ts` is that case's backstop at the update
 route itself. The coalescer shares the settled download, not a stream:
 concurrent same-target fetches (an "Update all" fan-out) each open their own
-read of it, and a `cache: false` fetch runs uncoalesced because its temp
-cleanup belongs to that one caller.
+read of it. The serve-past arm (`cache: false`, taken whenever the disk holds
+a copy that is NOT the release) is coalesced too as of 2026-10-31: it had
+never been, so an "Update all" against an operator-published shelf fired one
+full release fetch PER node: N × ~80 MB racing the command deadline, most of
+the batch's single-use tokens burning while the plane refetched what the
+first download already proved it could reach, and the same node updated one
+at a time always worked. That shape is the incident this paragraph's date
+closes. Those fetches now share one verified temp copy (the serve-past lease
+in `releases.ts`); each caller gets its own read, the file is held until the
+last handle finishes plus a short window for downloads still in transit, and
+the operator's shelf file is still never touched.
 
 Three surfaces still report what is on disk, so the air-gapped case is visible
 instead of being discovered: the published set (`modules/updates/node-artifacts.ts:publishedNodeTargets`,

@@ -65,6 +65,16 @@ describe("updatesPollMs", () => {
     expect(updatesPollMs(view, false)).toBe(2_000);
   });
 
+  it("polls at 2s during preparing, the server's own fetch before any order", () => {
+    // The 2026-10-31 warm can park a row there for minutes, and it is one
+    // refetch from `working`. A poller that read preparing as over would
+    // freeze the row on the sentence that exists to stay current.
+    const view = updatesView({
+      nodes: nodeUpdates({ rows: [nodeRow({ id: "a", update: state({ phase: "preparing" }) })] }),
+    });
+    expect(updatesPollMs(view, false)).toBe(2_000);
+  });
+
   it("stops polling at stalled, because that is the sentence that hands off to a human", () => {
     // stalled is NOT terminal on the server (a late `ready` still resolves
     // it) - but for the POLLER it is terminal: the machine has not come back

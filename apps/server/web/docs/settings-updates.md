@@ -67,3 +67,17 @@ job record arrives. Node update requests can wait for the download, so
 request is pending. The server tracker then supplies progress and completion.
 A previous attempt's terminal result must not cover a new request's status.
 Use gold for work in progress and reserve green for confirmed completion.
+
+The tracker's first phase is the SERVER's wait, not the machine's: since
+2026-10-31 the update fetches the release bytes before it orders anything,
+and the row says so as `preparing` ("This server is fetching the X release
+bytes; NAME hasn't been told yet."). That is why the pre-order sentence is
+server state rather than component state: a page refreshed mid-fetch, or a
+second admin tab that never pressed, renders the same honest wait. The local
+pending line ("Starting the update.") now only covers the sliver before the
+entry appears, and never claims the node is doing anything. The stall clock
+counts from the dispatch, so time the plane spent fetching cannot spend the
+machine's two-minute allowance, and `preparing` itself never derives to
+`stalled`; the fetch behind it runs against a deadline. `isUpdateLive` treats
+it as live, which keeps the 2 s poll and the row's busy button through the
+wait.

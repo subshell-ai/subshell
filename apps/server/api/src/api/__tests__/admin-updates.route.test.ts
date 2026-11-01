@@ -11,6 +11,7 @@ import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import {
+  beginPreparing,
   beginSelfUpdate,
   beginUpdate,
   resetForTests,
@@ -42,7 +43,7 @@ interface UpdateStateWire {
   from: string;
   to: string;
   startedAt: string;
-  phase: "working" | "restarting" | "done" | "failed" | "stalled";
+  phase: "preparing" | "working" | "restarting" | "done" | "failed" | "stalled";
   message: string | null;
   endedAt: string | null;
 }
@@ -358,6 +359,29 @@ describe("GET /api/admin/updates", () => {
         message: null,
         endedAt: null,
       });
+    });
+
+    it("serializes a preparing entry, and it never ages into stalled", async () => {
+      // The 2026-10-31 warm widened the schema union to carry `preparing`, and
+      // the phase has one rule the OTHER live phases do not: `stalled` means
+      // "a node was told and went quiet", and nothing was told yet. So a
+      // refresh well past STALL_MS during a slow fetch must still read
+      // preparing, or the page would accuse a machine of silence for the
+      // server's own download. (The fetch itself is bounded; the tracker
+      // simply never derives stalled for this phase.)
+      const id = await agent({ name: `upd-prep-${crypto.randomUUID()}`, version: "0.8.0" });
+      beginPreparing(id, { from: "0.8.0", to: "9.9.9" });
+      const row = (await read(fx.adminCookie)).nodes.rows.find((r) => r.id === id);
+      expect(row?.update).toEqual({
+        from: "0.8.0",
+        to: "9.9.9",
+        startedAt: new Date(FIXED_MS).toISOString(),
+        phase: "preparing",
+        message: null,
+        endedAt: null,
+      });
+      updateTrackerSeams.now = () => FIXED_MS + 3 * STALL_MS;
+      expect((await read(fx.adminCookie)).nodes.rows.find((r) => r.id === id)?.update?.phase).toBe("preparing");
     });
 
     it("the timeout posture reads working pre-stall and stalled past STALL_MS — same entry, no re-press", async () => {

@@ -17,7 +17,11 @@
  *   2026-10-09, reads the cached index on every authenticated request and
  *   pays the tiny reads at most once per TTL) and the update verb — never a
  *   routine of their own. Binary BYTES are still lazy: nothing over ~1 KB
- *   moves until a machine is actually being served.
+ *   moves until a machine is actually being served — where "being served"
+ *   includes the moment `POST /api/nodes/:id/update` commits to one, since
+ *   2026-10-31 that route warms the bytes it is about to authorize before it
+ *   sends the command, so N nodes downloading at once share one fetch and no
+ *   node's download stalls on the plane's cold first read.
  * - **The bytes are downloaded IN FULL and verified before anything is
  *   served.** The old shape streamed the release through while hashing on the
  *   way past, and paid for it on 2026-10-23: the coalescer's shared live
@@ -91,7 +95,7 @@ export const MAX_ARTIFACT_BYTES = 300 * 1024 * 1024;
  *  older than this is a crashed attempt's corpse, not a live write. @internal */
 export const STALE_DOWNLOAD_MAX_AGE_MS = 60 * 60 * 1000;
 
-/** The digest-failure phrase, shared because {@link fetchArtifactUncoordinated}
+/** The digest-failure phrase, shared because {@link fetchVerifiedTemp}
  *  pattern-matches what {@link downloadVerified} throws to keep the artifact
  *  log line truthful. Tests pin the shipped string with a literal regex. */
 const DIGEST_MISMATCH_PHRASE = "did not match the published digest";
@@ -145,7 +149,9 @@ export function setReleaseUrlForTests(url: string | null): void {
   testOverride = url;
   cachedIndex = null;
   indexFailure = null;
+  indexInFlight = null;
   inFlight.clear();
+  purgeServePastForTests();
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +217,15 @@ export interface ReleaseIndex {
 let cachedIndex: { at: number; index: ReleaseIndex } | null = null;
 /** Why the last index read failed and until when to not repeat it; see {@link resolveReleases}. */
 let indexFailure: { message: string; until: number } | null = null;
+/**
+ * The one in-flight index read, shared by every caller who arrives while it
+ * runs. Without it the memo answers nobody in the burst: "Update all" fires
+ * every POST's release lookup at once, each with a cold cache, each opening
+ * its own GitHub request and its own copy of the index — a metadata burst
+ * against an unauthenticated API, and N divergent `ResolvedRelease` objects
+ * whose manifest memoizations cannot see each other.
+ */
+let indexInFlight: Promise<ReleaseIndex> | null = null;
 /** How long a failed index read is remembered. */
 const INDEX_BACKOFF_MS = 60_000;
 
@@ -250,7 +265,18 @@ export async function resolveReleases(): Promise<ReleaseIndex> {
   // request, and without the backoff a no-egress plane would pay the full
   // metadata timeout per install instead of per minute.
   if (indexFailure !== null && now < indexFailure.until) throw new Error(indexFailure.message);
+  // Burst callers join the read that is already running (see
+  // {@link indexInFlight}): the memo cannot answer them because nothing has
+  // settled yet, which is how a single "Update all" became one API request
+  // per POST.
+  indexInFlight ??= resolveReleasesUncached(api).finally(() => {
+    indexInFlight = null;
+  });
+  return indexInFlight;
+}
 
+async function resolveReleasesUncached(api: string): Promise<ReleaseIndex> {
+  const now = Date.now();
   let payload: unknown;
   try {
     const response = await fetch(api, {
@@ -312,6 +338,12 @@ export async function resolveReleases(): Promise<ReleaseIndex> {
 /**
  * Drop the memoized index so the next read reaches the network — the Re-check
  * button, and the CLI's `update --check`.
+ *
+ * A read that is already in flight answers this one too: the join
+ * ({@link resolveReleases}) is deliberately unconditional, so a click that
+ * lands during a burst's fetch gets those bytes a moment later rather than
+ * opening a second GitHub request. The list is a cache by contract; the click
+ * proves eagerness to ask, not a demand to ask twice.
  */
 export async function refreshReleases(): Promise<ReleaseIndex> {
   cachedIndex = null;
@@ -495,8 +527,23 @@ async function fetchWithPinnedEgress(url: string, init?: RequestInit): Promise<R
  * reason — "could not read" and "refused to verify" share the consequence
  * (do not offer) and differ only in the sentence; neither is a page failure.
  */
+const manifestInFlight = new WeakMap<ResolvedRelease, Promise<ManifestOutcome>>();
+
 export async function checkReleaseManifest(release: ResolvedRelease): Promise<ManifestOutcome> {
   if (release.manifestRead && release.manifestOutcome !== null) return release.manifestOutcome;
+  // Join the check already running for THIS release object. The memo above
+  // can only answer a SETTLED read, and every POST of an "Update all" checks
+  // the same release object while the first pair of tiny reads is still in
+  // flight — without this the burst pays N manifest reads and N signatures
+  // regardless of the index being shared.
+  const running = manifestInFlight.get(release);
+  if (running !== undefined) return running;
+  const work = checkReleaseManifestUncached(release).finally(() => manifestInFlight.delete(release));
+  manifestInFlight.set(release, work);
+  return work;
+}
+
+async function checkReleaseManifestUncached(release: ResolvedRelease): Promise<ManifestOutcome> {
   release.manifestRead = true;
   const manifestUrl = release.assets.get(RELEASE_MANIFEST_NAME);
   if (manifestUrl === undefined) return remember(release, { kind: "no-manifest" });
@@ -828,9 +875,11 @@ export interface FetchedArtifact {
    */
   body(): ReadableStream<Uint8Array>;
   /**
-   * Give up without serving (the digest gate refusing, say). Removes the temp
-   * copy when the fetch kept one; removes nothing when the bytes are cached,
-   * because a cached release is the shelf's own.
+   * Give up this handle. A cached artifact's dispose removes nothing (a
+   * cached release is the shelf's own); a serve-past handle's releases its
+   * reference on the shared temp copy — the copy itself belongs to the lease,
+   * which keeps it briefly for downloads still arriving and removes it when
+   * the last reader is gone and the hold window has passed.
    */
   dispose(): Promise<void>;
 }
@@ -844,9 +893,26 @@ export interface FetchArtifactOptions {
    * hand-published binary, and "a file we fetched is ours to replace; a file
    * the operator put there is not" holds even when the fetch is happening on
    * an update's behalf. The bytes are still fully verified either way; only
-   * the writing differs.
+   * the writing differs. `false` fetches still share work — see
+   * {@link acquireServePast} for the held-temp-copy shape that replaced the
+   * original deliberately-unshared one.
    */
   cache?: boolean;
+  /**
+   * Bounds the wait by ABORTING the fetch (the update route's warm step
+   * passes `AbortSignal.timeout()` so a plane whose link is slow says so in
+   * its own 409 rather than hanging the POST). One honest consequence of
+   * coalescing: a caller who JOINS a fetch inherits that fetch's abort,
+   * because it is genuinely the same request. So a node-driven download
+   * that joins a signal-bound fetch can have its FIRST attempt killed by a
+   * plane-side timer, and the same applies to its in-request retry if that
+   * adopts a newer attempt someone else started with a timer (a second
+   * inherited failure then propagates; there is no third attempt). What a
+   * no-signal caller never pays is a timer of ITS OWN starting: an attempt
+   * it begins itself is bound-free, but every wait it JOINS is bounded by
+   * whoever started it.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -868,17 +934,16 @@ export interface FetchArtifactOptions {
  * its own body from it. The download-before-serve order costs the first
  * caller's first byte (it now waits for the plane's full fetch from the
  * release source) and buys the whole fan-out case: see the incident note on
- * {@link FetchedArtifact}. A `cache: false` caller never shares, in either
- * direction: its bytes live in a temp file whose cleanup is that one
- * caller's, and coalescing it would let one joiner's cleanup delete
- * another's serve mid-flight — so it neither joins the in-flight cached
- * fetch nor becomes joinable (its own temp name is unique per download), and
- * a `cache: true` caller arriving meanwhile starts a fresh shared download.
- * Two parallel fetches of one target over one stale-shelf fan-out is the
- * accepted cost of never touching the operator's file.
+ * {@link FetchedArtifact}. `cache: false` shares too — through the held
+ * serve-past copy of {@link acquireServePast}, which replaced the original
+ * one-fetch-per-caller shape that made an "Update all" against an
+ * operator-published shelf cost N × ~80 MB of upstream bytes (2026-10-31).
+ * The two arms still never join EACH OTHER: a cached fetch renames onto the
+ * shelf path, a serve-past fetch renames nothing, and one caller's cleanup
+ * must not reach another's bytes.
  */
 export async function fetchArtifact(target: NodeTarget, options: FetchArtifactOptions = {}): Promise<FetchedArtifact> {
-  if (options.cache === false) return fetchArtifactUncoordinated(target, false);
+  if (options.cache === false) return acquireServePast(target, options.signal);
   const existing = inFlight.get(target);
   if (existing) {
     // A failed fetch is NOT sticky for its joiners. The settled attempt is
@@ -895,12 +960,19 @@ export async function fetchArtifact(target: NodeTarget, options: FetchArtifactOp
       if (retry !== undefined && retry !== existing) return retry;
     }
   }
-  const work = fetchArtifactUncoordinated(target, true).finally(() => inFlight.delete(target));
+  const work = fetchAndCacheArtifact(target, options.signal).finally(() => inFlight.delete(target));
   inFlight.set(target, work);
   return work;
 }
 
-async function fetchArtifactUncoordinated(target: NodeTarget, cache: boolean): Promise<FetchedArtifact> {
+/**
+ * Fetch the release's verified bytes for one target into a temp file.
+ *
+ * The shared engine of both arms: {@link fetchAndCacheArtifact} renames the
+ * temp onto the shelf path when the bytes are ours to cache, and the
+ * serve-past lease ({@link acquireServePast}) holds it as a temp instead.
+ */
+async function fetchVerifiedTemp(target: NodeTarget, signal?: AbortSignal): Promise<ServePastBytes> {
   const { release, manifest } = await compatibleNodeReleaseOrThrow();
   // Resolving told us which tag is current, so this is the moment anything
   // older becomes removable. Before the download, so a plane low on disk
@@ -927,9 +999,9 @@ async function fetchArtifactUncoordinated(target: NodeTarget, cache: boolean): P
   // on `writer()` with ENOENT, and the node's download answered 404 with the
   // plane's own filesystem named as nothing. Measured on mac-builder
   // 2026-09-20; every test green the whole time because every test fixture
-  // created the directory itself. It is created for BOTH fetch shapes now:
-  // the cached rename needs it, and so does the temp file the uncoalesced
-  // `cache: false` fetch is written to before it is served and removed.
+  // created the directory itself. It is created for BOTH fetch shapes: the
+  // cached rename needs it, and so does the temp file the serve-past lease is
+  // written to before it is served.
   await mkdir(NODE_ARTIFACTS_DIR, { recursive: true });
 
   // Download in full, hash as it goes, refuse a mismatch. All of that, plus
@@ -947,6 +1019,7 @@ async function fetchArtifactUncoordinated(target: NodeTarget, cache: boolean): P
       expectedDigest: expected,
       destDir: NODE_ARTIFACTS_DIR,
       destName: `subshell-node-cli-${target}.fetch`,
+      signal,
     });
   } catch (error) {
     // Keep the digest failure in the artifact log line the streaming design
@@ -958,29 +1031,248 @@ async function fetchArtifactUncoordinated(target: NodeTarget, cache: boolean): P
     throw error;
   }
 
-  if (cache) {
-    await rename(tmp, artifactPath(target));
-    // The sidecar is written from the MANIFEST's digest, not the other way
-    // round: `install.sh` keeps reading the file, it just no longer decides
-    // anything (spec 2026-09-17 §4).
-    await writeFile(`${artifactPath(target)}.sha256`, `${expected}\n`);
-    await record(target, release.tag, expected, manifest.manifest.commit);
-    getLogger().info(`node artifacts: cached ${names.binary} from ${release.tag}`);
-    const file = Bun.file(artifactPath(target));
-    return { digest: expected, tag: release.tag, body: () => file.stream(), dispose: async () => {} };
-  }
+  return { digest: expected, tag: release.tag, tmp, commit: manifest.manifest.commit, assetName: names.binary };
+}
 
-  // Served-from-temp: the file at the artifact path was not ours to overwrite
-  // (it may be the operator's hand-published binary), so these bytes live in
-  // the temp copy only, and that copy is deleted when the response ends.
-  // Not coalesced (see {@link fetchArtifact}) precisely because that cleanup
-  // is one caller's own.
-  return {
-    digest: expected,
-    tag: release.tag,
-    body: () => drainedFile(tmp),
-    dispose: () => rm(tmp, { force: true }).catch(() => {}),
+/** The verified-but-not-yet-placed bytes of one target, from {@link fetchVerifiedTemp}. */
+interface ServePastBytes {
+  digest: string;
+  tag: string;
+  /** Absolute path of the temp file holding the verified bytes. */
+  tmp: string;
+  /** The commit the SIGNED manifest names, for the cache ledger. */
+  commit: string;
+  /** The published asset name, for the log lines that name which file. */
+  assetName: string;
+}
+
+/** The cached arm: rename onto the shelf, announce, record, serve from the shelf. */
+async function fetchAndCacheArtifact(target: NodeTarget, signal?: AbortSignal): Promise<FetchedArtifact> {
+  const bytes = await fetchVerifiedTemp(target, signal);
+  await rename(bytes.tmp, artifactPath(target));
+  // The sidecar is written from the MANIFEST's digest, not the other way
+  // round: `install.sh` keeps reading the file, it just no longer decides
+  // anything (spec 2026-09-17 §4).
+  await writeFile(`${artifactPath(target)}.sha256`, `${bytes.digest}\n`);
+  await record(target, bytes.tag, bytes.digest, bytes.commit);
+  getLogger().info(`node artifacts: cached ${bytes.assetName} from ${bytes.tag}`);
+  const file = Bun.file(artifactPath(target));
+  return { digest: bytes.digest, tag: bytes.tag, body: () => file.stream(), dispose: async () => {} };
+}
+
+// ---------------------------------------------------------------------------
+// The serve-past lease: one temp copy, many readers
+// ---------------------------------------------------------------------------
+
+/**
+ * How long a fully-released serve-past copy waits before its temp is removed.
+ *
+ * The hold is what lets the warm-before-command shape work: the update POST
+ * fetches the bytes, lets its own handle go, and only then sends the order;
+ * the node's GET arrives seconds (or a redial) later and must find the
+ * settled copy rather than trigger a fresh fetch. The window is bounded so a
+ * batch that never showed up cannot park ~80 MB on the data volume forever. A
+ * copy left past the window (a crashed process, or a ref leaked by a response
+ * that never streamed) is reaped by {@link sweepStaleDownloads} like any stray
+ * download; the join's re-stat then retires the now-empty slot, so the sweep
+ * of the file also heals the map rather than leaving it to hand a dead path.
+ */
+export const SERVE_PAST_HOLD_MS = 10 * 60 * 1000;
+let servePastHoldMs = SERVE_PAST_HOLD_MS;
+/** Refuse the hold window outside a test run. @internal */
+export function setServePastHoldMsForTests(ms: number): void {
+  if (!IS_TEST) throw new Error("setServePastHoldMsForTests is test-only");
+  servePastHoldMs = ms;
+}
+
+interface ServePastEntry {
+  target: NodeTarget;
+  /** Resolves when the verified temp file EXISTS; rejects (and unhooks
+   *  itself) when the fetch fails, so a failed attempt is not sticky. */
+  promise: Promise<ServePastBytes>;
+  /** The temp file's path once the fetch has settled — what the hold sweep
+   *  removes. Null while the fetch runs or after it failed. */
+  tmp: string | null;
+  /** Live handles: every caller that received (or is awaiting) an artifact. */
+  refs: number;
+  /** Armed when refs reach zero; cleared by the next joiner. */
+  holdTimer: ReturnType<typeof setTimeout> | null;
+}
+
+const servePast = new Map<NodeTarget, ServePastEntry>();
+
+/**
+ * Forget every lease: timers downed, slots emptied, settled temp copies
+ * removed, hold restored. Tests only. Every in-process fetch the suites
+ * await has settled before a reset runs — a response cannot complete before
+ * the finally that resets — so no live reader is being pulled out from
+ * under. A crashed-lease stray that outlives this is reaped by
+ * {@link sweepStaleDownloads}.
+ * @internal
+ */
+function purgeServePastForTests(): void {
+  for (const entry of servePast.values()) {
+    if (entry.holdTimer !== null) clearTimeout(entry.holdTimer);
+    entry.holdTimer = null;
+    entry.refs = 0;
+    if (entry.tmp !== null) void rm(entry.tmp, { force: true }).catch(() => {});
+  }
+  servePast.clear();
+  servePastHoldMs = SERVE_PAST_HOLD_MS;
+}
+
+/** Start (and register) a fresh serve-past fetch for one target. */
+function startServePast(target: NodeTarget, signal?: AbortSignal): ServePastEntry {
+  const entry = {
+    target,
+    refs: 0,
+    tmp: null,
+    holdTimer: null,
+    promise: null as unknown as Promise<ServePastBytes>,
+  } as ServePastEntry;
+  entry.promise = fetchVerifiedTemp(target, signal)
+    .then((bytes) => {
+      entry.tmp = bytes.tmp;
+      return bytes;
+    })
+    .catch((error: unknown) => {
+      // The slot goes the moment the answer is "no bytes" — late callers must
+      // not inherit a rejected promise (the same rule the cached arm's joiners
+      // have always had).
+      if (servePast.get(target) === entry) servePast.delete(target);
+      throw error;
+    });
+  servePast.set(target, entry);
+  return entry;
+}
+
+/**
+ * Acquire verified release bytes WITHOUT overwriting the shelf path, shared
+ * by every caller who needs them for one target.
+ *
+ * The shape replaced on 2026-10-31 was "each `cache: false` fetch owns its
+ * own temp and fetches its own bytes", which made an "Update all" against an
+ * operator-published shelf fire N simultaneous ~80 MB upstream fetches — the
+ * batch timed out and burned its single-use download tokens while every
+ * node updated one-at-a-time worked fine. The fetches of one target share
+ * one verified temp now; each caller gets its own read of it and its own
+ * release, and the file survives until the last handle is done plus a hold
+ * window ({@link SERVE_PAST_HOLD_MS}) for downloads still in transit — see
+ * {@link SERVE_PAST_HOLD_MS} for why the window exists at all.
+ *
+ * A settled copy is joinable only while its digest IS the release the
+ * current index names (the index's 15-minute TTL can move under a hold); on
+ * skew the slot is replaced by a fresh fetch while readers already handed
+ * keep serving the copy they hold refs on. The download route's own
+ * digest gate ({@link FetchedArtifact.digest}) remains the last word for a
+ * tokened request.
+ */
+async function acquireServePast(target: NodeTarget, signal?: AbortSignal): Promise<FetchedArtifact> {
+  // The ref is taken BEFORE the join is awaited: while a joiner is in flight,
+  // the copy's refs read above zero, so a hold that reaches its expiry
+  // mid-await cannot mistake the waiting joiner for nobody and delete the
+  // settled file out from under it. Every failure path hands the ref back.
+  let lease = adoptServePast(servePast.get(target) ?? startServePast(target, signal));
+  let bytes: ServePastBytes;
+  try {
+    bytes = await joinServePast(lease);
+  } catch {
+    releaseServePastRef(lease);
+    // One retry, same rule as the cached arm: onto a newer attempt if one
+    // started meanwhile, else a fresh one. A second failure propagates
+    // (having handed its ref back too).
+    const retry = servePast.get(target);
+    lease = adoptServePast(retry ?? startServePast(target, signal));
+    try {
+      bytes = await joinServePast(lease);
+    } catch (error) {
+      releaseServePastRef(lease);
+      throw error;
+    }
+  }
+  let released = false;
+  const release = async (): Promise<void> => {
+    if (released) return;
+    released = true;
+    releaseServePastRef(lease);
   };
+  return {
+    digest: bytes.digest,
+    tag: bytes.tag,
+    body: () => releasingFileStream(bytes.tmp, release),
+    dispose: release,
+  };
+}
+
+/** Join an entry as a live reader: disarm any pending hold, take the ref. */
+function adoptServePast(entry: ServePastEntry): ServePastEntry {
+  if (entry.holdTimer !== null) {
+    clearTimeout(entry.holdTimer);
+    entry.holdTimer = null;
+  }
+  entry.refs += 1;
+  return entry;
+}
+
+/** Hand back one reader's ref; zero refs arms the hold window. */
+function releaseServePastRef(entry: ServePastEntry): void {
+  entry.refs -= 1;
+  if (entry.refs <= 0) armServePastHold(entry);
+}
+
+/**
+ * Await the entry's fetch, refusing a settled copy the release has moved
+ * past, and a slot whose copy is no longer on disk at all.
+ */
+async function joinServePast(entry: ServePastEntry): Promise<ServePastBytes> {
+  const bytes = await entry.promise;
+  const expected = await fetchDigest(entry.target).catch(() => bytes.digest);
+  if (expected !== bytes.digest) {
+    if (servePast.get(entry.target) === entry) {
+      // Retire the slot for future joiners; readers already handed still hold
+      // this entry, and its last release will still sweep the file.
+      servePast.delete(entry.target);
+    }
+    throw new Error(
+      `${bytes.tag}'s ${bytes.assetName} serve-past copy (${bytes.digest.slice(0, 12)}…) is not the release this server now offers (${expected.slice(0, 12)}…)`,
+    );
+  }
+  // The two awaits above outlive bookkeeping nobody else is obliged to
+  // preserve: the hourly stray sweep unlinks `.download-` temps that age past
+  // its bound (a leaked ref keeps the hold unarmed, so the sweep becomes the
+  // only remover), and a slot can be retired while its file goes with it.
+  // Handing out a dead path would answer a tokened download with a body that
+  // dies at the first pull, so re-ask both facts and fail the join — loudly,
+  // and with the slot retired — if either went stale.
+  if (servePast.get(entry.target) !== entry) {
+    throw new Error(`the ${bytes.tag} serve-past slot was retired while its copy was being read`);
+  }
+  if ((await stat(bytes.tmp).catch(() => null)) === null) {
+    // The stat is itself an await: the slot may have been replaced (or
+    // retired) since the line above. Only ever retire OUR OWN entry.
+    if (servePast.get(entry.target) === entry) servePast.delete(entry.target);
+    throw new Error(`the ${bytes.tag} serve-past copy's temp file vanished before it could be served`);
+  }
+  return bytes;
+}
+
+/** refs hit zero: keep the copy briefly for late downloads, then remove it. */
+function armServePastHold(entry: ServePastEntry): void {
+  if (entry.holdTimer !== null) return;
+  const finish = (): void => {
+    entry.holdTimer = null;
+    if (entry.refs > 0) return; // a joiner arrived mid-timer
+    if (servePast.get(entry.target) === entry) servePast.delete(entry.target);
+    if (entry.tmp !== null) void rm(entry.tmp, { force: true }).catch(() => {});
+  };
+  if (servePast.get(entry.target) !== entry) {
+    // Already replaced or unhooked: nothing can join this copy anymore.
+    finish();
+    return;
+  }
+  entry.holdTimer = setTimeout(finish, servePastHoldMs);
+  // The hold must never be the reason a shutting-down process waits.
+  entry.holdTimer.unref?.();
 }
 
 /** Bun's own reader type for a file stream — annotated anywhere else and the
@@ -990,17 +1282,18 @@ function fileReader(tmp: string) {
 }
 
 /**
- * A response body that reads a temp copy of verified bytes and removes the
- * file once the read is over, however it ends: drained, cancelled, or broken
- * mid-way. A leftover partial must never look like a shelf file, and a
- * complete one left behind is 80 MB nobody asked the disk to keep.
+ * A response body reading a temp copy of verified bytes, firing `onDone` once
+ * the read ends however it ends: drained, cancelled, or broken mid-way. The
+ * copy itself is the lease's to remove ({@link acquireServePast}); this is
+ * only the handle's release, so one reader finishing can never pull the file
+ * out from under another.
  */
-function drainedFile(tmp: string): ReadableStream<Uint8Array> {
-  const sweep = (): Promise<void> => rm(tmp, { force: true }).catch(() => {});
+function releasingFileStream(tmp: string, onDone: () => Promise<void>): ReadableStream<Uint8Array> {
   // The reader opens on the FIRST pull, not beside construction: a
   // materialization that throws before anything consumed the stream would
-  // skip both the sweep and `controller.error`, leaving the temp file on disk
-  // and handing the caller a generic stream error.
+  // skip both the release and `controller.error`, leaving the lease holding a
+  // reference nobody will ever drop and handing the caller a generic stream
+  // error.
   let opened: ReturnType<typeof fileReader> | null = null;
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -1008,19 +1301,19 @@ function drainedFile(tmp: string): ReadableStream<Uint8Array> {
         if (opened === null) opened = fileReader(tmp);
         const { done, value } = await opened.read();
         if (done) {
-          await sweep();
+          await onDone();
           controller.close();
           return;
         }
         controller.enqueue(value);
       } catch (error) {
-        await sweep();
+        await onDone();
         controller.error(error instanceof Error ? error : new Error(String(error)));
       }
     },
     async cancel(reason) {
       await opened?.cancel(reason).catch(() => {});
-      await sweep();
+      await onDone();
     },
   });
 }
@@ -1068,6 +1361,14 @@ export interface DownloadVerifiedInput {
   destName: string;
   /** Progress, called per chunk. `total` is null when the server sent no length. */
   onProgress?: (received: number, total: number | null) => void;
+  /**
+   * Aborts the read. A caller that must not wait forever (the update route's
+   * warm fetch) passes its own `AbortSignal.timeout(ms)`; the abort lands as
+   * an ordinary fetch failure — partial temp deleted, nothing cached, the
+   * error reaching the caller — the same shape every other failed download
+   * already has.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -1083,13 +1384,13 @@ export interface DownloadVerifiedInput {
  * promise is "these bytes are the ones that release published", and a file
  * this returns is not yet something anyone has decided to run.
  *
- * Each download gets its OWN temp file: two concurrent uncoalesced fetches of
- * one target (the stale-shelf arm of an "Update all", where every tokened
- * download asks for `cache: false` bytes) used to collide on a name keyed
- * only by pid, interleave two writers into one file, and let one caller's
- * cleanup unlink another's in-flight copy — the same shape the server's own
- * update hit before its job-slot claim made it single-flight (see
- * `modules/updates/server-update.ts`).
+ * Each download gets its OWN temp file: two concurrent fetches of one target
+ * whose bytes are NOT shared between them (a cached fetch and a serve-past
+ * lease, or two serve-past copies for two different digests after the release
+ * moved mid-batch) used to collide on a name keyed only by pid, interleave two
+ * writers into one file, and let one caller's cleanup unlink another's
+ * in-flight copy — the same shape the server's own update hit before its
+ * job-slot claim made it single-flight (see `modules/updates/server-update.ts`).
  *
  * @returns the temp file's path, on a digest match
  * @throws when the download fails, exceeds {@link MAX_ARTIFACT_BYTES}, or does
@@ -1132,7 +1433,10 @@ export async function downloadVerified(input: DownloadVerifiedInput): Promise<st
   // same untrusted field the lazy fetch pins (C12), hops included, so the
   // pin belongs here too: this download writes a file and the CALLER
   // EXECUTES it.
-  const response = await fetchWithPinnedEgress(input.url);
+  const response = await fetchWithPinnedEgress(
+    input.url,
+    input.signal === undefined ? undefined : { signal: input.signal },
+  );
   if (!response.ok || response.body === null) throw new Error(`${input.url} answered ${response.status}`);
   const lengthHeader = response.headers.get("content-length");
   const total = lengthHeader === null ? null : Number.parseInt(lengthHeader, 10);
@@ -1168,6 +1472,8 @@ export async function downloadVerified(input: DownloadVerifiedInput): Promise<st
 export function resetReleaseCacheForTests(): void {
   cachedIndex = null;
   indexFailure = null;
+  indexInFlight = null;
   inFlight.clear();
   publishedAt.clear();
+  purgeServePastForTests();
 }

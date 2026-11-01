@@ -25,8 +25,12 @@ import {
   resolveReleases,
   STALE_DOWNLOAD_MAX_AGE_MS,
   setReleaseUrlForTests,
+  setServePastHoldMsForTests,
   signedAssetDigest,
 } from "@/modules/updates/releases.js";
+
+// The expiry tests shorten the serve-past hold-window seam (`setServePastHoldMsForTests`)
+// so they wait on a timer rather than on the production ten-minute hold.
 
 /**
  * A stand-in for the repository's releases endpoint.
@@ -225,6 +229,18 @@ describe("resolveReleases", () => {
     expect(fake.listReads).toBe(2);
   });
 
+  it("answers one network read when many callers ask at the same cold moment", async () => {
+    // "Update all" produces this exact shape: every POST in the batch
+    // resolves the release list while the first read is still in flight, and
+    // the memo answers nobody yet. N concurrent callers must still pay ONE
+    // list read — a metadata burst against an unauthenticated GitHub API is
+    // how a whole batch starts answering "could not read the releases".
+    const [a, b, c] = await Promise.all([resolveReleases(), resolveReleases(), resolveReleases()]);
+    expect(fake.listReads).toBe(1);
+    expect(a).toBe(b);
+    expect(b).toBe(c);
+  });
+
   it("skips drafts", async () => {
     // The release pipeline publishes draft-then-live, so a cut in flight must
     // never be handed to anyone.
@@ -261,6 +277,18 @@ describe("compatibleNodeRelease", () => {
     const { release, reason } = await compatibleNodeRelease();
     expect(release?.tag).toBe("cli-node-v9.9.9");
     expect(reason).toBeNull();
+  });
+
+  it("fetches a cold manifest once when many callers check at the same moment", async () => {
+    // The same burst as the index read: "Update all" has every POST verify
+    // the manifest and its signature before it sends its command, and a
+    // settled cache answers none of them. The manifest and the signature are
+    // one shared pair of reads for the burst, not N pairs.
+    const results = await Promise.all([compatibleNodeRelease(), compatibleNodeRelease()]);
+    expect(results[0].release?.tag).toBe("cli-node-v9.9.9");
+    expect(results[1].release?.tag).toBe("cli-node-v9.9.9");
+    expect(fake.assetFetches.get(RELEASE_MANIFEST_NAME)).toBe(1);
+    expect(fake.assetFetches.get(RELEASE_MANIFEST_SIG_NAME)).toBe(1);
   });
 
   it("refuses a release below the server's own agent floor", async () => {
@@ -423,52 +451,107 @@ describe("fetchArtifact", () => {
     expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(false);
   });
 
-  it("runs two cache:false fetches of one target side by side without touching each other", async () => {
+  it("spends one upstream fetch when two serve-past downloads of one release run together", async () => {
     // The stale-shelf arm of an "Update all": every tokened download asks for
-    // cache:false bytes, and those fetches deliberately do not coalesce (each
-    // one's temp cleanup is its own). They used to collide on a pid-keyed
-    // temp name — two writers in one file, and one caller's sweep unlinking
-    // another's in-flight copy. Each download now owns a unique temp.
+    // cache:false bytes, and until 2026-10-31 each ran its OWN full fetch of
+    // the release. N clients meant N × ~80 MB upstream at once, all racing
+    // the command deadline and burning their single-use tokens when the plane
+    // could not keep up — the batch failed where a node updated one at a time
+    // always worked. The fetches of one target share one verified temp copy
+    // now, each caller opening its own read of it; the operator's shelf file
+    // is still never touched, which is the only reason the arm exists.
     writeFileSync(artifactPath(TARGET), "the operator's own");
+    setServePastHoldMsForTests(10);
     const [a, b] = await Promise.all([
       fetchArtifact(TARGET, { cache: false }),
       fetchArtifact(TARGET, { cache: false }),
     ]);
-    expect(fake.assetFetches.get(BINARY)).toBe(2);
+    expect(fake.assetFetches.get(BINARY)).toBe(1);
     expect(await drain(a.body())).toBe(BINARY_PAYLOAD.bytes.byteLength);
     expect(await drain(b.body())).toBe(BINARY_PAYLOAD.bytes.byteLength);
+    // Both readers done, the last release arms the (test-shortened) hold.
+    await Bun.sleep(60);
     expect(readFileSync(artifactPath(TARGET), "utf8")).toBe("the operator's own");
     expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(false);
   });
 
-  it("keeps the operator's file when asked not to cache, and removes its own temp copy after the serve", async () => {
+  it("holds the serve-past copy for a download that arrives after the warmer let go", async () => {
+    // The warm-before-command shape: the update POST fetches the bytes,
+    // releases its own handle, and only then sends the order. The node's GET
+    // lands seconds later and must find the settled copy — that is the whole
+    // point of warming: the download never stalls on the plane's upstream
+    // fetch, and its token never burns while it waits.
+    writeFileSync(artifactPath(TARGET), "the operator's own");
+    const warm = await fetchArtifact(TARGET, { cache: false });
+    await warm.dispose();
+    const joiner = await fetchArtifact(TARGET, { cache: false });
+    expect(fake.assetFetches.get(BINARY)).toBe(1);
+    expect(await drain(joiner.body())).toBe(BINARY_PAYLOAD.bytes.byteLength);
+    expect(readFileSync(artifactPath(TARGET), "utf8")).toBe("the operator's own");
+  });
+
+  it("re-fetches when a live slot's held copy is swept from under it", async () => {
+    // The stray-download sweep unlinks `.download-` temps older than an hour,
+    // and a serve-past copy carries exactly that name. A ref leaked by a
+    // response that never streamed and was never cancelled keeps the hold
+    // unarmed, so the sweep becomes the only thing that removes the file —
+    // while the SLOT stays in the map. A joiner handed that dead path would
+    // answer its node with a body that dies at the first pull, token spent.
+    // The join re-checks the file on disk, so the stale slot is retired and
+    // the bytes refetched instead of served as a corpse.
+    writeFileSync(artifactPath(TARGET), "the operator's own");
+    const warmer = await fetchArtifact(TARGET, { cache: false });
+    // Deliberately leaked, and the point of the case: refs never drop, so
+    // nothing inside the module ever removes this temp.
+    void warmer;
+    const temp = readdirSync(NODE_ARTIFACTS_DIR).find((n) => n.includes(".download-"));
+    if (temp === undefined) throw new Error("no serve-past temp to sweep");
+    rmSync(join(NODE_ARTIFACTS_DIR, temp), { force: true });
+    const joiner = await fetchArtifact(TARGET, { cache: false });
+    expect(fake.assetFetches.get(BINARY)).toBe(2);
+    expect(await drain(joiner.body())).toBe(BINARY_PAYLOAD.bytes.byteLength);
+    await joiner.dispose();
+  });
+
+  it("keeps the operator's file when asked not to cache, and its temp copy goes once the serve is done", async () => {
     // A file already sitting at the target path may be the operator's
     // hand-published binary: `cache: false` serves the release bytes from a
     // temp copy and leaves the path alone (the download route passes false
     // exactly when the disk holds a different digest).
     writeFileSync(artifactPath(TARGET), "the operator's own");
+    setServePastHoldMsForTests(10);
     const fetched = await fetchArtifact(TARGET, { cache: false });
     expect(await drain(fetched.body())).toBe(BINARY_PAYLOAD.bytes.byteLength);
+    await Bun.sleep(60);
     expect(readFileSync(artifactPath(TARGET), "utf8")).toBe("the operator's own");
     expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(false);
   });
 
-  it("dispose removes the temp copy when the caller never serves it", async () => {
+  it("an unused serve-past copy holds for late downloads, then goes away", async () => {
+    // dispose() no longer deletes the shared copy outright: the download it
+    // was warmed for may still be arriving, and it must find the verified
+    // bytes. What bounds the leftover is the hold window, not the caller's
+    // own cleanup act.
     writeFileSync(artifactPath(TARGET), "the operator's own");
+    setServePastHoldMsForTests(10);
     const fetched = await fetchArtifact(TARGET, { cache: false });
     await fetched.dispose();
+    expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(true);
+    await Bun.sleep(60);
     expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(false);
     expect(readFileSync(artifactPath(TARGET), "utf8")).toBe("the operator's own");
   });
 
-  it("a cancelled temp serve still removes the file", async () => {
-    // The node hung up mid-download — the response body is cancelled, and the
-    // temp must go anyway.
+  it("a cancelled temp serve still ends with the file gone", async () => {
+    // The node hung up mid-download — the response body is cancelled, its
+    // reference releases, and with nobody left reading the copy expires.
     writeFileSync(artifactPath(TARGET), "the operator's own");
+    setServePastHoldMsForTests(10);
     const fetched = await fetchArtifact(TARGET, { cache: false });
     const reader = fetched.body().getReader();
     await reader.read();
     await reader.cancel();
+    await Bun.sleep(60);
     expect(readdirSync(NODE_ARTIFACTS_DIR).some((name) => name.includes(".download-"))).toBe(false);
   });
 });
@@ -514,7 +597,8 @@ describe("egress pin (round-3 sweep C12)", () => {
       // rewriting its binary URL is what a mirror would have done in its
       // JSON, without needing a second fake release source.
       const index = await resolveReleases();
-      const release = index.byComponent["cli-node"]!;
+      const release = index.byComponent["cli-node"];
+      if (!release) throw new Error("the fake release source must offer cli-node");
       release.assets.set(BINARY, `http://127.0.0.1:${attacker.port}/asset/bin`);
       await expect(fetchArtifact(TARGET)).rejects.toThrow(
         /is neither a GitHub release host nor the configured release source's host/,
@@ -531,7 +615,8 @@ describe("egress pin (round-3 sweep C12)", () => {
     // reads as the ordinary "failed" outcome (the page explains it; the log
     // line carries the host).
     const index = await resolveReleases();
-    const release = index.byComponent["cli-node"]!;
+    const release = index.byComponent["cli-node"];
+    if (!release) throw new Error("the fake release source must offer cli-node");
     release.assets.set(RELEASE_MANIFEST_NAME, "http://169.254.169.254/latest/meta-data/manifest");
     release.manifestRead = false;
     release.manifestOutcome = null;

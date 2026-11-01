@@ -25,10 +25,27 @@ import { getHeld, getLive } from "@/modules/nodes/node-registry.js";
 import { NodeRpcError, sendCommand, UPDATE_COMMAND_TIMEOUT_MS } from "@/modules/nodes/node-rpc.js";
 import { artifactStat, diskArtifactSha256, staleArtifactRefusal } from "@/modules/updates/node-artifacts.js";
 import { mintUpdateToken } from "@/modules/updates/node-tokens.js";
-import { beginUpdate, updateOutcomeUnknown, updateRefused, updateSwapped } from "@/modules/updates/node-tracker.js";
-import { autoFetchEnabled, compatibleNodeRelease, fetchDigest } from "@/modules/updates/releases.js";
+import {
+  beginPreparing,
+  updateOrdered,
+  updateOutcomeUnknown,
+  updateRefused,
+  updateSwapped,
+} from "@/modules/updates/node-tracker.js";
+import { autoFetchEnabled, compatibleNodeRelease, fetchArtifact, fetchDigest } from "@/modules/updates/releases.js";
 import { nodeUpdateBlockReason } from "@/modules/updates/server-update.js";
 import { ForbiddenError } from "@/shared/errors.js";
+
+/**
+ * Test seam for the warm fetch's patience before the order goes out; the
+ * production value is the same deadline this route later hands the node's own
+ * download, so the plane's fetch cannot outlast the wait it already committed
+ * to. The refusal sentence reads THIS value, so a shortened test budget says
+ * what was actually waited. @internal
+ */
+export const updateNodeRouteSeams = {
+  warmBudgetMs: UPDATE_COMMAND_TIMEOUT_MS,
+};
 
 const UpdateBodySchema = t.Object({
   force: t.Optional(
@@ -402,10 +419,69 @@ export const updateNodeRoute = new Elysia()
         }
       }
 
+      // WARM BEFORE THE ORDER (the 2026-10-31 fan-out fix). A cold shelf used
+      // to mean every node's download request waited — with no bytes flowing,
+      // token burning, and the five-minute command deadline ticking — for
+      // the plane's own first fetch of the release, and against an
+      // operator-published shelf each waiter paid for its OWN copy of those
+      // bytes. N clients turned one update into N simultaneous cold upstream
+      // fetches, which is the incident this fix closes: the batch failed
+      // while the same update pressed one machine at a time always worked.
+      // The POST pays the fetch once, here, where a failure is the plane's
+      // own honest 409 and nothing has been ordered or burned. A disk that
+      // already carries these bytes skips it; the bytes this fetch caches are
+      // the shelf the nodes then download from, and the bytes it must serve
+      // past are held by the serve-past lease for those downloads.
+      // The server-side STORY opens here, not at the dispatch: from this line
+      // on the wait is the plane's own, and the tracker entry is what makes
+      // that visible on every page — a row that says what it is waiting for,
+      // surviving a refresh or a second admin tab that never pressed anything
+      // (design 2026-09-25, widened by the 2026-10-31 warm: the first honest
+      // answer used to be "the node was told", which during this fetch is a
+      // lie of omission).
+      const from = reported ?? "unknown";
+      beginPreparing(gate.row.id, { from, to: release.version });
+
+      // `undefined` (a READ failure) is not an answer about the file's
+      // content, and it never licenses renaming over it: the token path's
+      // distinction, mirrored exactly. Collapsing it into "absent" would
+      // hand an unreadable-but-present operator file to the cached arm,
+      // whose rename replaces it.
+      const warmDisk = await diskArtifactSha256(target).catch(() => undefined);
+      if (warmDisk !== sha256) {
+        // Same cache rule the download route's token path applies: absent
+        // disk → cache the release (it becomes the shelf); present-but-
+        // different, or un-readable → serve past the operator's file, never
+        // overwrite it. The wait is bounded by the SAME deadline the node's
+        // own download will get: a POST that must eat the whole cold fetch
+        // gets the patience it is about to ask of the machine, and past that
+        // the act fails honestly instead of spinning forever.
+        // ONE read of the seam: the patience the refusal names is the
+        // patience the signal actually enforced, structurally, however the
+        // seam moves between the two moments.
+        const budget = updateNodeRouteSeams.warmBudgetMs;
+        const warmSignal = AbortSignal.timeout(budget);
+        try {
+          const warm = await fetchArtifact(target, { cache: warmDisk === null, signal: warmSignal });
+          await warm.dispose();
+        } catch (err) {
+          const patience = budget >= 60_000 ? `${budget / 60_000} minutes` : `${budget / 1000} seconds`;
+          const message = warmSignal.aborted
+            ? `This server did not finish fetching the ${target} release bytes within ${patience}, so it ordered nothing. Press Update again, or update that machine at its own terminal with subshell update`
+            : `This server could not fetch the ${target} release bytes, so it will not order a download it already knows will fail: ${err instanceof Error ? err.message : String(err)}`;
+          updateRefused(gate.row.id, message);
+          return status(409, apiErrorBody({ code: BackendErrorCodes.NODE_UPDATE_UNAVAILABLE, message }));
+        }
+      }
+
       // Release and digest lookups await the network. Check again before issuing
       // a download token or command in case a server update started meanwhile.
       const latestServerUpdateReason = nodeUpdateBlockReason();
       if (latestServerUpdateReason !== null) {
+        // The warm opened the entry; this gate closes it with the same words
+        // the 409 carries, so the row keeps telling the truth after the tab
+        // that pressed has moved on.
+        updateRefused(gate.row.id, latestServerUpdateReason);
         return status(
           409,
           apiErrorBody({ code: BackendErrorCodes.UPDATE_IN_PROGRESS, message: latestServerUpdateReason }),
@@ -420,7 +496,6 @@ export const updateNodeRoute = new Elysia()
       const publicUrl = `${base}/api/downloads/node/${target}`;
       const token = mintUpdateToken(gate.row.id, target, sha256);
 
-      const from = reported ?? "unknown";
       // Read BEFORE sending: the command is about to take this socket down,
       // and this is what decides the WORDING of a pane-safety refusal. The
       // whole service block is read for the same reason — a "not supervised"
@@ -431,12 +506,13 @@ export const updateNodeRoute = new Elysia()
       // agent is exactly the machine an update gets pressed on.
       const runtimeService = live?.agent?.runtime?.service ?? held?.conn.agent?.runtime?.service;
       const paneSafety = runtimeService?.paneSafety;
-      // The tracker opens its entry the instant the order is real (design
-      // 2026-09-25): AFTER every 409 gate above, because a refused offer
-      // ordered nothing and must not render as an update in flight, and BEFORE
-      // `sendCommand`, because a refresh during the ~70 MB download is the
-      // case this whole module exists for.
-      beginUpdate(gate.row.id, { from, to: release.version });
+      // The entry this route opened at the warm turns `preparing` → `working`
+      // here (design 2026-09-25, widened 2026-10-31): the order is real now,
+      // and the stall clock's zero moves to this moment so plane-side fetch
+      // time never spends the node's silence allowance. Before `sendCommand`,
+      // because a refresh during the ~70 MB download is the case this whole
+      // module exists for.
+      updateOrdered(gate.row.id);
       try {
         await sendCommand(
           gate.row.id,
@@ -502,7 +578,11 @@ export const updateNodeRoute = new Elysia()
           // the words this 409 carries. A non-RPC throw re-raises untouched:
           // the entry stalls, the honest answer to a failure nobody witnessed.
           if (err.code !== "timeout" && err.code !== "offline") {
-            updateRefused(gate.row.id, refusal.message);
+            // `nodeAnswered`: this refusal is the NODE'S ANSWER to the
+            // command this route sent, which can arrive on this `await`
+            // while a newer press's warm fetch owns the tracker slot. It
+            // must land on this act's entry, not spend the hand-back.
+            updateRefused(gate.row.id, refusal.message, { nodeAnswered: true });
           }
           return status(409, apiErrorBody({ code: refusal.code, message: refusal.message }));
         }
