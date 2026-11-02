@@ -246,6 +246,31 @@ export function requirePerm(
 }
 
 /**
+ * Throws 403 unless the caller may report about its OWN pane: the four
+ * `subshell report` verbs the harness hooks run (`attention`, `session`,
+ * `exit`, `subagents`), which are what the dashboard's waiting indicator, turn
+ * notices, exit codes and child rosters are built from.
+ *
+ * It exists for one shape of token: a pane launched with the subshell MCP
+ * switched off is minted `{report:["write"]}` and nothing else, so it can
+ * describe itself and cannot reach another pane, a channel, a prompt or a
+ * file. Every other subshell token passes on the `subshells:write` it has
+ * always carried, and that fallback is not a convenience: self-extension never
+ * re-mints a permission map, so tokens minted before this scope existed, and
+ * every token belonging to an MCP-enabled pane, answer through it.
+ *
+ * Deliberately NOT a fifth member of {@link requirePerm}'s resource union. That
+ * union is what sibling-reaching routes check against, and `report` must never
+ * be spellable there: it is a self-only grant, and this function is the only
+ * door it opens.
+ */
+export function requireReportPerm(ctx: PermContext): void {
+  if (ctx.actor !== "subshell-key") return;
+  if ((ctx.apiKeyPermissions?.report ?? []).includes("write")) return;
+  requirePerm(ctx, "subshells", "write");
+}
+
+/**
  * Cookie-only gate: surfaces whose action is a human-in-the-browser/device
  * act — enabling browser push, enrolling a phone — reject machine
  * credentials outright. Extracted from `notifications.route.ts` so the

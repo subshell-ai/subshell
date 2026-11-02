@@ -237,3 +237,27 @@ export function useSetViewsEnabled() {
     },
   });
 }
+
+/**
+ * Flip one machine's subshell MCP allowance. Owner-only at the route (the same
+ * gate as the SSH and preview switches), and it answers on an offline node too:
+ * the flag is the plane's record, and the machine learns the value at its next
+ * connect. Off here outranks every account preference; running panes keep
+ * their live MCP child either way.
+ */
+export function useSetMcpEnabled() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, on }: { id: string; on: boolean }) =>
+      apiFetch(`/api/nodes/${encodeURIComponent(id)}/mcp-enabled`, {
+        method: "PUT",
+        body: JSON.stringify({ on }),
+      }),
+    onSuccess: async (_data, { id }) => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] }),
+        client.invalidateQueries({ queryKey: NODES_QUERY_KEY }),
+      ]);
+    },
+  });
+}

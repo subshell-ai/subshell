@@ -427,7 +427,15 @@ describe("parseNodeCommandBody", () => {
     // page's `title`, and only ports the document probe accepts are listed at
     // all. An older node answers the pre-26 shape, and the same pane would
     // offer a different picker depending on which host ran it.
-    expect(NODE_PROTOCOL_VERSION).toBe(26);
+    // 27 is the MCP-use switch: `set_mcp_enabled` carries the plane's value,
+    // `ready.mcpEnabled` states the node's mirror, the `mcp_enabled` event
+    // reports a mirror that moved underneath the connection, and a launch's
+    // MCP wiring may be stripped by the node itself. Unlike ssh (16) a silent
+    // mirror here reads ALLOWED, not refused, because MCP wiring predates the
+    // switch; the exact-match bump still stands, because a pre-27 agent has
+    // neither the strip nor the mirror reader: it would refuse the push and
+    // launch with wiring the switch already refused.
+    expect(NODE_PROTOCOL_VERSION).toBe(27);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -1126,6 +1134,62 @@ describe("ssh gate (arrived at protocol 16)", () => {
     expect(parseNodeCommandBody({ type: "set_ssh_enabled", on: true })).toBeNull();
     expect(parseNodeCommandBody({ type: "set_ssh_enabled", changedAt: state.changedAt })).toBeNull();
     expect(parseNodeCommandBody({ type: "set_ssh_enabled", on: 1, changedAt: state.changedAt })).toBeNull();
+  });
+});
+
+// The MCP switch's three carriers, cloned from the ssh set one-for-one. The
+// one difference lives in the SEMANTICS, not the grammar: an absent mirror
+// reads ALLOWED here (MCP wiring predates its own switch), where ssh reads it
+// as refusal. That inversion lives in the reconciler and the node's
+// `mcpAllowed`, not in these parsers, which stay polarity-agnostic.
+describe("mcp switch (arrived at protocol 27)", () => {
+  const base = {
+    type: "ready",
+    agentVersion: MIN_NODE_VERSION,
+    protocolVersion: NODE_PROTOCOL_VERSION,
+    os: "linux",
+    arch: "x64",
+    hostname: "h",
+    dataDir: "/d",
+    capabilities: [],
+  };
+  const state = { on: true, changedAt: "2026-11-01T10:00:00.000Z" };
+
+  it("carries the mirror on ready, and drops a malformed one without refusing the ready", () => {
+    // Lenient exactly like `sshEnabled`: the rest of the frame brings the node
+    // online, and the plane's answer to silence is its own row.
+    expect(parseNodeEvent({ ...base, mcpEnabled: state })).toMatchObject({ type: "ready", mcpEnabled: state });
+    expect(parseNodeEvent(base)).toMatchObject({ type: "ready" });
+    const bad = parseNodeEvent({ ...base, mcpEnabled: { on: "yes" } });
+    expect(bad?.type).toBe("ready");
+    expect(bad && "mcpEnabled" in bad ? bad.mcpEnabled : undefined).toBeUndefined();
+  });
+
+  it("parses the standalone event strictly — it is the mid-session carrier", () => {
+    expect(parseNodeEvent({ type: "mcp_enabled", ...state })).toEqual({ type: "mcp_enabled", ...state });
+    expect(parseNodeEvent({ type: "mcp_enabled", on: false, changedAt: state.changedAt })).toEqual({
+      type: "mcp_enabled",
+      on: false,
+      changedAt: state.changedAt,
+    });
+    expect(parseNodeEvent({ type: "mcp_enabled", on: true })).toBeNull();
+    expect(parseNodeEvent({ type: "mcp_enabled", changedAt: state.changedAt })).toBeNull();
+    expect(parseNodeEvent({ type: "mcp_enabled", on: "yes", changedAt: state.changedAt })).toBeNull();
+  });
+
+  it("parses the set_mcp_enabled command and refuses a partial one", () => {
+    expect(parseNodeCommandBody({ type: "set_mcp_enabled", ...state })).toEqual({
+      type: "set_mcp_enabled",
+      ...state,
+    });
+    expect(parseNodeCommandBody({ type: "set_mcp_enabled", on: false, changedAt: state.changedAt })).toEqual({
+      type: "set_mcp_enabled",
+      on: false,
+      changedAt: state.changedAt,
+    });
+    expect(parseNodeCommandBody({ type: "set_mcp_enabled", on: true })).toBeNull();
+    expect(parseNodeCommandBody({ type: "set_mcp_enabled", changedAt: state.changedAt })).toBeNull();
+    expect(parseNodeCommandBody({ type: "set_mcp_enabled", on: 1, changedAt: state.changedAt })).toBeNull();
   });
 });
 

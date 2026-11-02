@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { TmuxRunner } from "@internal/pane-runtime";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
+import { db as sharedDb } from "@/db/index.js";
 import * as initMigration from "@/db/migrations/0001-init.js";
 import * as operatorUxMigration from "@/db/migrations/0002-operator-ux.js";
 import * as remoteOpsMigration from "@/db/migrations/0003-remote-ops.js";
@@ -26,13 +27,17 @@ import * as keyHomeMigration from "@/db/migrations/0052-subshell-key-home.js";
 import * as subshellParentMigration from "@/db/migrations/0060-subshell-parent.js";
 import * as presetEnabledMigration from "@/db/migrations/0068-preset-enabled.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import type { Database } from "@/db/types/index.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { SubshellTable, SubshellUpdate } from "@/db/types/subshells.db-types.js";
 import { prepareLocalPlugins } from "@/modules/plugins/store.js";
 import { subshellMcpConfigPath } from "@/modules/subshells/mcp-launch.js";
 import { SubshellManagerService, type SubshellTokenProvider } from "@/modules/subshells/subshell-manager.service.js";
+import type { PaneTokenPermissions } from "@/modules/subshells/tokens.js";
 import { seedPreset } from "@/testing/seed-preset.js";
 import { ensureMigratedTestDb } from "@/testing/test-database.js";
 
@@ -93,8 +98,11 @@ class MockTmux extends TmuxRunner {
 class StubTokens implements SubshellTokenProvider {
   issued: string[] = [];
   revoked: string[] = [];
-  async issue(subshellId: string): Promise<string> {
+  /** The grant map each issue call carried, so the MCP-off narrowing is visible. */
+  issuedPermissions: (PaneTokenPermissions | undefined)[] = [];
+  async issue(subshellId: string, _userId?: string, _ceiling?: unknown, perms?: PaneTokenPermissions): Promise<string> {
     this.issued.push(subshellId);
+    this.issuedPermissions.push(perms);
     return `subshell_stub_${subshellId.slice(0, 8)}`;
   }
   async revoke(subshellId: string): Promise<void> {
@@ -326,6 +334,93 @@ describe("createSubshell MCP integration", () => {
     // revoke-then-issue on the same id, apiKeyId rewritten by `issue`.
     expect(tokens.issued).toEqual([first.id, first.id]);
     expect(tokens.revoked).toContain(first.id);
+  });
+});
+
+/**
+ * The MCP-use switch at the launch. The decision reads the SHARED singleton
+ * (the same context the allowlist and auto-restart gates read), so these
+ * tests write their state through `sharedDb` and restore the shipped default
+ * after themselves. What OFF changes is the REGISTRATION and the token scope,
+ * never the credential env: `subshellMcpEnv` is the harness hooks' credential
+ * too, and a pane that reports its exit code still needs a key to report with.
+ */
+describe("the subshell MCP switch: an OFF launch carries no wiring", () => {
+  const userMeta = new UserMetaRepository(sharedDb);
+  const nodes = new NodesRepository(sharedDb);
+
+  it("account off: no registration, no config file, and STILL a minted token and baked env", async () => {
+    await userMeta.setMcpEnabled("u1", false);
+    try {
+      const created = await manager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId,
+        workingDir: testDir,
+      });
+      // The token is minted anyway (the hooks ride it) but narrowed to
+      // self-reporting: the depth decision, made visible at the seam.
+      expect(tokens.issued).toEqual([created.id]);
+      expect(tokens.issuedPermissions.at(-1)).toEqual({ report: ["write"] });
+      const cmd = tmux.newSubshellCmds[0] ?? "";
+      expect(cmd).toContain(`SUBSHELL_API_KEY='subshell_stub_${created.id.slice(0, 8)}'`);
+      expect(cmd).toContain(`SUBSHELL_ID='${created.id}'`);
+      expect(cmd).not.toContain("--mcp-config");
+      expect(existsSync(subshellMcpConfigPath(created.id))).toBe(false);
+      await manager.terminateSubshell("u1", created.id);
+    } finally {
+      await userMeta.setMcpEnabled("u1", true);
+    }
+  });
+
+  it("account off on restart: the relaunched pane is unwired, and the flip destroys nothing that is running", async () => {
+    const created = await manager.createSubshell({
+      userId: "u1",
+      harnessId: "claude-code",
+      presetId,
+      workingDir: testDir,
+    });
+    expect(existsSync(subshellMcpConfigPath(created.id))).toBe(true); // the ON launch wrote it
+    await userMeta.setMcpEnabled("u1", false);
+    try {
+      // The flip itself touches no live pane: the switch reaches launches and
+      // restarts, and severing a tool set from under a mid-turn agent is the
+      // worse surprise.
+      expect(existsSync(subshellMcpConfigPath(created.id))).toBe(true);
+      const restarted = await manager.restartSubshell("u1", created.id);
+      if (!restarted) throw new Error("restart returned null");
+      const cmd = tmux.newSubshellCmds.at(-1) ?? "";
+      expect(cmd).not.toContain("--mcp-config");
+      expect(cmd).toContain("SUBSHELL_API_KEY=");
+      expect(tokens.issuedPermissions.at(-1)).toEqual({ report: ["write"] });
+      await manager.terminateSubshell("u1", created.id);
+    } finally {
+      await userMeta.setMcpEnabled("u1", true);
+    }
+  });
+
+  it("node row off (local): the machine outranks an account that says yes", async () => {
+    if (!(await nodes.findById(LOCAL_NODE_ID))) {
+      await nodes.create({ id: LOCAL_NODE_ID, ownerUserId: "system", name: "Server", kind: "local" });
+    }
+    await nodes.setMcpEnabled(LOCAL_NODE_ID, { on: false, changedAt: new Date().toISOString() });
+    try {
+      expect(await userMeta.getMcpEnabled("u1")).toBe(true); // the account says yes...
+      const created = await manager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId,
+        workingDir: testDir,
+      });
+      // ...and the node's refusal wins: no wiring, narrowed token, no file.
+      const cmd = tmux.newSubshellCmds[0] ?? "";
+      expect(cmd).not.toContain("--mcp-config");
+      expect(existsSync(subshellMcpConfigPath(created.id))).toBe(false);
+      expect(tokens.issuedPermissions.at(-1)).toEqual({ report: ["write"] });
+      await manager.terminateSubshell("u1", created.id);
+    } finally {
+      await nodes.setMcpEnabled(LOCAL_NODE_ID, { on: true, changedAt: new Date().toISOString() });
+    }
   });
 });
 

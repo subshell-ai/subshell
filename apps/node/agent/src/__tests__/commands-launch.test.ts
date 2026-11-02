@@ -16,7 +16,7 @@ import { HARNESS_BINARY_PLACEHOLDER, type NodeCommandBody, type NodeEvent } from
 import { spawnSync } from "bun";
 import type { CommandContext, CommandResult } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
-import { execLaunch } from "../commands/launch.js";
+import { execLaunch, withoutMcpArgs } from "../commands/launch.js";
 import {
   buildSubshellsReport,
   EXIT_WATCH_INTERVAL_MS,
@@ -27,6 +27,7 @@ import {
   stopWatcher,
 } from "../commands/report.js";
 import type { NodeConfig } from "../config.js";
+import { writeMcpEnabled } from "../mcp-enabled.js";
 import { type SubshellMeta, SubshellMetaStore } from "../subshell-meta.js";
 import { captureLogs } from "./helpers/capture-logs.js";
 
@@ -667,6 +668,145 @@ describe("execLaunch with a server-built argv (inversion §5)", () => {
     } finally {
       restore();
     }
+  });
+});
+
+/**
+ * The MCP-use switch enforced ON THE MACHINE. The plane composes no wiring for
+ * a node whose row says off, but a frame can still arrive carrying it — built
+ * moments before the flip landed, or from a plane that never consulted the row.
+ * The node's answer is to drop the wiring material and launch anyway: failing
+ * the pane would punish the user for a disagreement between two machines, and
+ * dropping the file, the argv run, and the wiring env IS the whole refusal (the
+ * dialect is nothing else). An ABSENT mirror must keep wiring (MCP predates its
+ * own switch) — the case that guards a future "make it fail-closed like ssh"
+ * edit from silently stripping every node that has not been pushed a value.
+ */
+describe("execLaunch honours the MCP-use mirror", () => {
+  const STAMP = "2026-11-01T00:00:00.000Z";
+
+  it("drops a full dialect (file + argv run + env) when the mirror says off, and still launches", async () => {
+    const dataDir = await freshDataDir("mcp-off-drop");
+    writeMcpEnabled(dataDir, { on: false, changedAt: STAMP });
+    const mcpFile = join(dataDir, "mcp", `${S1}.json`);
+    let paneCmd = "";
+    const { ctx, calls } = makeCtx(
+      dataDir,
+      { newSubshell: (_s, _i, _c, cmd) => (paneCmd = cmd), pipePane: () => {}, resizeWindow: () => {} },
+      [],
+    );
+    const result = await dispatchCommand(
+      ctx,
+      launchCmd({
+        argv: [HARNESS_BINARY_PLACEHOLDER, "--mcp-config", mcpFile],
+        mcp: {
+          path: mcpFile,
+          fileContent: '{"from":"the control plane"}\n',
+          files: { "bridge.mjs": "export default {};" },
+          args: ["--mcp-config", mcpFile],
+          env: { OPENCODE_CONFIG: mcpFile },
+        },
+      }),
+    );
+    expect(result).toEqual({ ok: true }); // the pane launches regardless
+    stopWatcher(ctx, S1);
+    // No config file, and the companion dir is not even created.
+    expect(existsSync(mcpFile)).toBe(false);
+    expect(existsSync(`${mcpFile}.d`)).toBe(false);
+    expect(existsSync(join(dataDir, "mcp"))).toBe(false);
+    // The argv run is gone from the command line, and so is the wiring env.
+    expect(paneCmd).not.toInclude("--mcp-config");
+    expect(paneCmd).not.toInclude("OPENCODE_CONFIG");
+    // The credential env still rides: it is the harness hooks' too, and the
+    // pane must still be able to report its own death.
+    expect(paneCmd).toInclude("SUBSHELL_API_KEY='k'");
+    expect(methodsOf(calls)).toEqual(["newSubshell", "pipePane", "resizeWindow"]);
+  });
+
+  it("an ABSENT mirror keeps wiring exactly as before (guards the fail-closed mistake)", async () => {
+    const dataDir = await freshDataDir("mcp-absent-keeps");
+    // No writeMcpEnabled: the file simply is not there, which is every node
+    // that has never been pushed a value.
+    const mcpFile = join(dataDir, "mcp", `${S1}.json`);
+    let paneCmd = "";
+    const { ctx } = makeCtx(
+      dataDir,
+      { newSubshell: (_s, _i, _c, cmd) => (paneCmd = cmd), pipePane: () => {}, resizeWindow: () => {} },
+      [],
+    );
+    const result = await dispatchCommand(
+      ctx,
+      launchCmd({
+        argv: [HARNESS_BINARY_PLACEHOLDER, "--mcp-config", mcpFile],
+        mcp: { path: mcpFile, fileContent: "{}\n", args: ["--mcp-config", mcpFile], env: { OPENCODE_CONFIG: mcpFile } },
+      }),
+    );
+    expect(result).toEqual({ ok: true });
+    stopWatcher(ctx, S1);
+    expect(existsSync(mcpFile)).toBe(true); // wired, exactly as a pre-switch node does
+    expect(paneCmd).toInclude("--mcp-config");
+    expect(paneCmd).toInclude("OPENCODE_CONFIG");
+  });
+
+  it("an env-only dialect (no argv run) loses the env and keeps argv untouched", async () => {
+    const dataDir = await freshDataDir("mcp-off-env-only");
+    writeMcpEnabled(dataDir, { on: false, changedAt: STAMP });
+    const mcpFile = join(dataDir, "mcp", `${S1}.json`);
+    let paneCmd = "";
+    const { ctx } = makeCtx(
+      dataDir,
+      { newSubshell: (_s, _i, _c, cmd) => (paneCmd = cmd), pipePane: () => {}, resizeWindow: () => {} },
+      [],
+    );
+    const result = await dispatchCommand(
+      ctx,
+      launchCmd({
+        // Some harnesses register through an env var alone: argv has no MCP
+        // run, so there is nothing to strip from the command line.
+        argv: [HARNESS_BINARY_PLACEHOLDER, "run"],
+        mcp: { path: mcpFile, fileContent: "{}\n", args: [], env: { OPENCODE_CONFIG: mcpFile } },
+      }),
+    );
+    expect(result).toEqual({ ok: true });
+    stopWatcher(ctx, S1);
+    expect(existsSync(mcpFile)).toBe(false);
+    expect(paneCmd).not.toInclude("OPENCODE_CONFIG");
+    expect(paneCmd).toInclude("run"); // the command line itself is unchanged
+  });
+
+  it("a frame with NO mcp member launches byte-identically when off", async () => {
+    const dataDir = await freshDataDir("mcp-off-no-member");
+    writeMcpEnabled(dataDir, { on: false, changedAt: STAMP });
+    let paneCmd = "";
+    const { ctx, calls } = makeCtx(
+      dataDir,
+      { newSubshell: (_s, _i, _c, cmd) => (paneCmd = cmd), pipePane: () => {}, resizeWindow: () => {} },
+      [],
+    );
+    const result = await dispatchCommand(ctx, launchCmd()); // the plain default frame
+    expect(result).toEqual({ ok: true });
+    stopWatcher(ctx, S1);
+    expect(existsSync(join(dataDir, "mcp"))).toBe(false); // nothing was ever there to drop
+    expect(paneCmd).toInclude("SUBSHELL_API_KEY='k'");
+    expect(methodsOf(calls)).toEqual(["newSubshell", "pipePane", "resizeWindow"]);
+  });
+});
+
+describe("withoutMcpArgs (the argv strip)", () => {
+  const RUN = ["--mcp-config", "/d/mcp/s1.json"];
+  it("removes one contiguous run, exactly once", () => {
+    expect(withoutMcpArgs(["bin", ...RUN, "rest"], RUN)).toEqual(["bin", "rest"]);
+  });
+  it("does NOT eat an equal token that belongs to something else", () => {
+    // codex's dialect reuses `-c`; value-equality filtering would delete the
+    // unrelated one too. Sequence matching takes only the run.
+    const argv = ["bin", "-c", "x=1", "-c", "y=2"];
+    expect(withoutMcpArgs(argv, ["-c", "y=2"])).toEqual(["bin", "-c", "x=1"]);
+  });
+  it("returns argv unchanged when the run is absent, or when there are no args", () => {
+    expect(withoutMcpArgs(["bin", "run"], RUN)).toEqual(["bin", "run"]);
+    expect(withoutMcpArgs(["bin", "run"], [])).toEqual(["bin", "run"]);
+    expect(withoutMcpArgs(["bin", "run"], undefined)).toEqual(["bin", "run"]);
   });
 });
 

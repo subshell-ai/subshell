@@ -18,6 +18,7 @@ import {
   runMaintenance,
 } from "./maintenance-cli.js";
 import { runNodeMcp } from "./mcp/main.js";
+import { mcpAllowed, readMcpEnabled } from "./mcp-enabled.js";
 import { defaultNodeResetDeps, type NodeResetDeps, runNodeReset } from "./reset-cli.js";
 import {
   controlService,
@@ -587,10 +588,25 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         // SUBSHELL_* env the launch injected. Missing env is a usage error: exit 2
         // with the actionable line (readMcpEnv's message names the variable),
         // before a single byte touches stdio.
+        let pane: ReturnType<typeof readMcpEnv>;
         try {
-          readMcpEnv();
+          pane = readMcpEnv();
         } catch (err) {
           return fail(2, err);
+        }
+        // The owner's switch, honored HERE as well as in the launch executor.
+        // The launch gate covers a pane the plane wires; this one covers the
+        // harness that registered `subshell mcp` on the machine itself months
+        // ago (pi, hermes, Grok Build), whose registration the plane never
+        // composed and so cannot withhold. The mirror sits in the data dir the
+        // launch handed down, which on an agent node is this agent's own.
+        if (!mcpAllowed(readMcpEnabled(pane.dataDir))) {
+          return fail(
+            2,
+            new Error(
+              "subshell mcp: the subshell MCP is turned off on this node (or its setting file cannot be read), so this command is refused; the node's owner can allow it again under the node's settings",
+            ),
+          );
         }
         await runNodeMcp();
         // REACHABLE, and not the end: `connect()` resolves as soon as the

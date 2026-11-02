@@ -4,11 +4,13 @@ import { buildSshConfigPath } from "@internal/pane-runtime";
 import type {
   NodeEvent,
   NodeMaintenanceWire,
+  NodeMcpEnabledWire,
   NodePreviewEnabledWire,
   NodeSshEnabledWire,
 } from "@internal/subshell-protocol";
 import { log } from "../log.js";
 import { readMaintenance, reportableMaintenance, writeMaintenance } from "../maintenance.js";
+import { readMcpEnabled, reportableMcpEnabled } from "../mcp-enabled.js";
 import { readPreviewEnabled, reportablePreviewEnabled } from "../preview/flags.js";
 import { selfInvocation } from "../self-invoke.js";
 import { readSshEnabled, reportableSshEnabled } from "../ssh-enabled.js";
@@ -296,6 +298,58 @@ export function maybeReportPreviewEnabled(ctx: CommandContext): void {
 export function seedPreviewEnabledMemo(ctx: CommandContext): NodePreviewEnabledWire | undefined {
   ctx.lastReportedPreviewEnabled = reportablePreviewEnabled(readPreviewEnabled(ctx.config.dataDir));
   return ctx.lastReportedPreviewEnabled;
+}
+
+/**
+ * Announce one MCP-use mirror state to the plane and remember having done so.
+ * The preview and SSH twins' rule, cloned: the memo is what keeps the next
+ * heartbeat tick quiet about a value the plane already holds, and what stops a
+ * `set_mcp_enabled` the plane just pushed from coming back as an event.
+ *
+ * @param ctx - the daemon's command context (owns the socket seam and the memo)
+ * @param state - the mirror's answer, sent verbatim (never re-stamped here)
+ */
+export function reportMcpEnabled(ctx: CommandContext, state: NodeMcpEnabledWire): void {
+  ctx.ws.send({ type: "mcp_enabled", on: state.on, changedAt: state.changedAt });
+  ctx.lastReportedMcpEnabled = state;
+}
+
+/**
+ * Report the MCP mirror IF it has moved since this connection last spoke about
+ * it: the heartbeat belt, same posture as the ssh and preview twins, with one
+ * difference in what is quiet.
+ *
+ * An absent mirror says nothing here because silence means ALLOW on both ends,
+ * so a machine with no file agrees with a default row. An `off` file always
+ * announces: that refusal is what the owner asked for, and the plane needs to
+ * see it land. What this loop exists to catch is the file changing UNDER the
+ * connection (corruption, a hand edit), so the plane learns it now and pushes
+ * its row rather than discovering the disagreement at the next reconnect.
+ *
+ * @param ctx - the daemon's command context
+ */
+export function maybeReportMcpEnabled(ctx: CommandContext): void {
+  const state = reportableMcpEnabled(readMcpEnabled(ctx.config.dataDir));
+  if (!state) return;
+  const last = ctx.lastReportedMcpEnabled;
+  if (last?.on === state.on && last.changedAt === state.changedAt) return;
+  reportMcpEnabled(ctx, state);
+}
+
+/**
+ * Seed this connection's MCP memo from the mirror on disk, once per connect
+ * immediately before `ready` (which carries the same value, so the first
+ * heartbeat must not repeat it) and again on every reconnect, because a new
+ * socket has told the plane nothing. One read builds both, so the frame and
+ * the memo cannot disagree.
+ *
+ * @param ctx - the daemon's command context
+ * @returns the value `ready` should carry, or undefined when there is nothing
+ *   to report (no file, which is agreement)
+ */
+export function seedMcpEnabledMemo(ctx: CommandContext): NodeMcpEnabledWire | undefined {
+  ctx.lastReportedMcpEnabled = reportableMcpEnabled(readMcpEnabled(ctx.config.dataDir));
+  return ctx.lastReportedMcpEnabled;
 }
 
 /** Stop the shared tick if one is running (idempotent). */

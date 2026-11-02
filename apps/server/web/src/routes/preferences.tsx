@@ -2,6 +2,7 @@ import { FormSectionTitle } from "@internal/node-admin";
 import { createFileRoute } from "@tanstack/react-router";
 import { DashboardPage } from "@/components/dashboard-page";
 import { DeviceNameCard } from "@/components/device-name-card";
+import { McpCard } from "@/components/mcp-card";
 import { MouseSamplingCard } from "@/components/mouse-sampling-card";
 import { NotificationsCard } from "@/components/notifications-card";
 import { NotificationsMasterCard } from "@/components/notifications-master-card";
@@ -48,6 +49,7 @@ function PreferencesPage() {
       </Section>
       <Section id="prefs-account" label="Synced with your account">
         <div className="space-y-6">
+          <McpCard />
           <TerminalHistoryCard />
         </div>
       </Section>

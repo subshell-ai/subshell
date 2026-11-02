@@ -129,6 +129,19 @@ const TerminalHistorySchema = t.Object({
   ),
 });
 
+/**
+ * Per-user subshell MCP preference. On by default — MCP wiring is today's
+ * behavior, and an upgrade must not silently strip comms. Off, the plane wires
+ * no MCP into this account's NEW launches and restarts here, and the pane's
+ * token is minted narrowed to self-reporting only.
+ */
+const McpSettingsSchema = t.Object({
+  mcpEnabled: t.Boolean({
+    description:
+      "Whether the subshell MCP is wired into this account's panes (default true). Off, new launches and restarts carry no MCP registration and a report-only token; running panes keep theirs; a node switched off still refuses everything regardless of this preference",
+  }),
+});
+
 /** Public read gains the break-glass flag (spec 2026-08-31 §6) — it leaks
  * only that the hatch is armed, which the banner itself broadcasts. */
 const PublicSettingsSchema = t.Object({
@@ -524,6 +537,43 @@ export const settingsRoutes = new Elysia({ prefix: "/api/settings" })
         operationId: "updateTerminalHistorySettings",
         tags: ["settings"],
         description: "Set the caller's terminal attach history cap (1–200; null = instance default)",
+      },
+    },
+  )
+  .get(
+    "/mcp",
+    async ({ user, actor }) => {
+      // Self-service, cookie actor only (the terminal-history and
+      // notifications precedent), and in THIS module rather than a new
+      // `.use()` layer — the composed-`App` depth ceiling again. No audit
+      // row: a personal preference, and `notify_enabled` writes none either.
+      requireCookieActor(actor, "MCP settings require a cookie session");
+      return { mcpEnabled: await new UserMetaRepository(db).getMcpEnabled(user.id) } as const;
+    },
+    {
+      response: McpSettingsSchema,
+      detail: {
+        operationId: "getMcpSettings",
+        tags: ["settings"],
+        description: "Whether the subshell MCP is wired into this account's panes (default true)",
+      },
+    },
+  )
+  .patch(
+    "/mcp",
+    async ({ body, user, actor }) => {
+      requireCookieActor(actor, "MCP settings require a cookie session");
+      await new UserMetaRepository(db).setMcpEnabled(user.id, body.mcpEnabled);
+      return { mcpEnabled: body.mcpEnabled } as const;
+    },
+    {
+      body: McpSettingsSchema,
+      response: McpSettingsSchema,
+      detail: {
+        operationId: "updateMcpSettings",
+        tags: ["settings"],
+        description:
+          "Set whether the subshell MCP is wired into this account's panes. Off, new launches and restarts carry no MCP and a report-only token; running panes keep theirs",
       },
     },
   );

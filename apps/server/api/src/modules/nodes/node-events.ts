@@ -1,6 +1,7 @@
 import type {
   NodeEvent,
   NodeMaintenanceWire,
+  NodeMcpEnabledWire,
   NodePreviewEnabledWire,
   NodeSshEnabledWire,
 } from "@internal/subshell-protocol";
@@ -133,6 +134,22 @@ export interface NodeLifecycleHooks {
    *   field the lenient parser dropped, all of which mean REFUSED there)
    */
   onPreviewEnabled(nodeId: string, reported: NodePreviewEnabledWire | undefined): Promise<void> | void;
+  /**
+   * The machine's own copy of its MCP-use switch: from `ready.mcpEnabled` at
+   * connect, or from the `mcp_enabled` event when the mirror moved underneath
+   * the connection (in practice: corruption).
+   *
+   * Same door and same direction rule as {@link onPreviewEnabled}: the plane is
+   * this flag's only writer, so reconciliation pushes and never adopts. What
+   * differs is the value of silence. An absent mirror reads ALLOWED here rather
+   * than refused, because MCP wiring is older than the switch, so an
+   * unreported mirror agrees with a default row and the reconcile stays quiet.
+   *
+   * @param nodeId - the SOCKET's authenticated identity, never a frame's claim
+   * @param reported - the machine's mirror answer, or undefined when it
+   *   reported none, which means ALLOWED here
+   */
+  onMcpEnabled(nodeId: string, reported: NodeMcpEnabledWire | undefined): Promise<void> | void;
 }
 
 let lifecycleHooks: NodeLifecycleHooks | undefined;

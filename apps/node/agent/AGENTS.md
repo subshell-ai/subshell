@@ -201,6 +201,25 @@ owns them. The reporting ORDER is load-bearing:
 `maybeReportMaintenance` runs inside `reportDeath` BEFORE the `exit` frame.
 **Working on maintenance: read `apps/node/agent/docs/maintenance.md` first.**
 
+## MCP-use gate (`src/mcp-enabled.ts`, protocol 27)
+
+One mirror, `<dataDir>/mcp-enabled.json` = `{ on, changedAt }`, written 0600
+by atomic tmp+rename. The plane's `set_mcp_enabled` command is its ONLY
+writer: the daemon stores the pushed bytes verbatim and never re-stamps, and
+there is no machine-side verb for it. Its polarity INVERTS the maintenance
+mirror beside it: an absent file reads ALLOW, because MCP wiring predates its
+own switch and a node nobody has pushed stays exactly as it was. The read
+answers four ways and `mcpAllowed` maps them: absent/on allow, off refuses,
+unreadable refuses-and-announces (a corrupt file must not quietly re-arm
+wiring; the plane repairs by pushing its row). Three enforcement points:
+`subshell mcp` refuses the command itself; a launch frame that still carries
+`mcp` under a refusing mirror drops the wiring material and launches the pane
+without it, naming the drop in the node log; and `ready` states the mirror at
+connect, with the heartbeat-belt `mcp_enabled` event catching one that moved
+underneath the connection (absence stays quiet since silence agrees; an `off`
+file always announces). Reach is new launches: a pane already running keeps
+its live MCP child until it restarts.
+
 ## Pane-log retention (`src/pane-log-retention.ts`, 2026-09-23)
 
 Pane logs (`<dataDir>/subshells/<id>.log`, the verbatim typed transcript) age

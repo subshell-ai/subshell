@@ -17,6 +17,12 @@ Claude Code, Codex, OpenCode, and Oh My Pi receive per-launch MCP configuration.
 
 The compiled server and node binaries both include an `mcp` subcommand. The host resolves which executable exists on the machine where the pane runs.
 
+## Turning the wiring off
+
+Two switches stop Subshell from wiring the MCP into panes, and both default to on. In the server dashboard's sidebar bottom bar, choose **Account** → **Preferences** and find the **Subshell MCP** card to control it for your own account. The node's owner controls the machine-wide switch from that node's **Overview** page, under **Subshell MCP**. Either one off means off: a node whose owner refuses the MCP gets no wiring for any account, and an account that opts out gets none wherever its panes run.
+
+Turning a switch off changes new launches and restarts only; panes already running keep their live MCP until you restart them. A pane launched with the switch off still reports its own state, so its attention bell, exit status, and harness session reporting keep working. The coordination tool surface disappears, along with the context its tool list costs the agent every turn. One extra consequence for OpenCode and pi: their child-agent roster rides the same registration, so a switched-off pane of those agents stops reporting its roster too. The `subshell mcp` command that [Manual integration](#manual-integration) registers on a host refuses to run on a switched-off machine, so those harnesses' panes come up without the tools rather than failing.
+
 ## Manual integration
 
 Grok Build, Hermes, and pi require one-time host setup. In the server dashboard's sidebar, choose **Settings** → **Presets** → **New preset** → **New agent preset** and select the agent. Find **Cross-subshell comms** near the bottom of the form for the registration commands. Run those commands on the machine where that agent will execute. See [Grok Build](/agents/grok-build), [Hermes Agent](/agents/hermes) and [pi](/agents/pi).

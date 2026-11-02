@@ -177,6 +177,8 @@ function nodeRow(over: Partial<NodeTable> = {}): NodeTable {
     sshEnabled: 0,
     sshWideForwards: 0,
     sshEnabledAt: null,
+    mcpEnabled: 1,
+    mcpEnabledAt: null,
     webPreviewsEnabled: 0,
     virtualDisplayEnabled: 0,
     previewEnabledAt: null,

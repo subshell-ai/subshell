@@ -1039,3 +1039,133 @@ describe("/api/settings/terminal-history (per-user, cookie only)", () => {
     expect(res.status).toBe(403);
   });
 });
+
+/**
+ * GET/PATCH /api/settings/mcp — the per-USER subshell MCP preference. Same
+ * shape as the terminal-history pair: self-service (ANY cookie user, no
+ * admin), cookie-actor-only, per-user storage in `user_meta`, no audit row
+ * (`notify_enabled` and `terminal_replay_lines` write none either). The one
+ * difference is the default: no stored preference reads TRUE, because MCP
+ * wiring predates its own switch.
+ */
+describe("/api/settings/mcp (per-user, cookie only)", () => {
+  const app = new Elysia().use(errorHandlerPlugin).use(settingsRoutes);
+  const email = `mcp-pref-${crypto.randomUUID()}@subshell.local`;
+  const pw = "mcp-pref-pass-1";
+  let userId: string;
+  let cookie: string;
+  let subshellId: string;
+  let apiKeyId: string | null = null;
+
+  beforeAll(async () => {
+    await setupAuthTables();
+    userId = await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    cookie = await signIn(email, pw);
+    // A real subshell of THIS user, for the bearer-actor refusal below.
+    subshellId = crypto.randomUUID();
+    await new SubshellsRepository(db).create({
+      id: subshellId,
+      userId,
+      presetId: "p",
+      harnessId: "claude-code",
+      name: "mcp-pref-token-test",
+      workingDir: "/tmp",
+      tmuxSocket: null,
+    });
+  });
+
+  afterAll(async () => {
+    if (apiKeyId) authDatabase().run("DELETE FROM apikey WHERE id = ?", [apiKeyId]);
+    await db.deleteFrom("subshells").where("id", "=", subshellId).execute();
+    await db.deleteFrom("userMeta").where("userId", "=", userId).execute();
+    await deleteUserByEmailOrId(email);
+  });
+
+  const get = () => app.fetch(authedRequest("/api/settings/mcp", cookie));
+  const patch = (mcpEnabled: unknown) =>
+    app.fetch(
+      authedRequest("/api/settings/mcp", cookie, {
+        method: "PATCH",
+        body: JSON.stringify({ mcpEnabled }),
+      }),
+    );
+
+  /** Audit rows this user's preference writes: the pair's contract is ZERO. */
+  async function prefAudits(): Promise<number> {
+    const rows = await db.selectFrom("auditEvents").select("id").where("actorUserId", "=", userId).execute();
+    return rows.length;
+  }
+
+  it("no stored preference reads as ON (the default-allow upgrade story)", async () => {
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { mcpEnabled: boolean }).mcpEnabled).toBe(true);
+  });
+
+  it("PATCH persists per-user and GET reads it back; ON restores the default", async () => {
+    expect(((await (await patch(false)).json()) as { mcpEnabled: boolean }).mcpEnabled).toBe(false);
+    expect(((await (await get()).json()) as { mcpEnabled: boolean }).mcpEnabled).toBe(false);
+    expect(await new UserMetaRepository(db).getMcpEnabled(userId)).toBe(false);
+
+    expect(((await (await patch(true)).json()) as { mcpEnabled: boolean }).mcpEnabled).toBe(true);
+    expect(await new UserMetaRepository(db).getMcpEnabled(userId)).toBe(true);
+  });
+
+  it("the preference is per-user: another user reads their own (on)", async () => {
+    await patch(false);
+    const otherEmail = `mcp-pref-other-${crypto.randomUUID()}@subshell.local`;
+    const otherId = await new UsersRepository(db).createUser({
+      email: otherEmail,
+      name: otherEmail,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    try {
+      const otherCookie = await signIn(otherEmail, pw);
+      const res = await app.fetch(authedRequest("/api/settings/mcp", otherCookie));
+      expect(((await res.json()) as { mcpEnabled: boolean }).mcpEnabled).toBe(true);
+    } finally {
+      await db.deleteFrom("userMeta").where("userId", "=", otherId).execute();
+      await deleteUserByEmailOrId(otherEmail);
+      await patch(true);
+    }
+  });
+
+  it("a non-boolean body -> 400 and the stored value is untouched", async () => {
+    await patch(false);
+    for (const bad of ["no", 1, null]) {
+      const res = await patch(bad);
+      expect(res.status).toBe(400);
+    }
+    expect(((await (await get()).json()) as { mcpEnabled: boolean }).mcpEnabled).toBe(false);
+    await patch(true);
+  });
+
+  it("writes no audit row (the notify_enabled and terminal-replay precedent)", async () => {
+    const before = await prefAudits();
+    await patch(false);
+    await patch(true);
+    expect(await prefAudits()).toBe(before);
+  });
+
+  it("bearer actors are refused (cookie self-service only)", async () => {
+    const key = await issueSubshellToken(subshellId, userId);
+    apiKeyId = (await new SubshellsRepository(db).findById(subshellId))?.apiKeyId ?? null;
+    expect((await app.fetch(bearerRequest("/api/settings/mcp", key))).status).toBe(403);
+    const res = await app.fetch(
+      bearerRequest("/api/settings/mcp", key, {
+        method: "PATCH",
+        body: JSON.stringify({ mcpEnabled: false }),
+      }),
+    );
+    expect(res.status).toBe(403);
+    // The refusal changed nothing: an MCP child cannot switch its own pane's
+    // owner's preference off or on.
+    expect(((await (await get()).json()) as { mcpEnabled: boolean }).mcpEnabled).toBe(true);
+  });
+});

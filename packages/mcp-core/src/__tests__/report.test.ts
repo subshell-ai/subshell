@@ -17,14 +17,21 @@ describe("runReport", () => {
     SUBSHELL_ID: "sub_42",
   } as NodeJS.ProcessEnv;
 
-  /** Captures the single request a report makes. */
+  /**
+   * Captures the requests a report makes: the report POST in `seen`, and the
+   * self-extension that rides every verb (except `exit`) in `extended`, split
+   * so the report-shape cells below keep reading exactly as written.
+   */
   function recorder() {
     const seen: Request[] = [];
+    const extended: Request[] = [];
     const fetchImpl = (async (input: string | URL, init?: RequestInit) => {
-      seen.push(new Request(String(input), init));
+      const req = new Request(String(input), init);
+      if (req.url.endsWith("/extend-token")) extended.push(req);
+      else seen.push(req);
       return new Response("{}", { status: 200 });
     }) as unknown as typeof fetch;
-    return { seen, fetchImpl };
+    return { seen, extended, fetchImpl };
   }
 
   it("reports child lifecycle metadata without forwarding prompts or transcripts", async () => {
@@ -315,7 +322,7 @@ describe("runReport", () => {
   });
 
   it("sends nothing when the SessionStart payload carries no session_id", async () => {
-    const { seen, fetchImpl } = recorder();
+    const { seen, extended, fetchImpl } = recorder();
 
     await runReport(["session"], {
       env: paneEnv,
@@ -323,7 +330,64 @@ describe("runReport", () => {
       readStdin: async () => JSON.stringify({ cwd: "/x" }),
     });
 
+    // Nothing reported means nothing happened in the pane worth extending
+    // the token for.
     expect(seen).toHaveLength(0);
+    expect(extended).toHaveLength(0);
+  });
+
+  it("rides every report with a token extend, and `exit` alone with none", async () => {
+    // The extend the MCP child arms at its boot: a pane whose MCP is switched
+    // off launches no child, so without this its hooks would silently start
+    // 401-ing once the 7-day TTL ran out under a pane in daily use.
+    const reporting: Array<[string[], () => Promise<string>]> = [
+      [["attention", "turn_complete"], async () => "{}"],
+      [["attention", "resumed"], async () => "{}"],
+      [["attention", "needs_attention"], async () => "{}"],
+      // Every REPORT_VERBS member that earns a POST, so a future verb that
+      // forgets its extend shows up here.
+      [
+        ["subagents"],
+        async () =>
+          JSON.stringify({ hook_event_name: "subagent_start", extra: { child_session_id: "c1", child_goal: "x" } }),
+      ],
+      [["session"], async () => JSON.stringify({ session_id: "sess-1" })],
+    ];
+    for (const [argv, readStdin] of reporting) {
+      const { extended, fetchImpl } = recorder();
+      await runReport(argv, { env: paneEnv, fetch: fetchImpl, readStdin });
+      expect(extended).toHaveLength(1);
+      expect(extended[0]?.url).toBe("http://h:3080/api/subshells/sub_42/extend-token");
+      expect(extended[0]?.method).toBe("POST");
+      expect(extended[0]?.headers.get("authorization")).toBe("Bearer subshell_key123");
+    }
+    const { seen, extended, fetchImpl } = recorder();
+    await runReport(["exit", "7"], { env: paneEnv, fetch: fetchImpl });
+    expect(seen).toHaveLength(1); // the exit report itself still lands
+    expect(extended).toHaveLength(0); // the token dies with the pane anyway
+  });
+
+  it("reports fine when the extend is refused, and a refused extend never reaches the pane", async () => {
+    // Best-effort like the report itself: a dead or expired token must not
+    // turn the hook's stdout into a server complaint.
+    const seen: Request[] = [];
+    const fetchImpl = (async (input: string | URL, init?: RequestInit) => {
+      const req = new Request(String(input), init);
+      if (!req.url.endsWith("/extend-token")) seen.push(req);
+      return req.url.endsWith("/extend-token")
+        ? new Response("no", { status: 401 })
+        : new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    const consoleErrors: unknown[] = [];
+    const origError = console.error;
+    console.error = (...args: unknown[]) => consoleErrors.push(args);
+    try {
+      await runReport(["attention", "turn_complete"], { env: paneEnv, fetch: fetchImpl });
+    } finally {
+      console.error = origError;
+    }
+    expect(seen).toHaveLength(1);
+    expect(consoleErrors).toHaveLength(0);
   });
 
   it("swallows a failing transport rather than throwing into the hook", async () => {
@@ -446,7 +510,9 @@ describe("subagent report: encoding and numeric edges (review probe F-V2-report)
   /** Captures raw bodies so the test can assert the WIRE is valid JSON, not just the parse. */
   function rawRecorder() {
     const bodies: string[] = [];
-    const fetchImpl = (async (_input: string | URL, init?: { body?: string | null }) => {
+    const fetchImpl = (async (input: string | URL, init?: { body?: string | null }) => {
+      // The riding extend has no body and belongs to a different cell.
+      if (String(input).endsWith("/extend-token")) return new Response("{}", { status: 200 });
       bodies.push(String(init?.body));
       return new Response("{}", { status: 200 });
     }) as unknown as typeof fetch;
@@ -733,8 +799,10 @@ describe("turn_complete gating on the Stop payload (spec 2026-09-23)", () => {
     await runReport(argv, {
       env: paneEnv,
       readStdin: stdin,
-      fetch: (async () => {
-        calls += 1;
+      fetch: (async (input: string | URL) => {
+        // The riding extend is not a POST of the report's own; the gating
+        // cells below count what the Stop payload earned.
+        if (!String(input).endsWith("/extend-token")) calls += 1;
         return new Response("{}", { status: 200 });
       }) as never,
     });

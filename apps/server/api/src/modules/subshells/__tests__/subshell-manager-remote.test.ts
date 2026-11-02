@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
+import { runAuthMigrations } from "@/db/auth-migrations.js";
+import { db as sharedDb } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import * as initMigration from "@/db/migrations/0001-init.js";
 import * as operatorUxMigration from "@/db/migrations/0002-operator-ux.js";
@@ -25,6 +27,7 @@ import * as keyHomeMigration from "@/db/migrations/0052-subshell-key-home.js";
 import * as subshellParentMigration from "@/db/migrations/0060-subshell-parent.js";
 import * as presetEnabledMigration from "@/db/migrations/0068-preset-enabled.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { Database } from "@/db/types/index.js";
@@ -72,6 +75,13 @@ beforeAll(async () => {
   // the shared DB in the same process, green in the full suite, red in any
   // narrower run.
   await runMigrations();
+  // The MCP-switch cells create and delete node rows on the SHARED
+  // singleton, and a nodes DELETE makes SQLite resolve the cross-table FK
+  // graph (`ssh_presets` points at both `nodes` and the better-auth
+  // `user`). A boot-migrator-only DB has no auth tables, so the delete
+  // throws "no such table: main.user". A real boot runs both migrators;
+  // mirroring that here is what makes the cleanup work.
+  await runAuthMigrations();
   dbHandle = new Kysely<Database>({
     dialect: new BunSqliteDialect({ database: async () => openSqliteDatabase(":memory:") }),
     plugins: [new CamelCasePlugin()],
@@ -253,6 +263,77 @@ describe("manager createSubshell on an agent node (test launcher wins for all no
     expect(fake.plans).toHaveLength(0);
     const row = (await subshellsRepo.listByUser("u1")).find((r) => r.nodeId === nodeId);
     expect(row?.status).toBe("terminated");
+  });
+});
+
+describe("manager createSubshell on a node whose MCP switch is off", () => {
+  // The switch reads the SHARED singleton (`mcpWiringAllowed` goes through the
+  // requestless context), so the refusal lives on a real row in that DB, not
+  // on this file's private in-memory handle.
+  const sharedNodes = new NodesRepository(sharedDb);
+
+  it("produces a frame byte-identical to the capability-skip, with the reporter still present", async () => {
+    const fake = new FakeNodeLauncher(testDir);
+    const manager = new SubshellManagerService({
+      subshells: subshellsRepo,
+      presets: presetsRepo,
+      launcher: fake,
+      tokens,
+      audit: async () => {},
+    });
+    const nodeId = `rmgr-mcp-off-${crypto.randomUUID().slice(0, 8)}`;
+    await sharedNodes.create({ id: nodeId, ownerUserId: "u1", name: nodeId, kind: "agent" });
+    await sharedNodes.setMcpEnabled(nodeId, { on: false, changedAt: new Date().toISOString() });
+    const off = nodeOnline(nodeId, ["mcp"]); // the capability is advertised; the switch still refuses
+    try {
+      const created = await manager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId,
+        workingDir: "/tmp",
+        nodeId,
+      });
+      expect(fake.plans).toHaveLength(1);
+      // Same shape as the no-capability agent: no registration, no config path.
+      expect(fake.plans[0].mcp).toBeUndefined();
+      expect(fake.plans[0].mcpConfigPath).toBeUndefined();
+      // The reporter is NOT gated on the MCP switch (hooks are not an MCP
+      // feature): it must still name the node's binary.
+      expect(fake.plans[0].reporter).toEqual({ command: "/usr/bin/subshell", args: ["report"] });
+      // The credential env is the hooks' too, so it still lands.
+      expect(fake.plans[0].subshellEnv.SUBSHELL_API_KEY).toBe("subshell_stub");
+      await subshellsRepo.delete(created.id);
+    } finally {
+      off();
+      await sharedNodes.deleteById(nodeId);
+    }
+  });
+
+  it("the offline throw still fires while off: a gone node is not a switch refusal", async () => {
+    const fake = new FakeNodeLauncher(testDir);
+    const manager = new SubshellManagerService({
+      subshells: subshellsRepo,
+      presets: presetsRepo,
+      launcher: fake,
+      tokens,
+      audit: async () => {},
+    });
+    const nodeId = `rmgr-mcp-off-nolive-${crypto.randomUUID().slice(0, 8)}`;
+    await sharedNodes.create({ id: nodeId, ownerUserId: "u1", name: nodeId, kind: "agent" });
+    await sharedNodes.setMcpEnabled(nodeId, { on: false, changedAt: new Date().toISOString() });
+    // No nodeOnline: the agent is not connected. The switch says off AND the
+    // node is gone; the launch must roll back with the offline error, not
+    // quietly start a pane on a machine that cannot host it.
+    try {
+      const err = await manager
+        .createSubshell({ userId: "u1", harnessId: "claude-code", presetId, workingDir: "/tmp", nodeId })
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(NodeRpcError);
+      expect((err as NodeRpcError).code).toBe("offline");
+      expect(fake.plans).toHaveLength(0);
+    } finally {
+      await sharedNodes.deleteById(nodeId);
+    }
   });
 });
 

@@ -66,6 +66,7 @@ import * as authAccountProviderKeyMigration from "@/db/migrations/0069-auth-acco
 import * as previewProxySettingsMigration from "@/db/migrations/0070-preview-proxy-settings.js";
 import * as serviceCertificateValidationMigration from "@/db/migrations/0071-service-certificate-validation.js";
 import * as servicePreviewConfigurationMigration from "@/db/migrations/0072-service-preview-configuration.js";
+import * as mcpEnabledMigration from "@/db/migrations/0073-mcp-enabled.js";
 import * as dropSshGrantsMigration from "./migrations/0053-drop-ssh-grants.js";
 import * as presetSharingMigration from "./migrations/0057-preset-sharing.js";
 import * as nodeVirtualDisplayEnabledMigration from "./migrations/0064-node-virtual-display-enabled.js";
@@ -199,6 +200,7 @@ export async function runMigrations(): Promise<void> {
           "0070-preview-proxy-settings": previewProxySettingsMigration,
           "0071-service-certificate-validation": serviceCertificateValidationMigration,
           "0072-service-preview-configuration": servicePreviewConfigurationMigration,
+          "0073-mcp-enabled": mcpEnabledMigration,
         };
       },
     },

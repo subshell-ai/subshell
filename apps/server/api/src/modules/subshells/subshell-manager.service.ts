@@ -61,6 +61,7 @@ import { sshCanonicalDestination } from "@/modules/ssh/ssh-destination.js";
 import { sweepLocalSshDir } from "@/modules/ssh/ssh-launch.service.js";
 import type { Access } from "@/modules/subshells/access.js";
 import { type LogCursorRequest, readLogCursor } from "@/modules/subshells/log-tail.js";
+import { mcpWiringAllowed } from "@/modules/subshells/mcp-availability.js";
 import {
   nodeSelfInvoke,
   planRemoteSubshellMcp,
@@ -70,7 +71,14 @@ import {
 } from "@/modules/subshells/mcp-launch.js";
 import { probeReporterLaunch } from "@/modules/subshells/mcp-resolve.js";
 import { subshellLogPath } from "@/modules/subshells/paths.js";
-import { issueSubshellToken, revokeSubshellToken, subshellSystemPermissions } from "@/modules/subshells/tokens.js";
+import {
+  issueSubshellToken,
+  type PaneTokenPermissions,
+  paneTokenPermissions,
+  reportingTokenPermissions,
+  revokeSubshellToken,
+  subshellSystemPermissions,
+} from "@/modules/subshells/tokens.js";
 import { HttpError } from "@/shared/errors.js";
 import { logger } from "@/shared/logger.js";
 
@@ -78,7 +86,12 @@ import { logger } from "@/shared/logger.js";
  * for test isolation; defaults to the real better-auth-backed functions. */
 export interface SubshellTokenProvider {
   /** Mints the subshell's MCP API key; returns the plaintext (once). */
-  issue(subshellId: string, userId: string, ceiling?: ApiKeyPermission[] | null): Promise<string>;
+  issue(
+    subshellId: string,
+    userId: string,
+    ceiling?: ApiKeyPermission[] | null,
+    permissions?: PaneTokenPermissions,
+  ): Promise<string>;
   /** Reads the previous ceiling before rotation, when the provider persists credentials. */
   permissions?(subshellId: string, userId: string): Promise<ApiKeyPermission[] | null>;
   /** Disables the subshell's token (no-op when absent). */
@@ -306,23 +319,43 @@ export class SubshellManagerService {
   }
 
   /**
-   * Compose the MCP registration for one launch on one node (spec §6.4).
+   * Compose the MCP registration for one launch on one node (spec §6.4), or
+   * nothing when this launch's MCP decision says off.
+   *
    * Local rows keep today's write-the-file path; agent rows get the PURE
    * remote plan (dialect computed control-side, content shipped with the
    * launch command) — gated on the node advertising the `"mcp"` capability,
    * and on the node still having live `ready` facts (its connection dropped
    * between resolution and launch ⇒ the same offline-flavored throw
    * `sendCommand` produces, so rollback and the 409 mapping treat it alike).
+   *
+   * The offline throw stays AHEAD of the off-decision on purpose. A node that
+   * is gone is a launch that must roll back and tell the caller so, whatever
+   * the switches say; a node that is merely refusing the MCP is a launch that
+   * succeeds without it. Answering the second with the first's 409 would make
+   * an owner's toggle look like an outage.
+   *
+   * An `mcp`-capable agent whose node row says off returns the SAME shape the
+   * capability skip returns (a bare `{ facts }`), so nothing downstream has to
+   * learn a third case, and the reporter stays composed either way: harness
+   * hooks are not an MCP feature (`#planReporter` owns that rule).
    * @throws NodeRpcError code "offline" for an agent node with no live facts
    */
-  #planMcp(
+  async #planMcp(
     harness: HarnessPlugin,
     subshellId: string,
     nodeId: string,
-  ): { mcp?: McpRegistration; mcpConfigPath?: string; facts?: NodeFacts } {
-    if (nodeId === LOCAL_NODE_ID) return { mcp: registerSubshellMcp(harness, subshellId) };
+    mcpAllowed: boolean,
+  ): Promise<{ mcp?: McpRegistration; mcpConfigPath?: string; facts?: NodeFacts }> {
+    if (nodeId === LOCAL_NODE_ID) return mcpAllowed ? { mcp: registerSubshellMcp(harness, subshellId) } : {};
     const facts = getLive(nodeId)?.agent;
     if (!facts) throw new NodeRpcError("offline", `node "${nodeId}" has no live connection`, nodeId);
+    if (!mcpAllowed) {
+      logger.debug(
+        `subshell ${subshellId}: the subshell MCP is switched off for this account or node; not registered for this launch`,
+      );
+      return { facts };
+    }
     if (!facts.capabilities.includes("mcp")) {
       logger.debug(
         `subshell ${subshellId}: node "${nodeId}" did not advertise the "mcp" capability; subshell mcp not registered for this launch`,
@@ -611,13 +644,20 @@ export class SubshellManagerService {
       }
     }
 
+    // The MCP decision, asked ONCE per launch. It picks both the credential
+    // scope and whether the harness gets a registration at all, and a decision
+    // read in two places is two places that drift: a pane wired with no
+    // registration but a full-scope key is the attack surface with the tool
+    // list left behind, and one narrowed but still wired is a broken pane.
+    const mcpAllowed = await mcpWiringAllowed(userId, targetNode);
     // The token is minted AFTER the row exists (issueSubshellToken writes the
     // api-key id back onto it) but BEFORE tmux starts, so the plaintext key is
     // baked into the harness env.
+    const tokenPermissions = mcpAllowed ? paneTokenPermissions() : reportingTokenPermissions();
     const apiKey =
       systemKeyPermissions === null
-        ? await this.#tokens.issue(id, userId)
-        : await this.#tokens.issue(id, userId, systemKeyPermissions);
+        ? await this.#tokens.issue(id, userId, null, tokenPermissions)
+        : await this.#tokens.issue(id, userId, systemKeyPermissions, tokenPermissions);
 
     let promptDelivered = false;
     try {
@@ -629,7 +669,7 @@ export class SubshellManagerService {
       // rows get the PURE plan (no local file; content ships with the launch
       // command to the node's own path). INSIDE the try: an agent that
       // dropped offline between resolution and here must roll back too.
-      const { mcp, mcpConfigPath, facts } = this.#planMcp(harness, id, targetNode);
+      const { mcp, mcpConfigPath, facts } = await this.#planMcp(harness, id, targetNode, mcpAllowed);
       const reporter = this.#planReporter(targetNode, facts);
       const subshellEnv = subshellMcpEnv(apiKey, id, subshellName);
       if (facts) {
@@ -1530,11 +1570,18 @@ export class SubshellManagerService {
     const previousPermissions = (await this.#tokens.permissions?.(row.id, row.userId)) ?? null;
     const ceiling = intersectSystemPermissions(previousPermissions, systemKeyPermissions);
     await this.#revokeTokenOrUnlink(row.id);
+    // The MCP decision is re-asked on every revive rather than inherited from
+    // the row: a pane restarted after its owner switched the MCP off comes back
+    // without it, and so does one restarted after the machine's owner refused
+    // it. Running panes are the ones that keep what they were given, which is
+    // the whole reach of both switches.
+    const mcpAllowed = await mcpWiringAllowed(row.userId, row.nodeId);
+    const tokenPermissions = mcpAllowed ? paneTokenPermissions() : reportingTokenPermissions();
     const apiKey =
       ceiling === null
-        ? await this.#tokens.issue(row.id, row.userId)
-        : await this.#tokens.issue(row.id, row.userId, ceiling);
-    const { mcp, mcpConfigPath, facts } = this.#planMcp(harness, row.id, row.nodeId);
+        ? await this.#tokens.issue(row.id, row.userId, null, tokenPermissions)
+        : await this.#tokens.issue(row.id, row.userId, ceiling, tokenPermissions);
+    const { mcp, mcpConfigPath, facts } = await this.#planMcp(harness, row.id, row.nodeId, mcpAllowed);
     const reporter = this.#planReporter(row.nodeId, facts);
     const subshellEnv = subshellMcpEnv(apiKey, row.id, row.name);
     if (facts) {

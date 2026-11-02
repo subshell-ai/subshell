@@ -776,6 +776,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
         },
         onSshEnabled: () => {},
         onPreviewEnabled: () => {},
+        onMcpEnabled: () => {},
       });
       try {
         const ws = fakeSocket("n1");
@@ -834,6 +835,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
         },
         onSshEnabled: () => {},
         onPreviewEnabled: () => {},
+        onMcpEnabled: () => {},
       });
       return { seen, off: () => resetNodeEventsForTests() };
     }
@@ -917,6 +919,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
           seen.push([nodeId, reported]);
         },
         onPreviewEnabled: () => {},
+        onMcpEnabled: () => {},
       });
       return { seen, off: () => resetNodeEventsForTests() };
     }
@@ -1001,6 +1004,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
         onPreviewEnabled: (nodeId, reported) => {
           seen.push([nodeId, reported]);
         },
+        onMcpEnabled: () => {},
       });
       return { seen, off: () => resetNodeEventsForTests() };
     }
@@ -1061,6 +1065,90 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
           fakeSocket("n1"),
           JSON.stringify(readyFrame({ previewEnabled: { on: "yes" } })),
         );
+        expect(h.ready).toHaveLength(1);
+        expect(seen).toEqual([["n1", undefined]]);
+      } finally {
+        off();
+      }
+    });
+  });
+
+  /**
+   * The MCP mirror walks the same two frames into the same shape of hook,
+   * and the rows pin the DOOR for the third switch: both carriers, the
+   * socket's nodeId, the lenient field. What the reconciler decides lives in
+   * `mcp-enabled.test.ts`; what matters here is that the arms EXIST and pass
+   * the parsed payload, because the switch has no default branch and a
+   * mis-wired or missing `mcp_enabled` arm passes every other suite.
+   */
+  describe("mcp_enabled → the lifecycle hook", () => {
+    /** Install a recording MCP hook and return both the log and the uninstaller. */
+    function recordMcpEnabled(): { seen: [string, unknown][]; off: () => void } {
+      const seen: [string, unknown][] = [];
+      setNodeLifecycleHooks({
+        onExit: () => {},
+        onSubshellsReport: () => {},
+        onMaintenance: () => {},
+        onSshEnabled: () => {},
+        onPreviewEnabled: () => {},
+        onMcpEnabled: (nodeId, reported) => {
+          seen.push([nodeId, reported]);
+        },
+      });
+      return { seen, off: () => resetNodeEventsForTests() };
+    }
+
+    it("a ready CARRYING mcpEnabled reconciles it", async () => {
+      const { seen, off } = recordMcpEnabled();
+      try {
+        const h = makeHarness();
+        await handleNodeMessage(
+          h.deps,
+          fakeSocket("n1"),
+          JSON.stringify(readyFrame({ mcpEnabled: { on: false, changedAt: "2026-11-01T10:00:00.000Z" } })),
+        );
+        expect(seen).toEqual([["n1", { on: false, changedAt: "2026-11-01T10:00:00.000Z" }]]);
+      } finally {
+        off();
+      }
+    });
+
+    it("a ready WITHOUT it still reconciles, because silence is the ALLOWED answer here", async () => {
+      // The one inversion against the ssh and preview cells beside it: an
+      // absent mirror agrees with a default-ON row, so the hook hearing
+      // `undefined` is the healthy case, not a skipped beat.
+      const { seen, off } = recordMcpEnabled();
+      try {
+        const h = makeHarness();
+        await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame()));
+        expect(seen).toEqual([["n1", undefined]]);
+      } finally {
+        off();
+      }
+    });
+
+    it("the mcp_enabled EVENT reaches the same hook, under the SOCKET's nodeId", async () => {
+      const { seen, off } = recordMcpEnabled();
+      try {
+        const h = makeHarness();
+        await handleNodeMessage(
+          h.deps,
+          fakeSocket("n1"),
+          JSON.stringify({ type: "mcp_enabled", on: true, changedAt: "2026-11-01T11:00:00.000Z" }),
+        );
+        expect(seen).toEqual([["n1", { on: true, changedAt: "2026-11-01T11:00:00.000Z" }]]);
+      } finally {
+        off();
+      }
+    });
+
+    it("a ready whose mcpEnabled field is malformed keeps the ready and drops the field", async () => {
+      // Lenient like the twins: the plane learns the drop as silence, and
+      // silence on THIS flag reads allowed toward a default row.
+      const { seen, off } = recordMcpEnabled();
+      try {
+        const h = makeHarness();
+        await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame({ mcpEnabled: { on: "yes" } })));
         expect(h.ready).toHaveLength(1);
         expect(seen).toEqual([["n1", undefined]]);
       } finally {

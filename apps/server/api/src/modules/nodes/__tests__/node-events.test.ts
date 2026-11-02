@@ -257,6 +257,7 @@ describe("exit / subshells_report → lifecycle hooks (spec §3.3)", () => {
       onMaintenance: () => {},
       onSshEnabled: () => {},
       onPreviewEnabled: () => {},
+      onMcpEnabled: () => {},
     });
     const h = makeHarness();
     const ws = fakeSocket("n1");
@@ -284,6 +285,7 @@ describe("exit / subshells_report → lifecycle hooks (spec §3.3)", () => {
       onMaintenance: () => {},
       onSshEnabled: () => {},
       onPreviewEnabled: () => {},
+      onMcpEnabled: () => {},
       onSubshellsReport: (nodeId, report) => {
         seen.push({ nodeId, report });
       },

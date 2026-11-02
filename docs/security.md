@@ -85,7 +85,7 @@ principals; the fourth is a websocket credential and nothing else.
 | `principal` | `user:<id>` | `user:<systemUserId>` | `sess:<subshellId>` | none |
 | Minted by | sign-up / sign-in / passkey | admin, Server Settings → API keys | the server at subshell start | `POST /api/nodes/enroll` |
 | Scope | the user's own data; **the only actor admin surfaces accept**; the only actor that may mint an UNBOUND WS attach token | explicit versioned grants on new keys; legacy keys retain their previous non-node access. Scoped keys need `subshells:execute` to mint a WS attach token, restricted to a system-owned subshell; legacy keys may bind to any single subshell | pane permission map plus any inherited system-key ceiling; may mint a WS attach token only for its OWN subshell | open `/ws/node` as that node |
-| Lifetime | better-auth session | until disabled or deleted | 7 days, self-extending while the MCP child runs | long-lived |
+| Lifetime | better-auth session | until disabled or deleted | 7 days, self-extending while the MCP child runs and while the pane's report hooks fire (every report but `exit` rides an extend) | long-lived |
 | Revocation | sign-out / password change / account disable (see "Disabling an account" below) | instant | **instant** on terminate/delete; rotated on auto-restart | delete the node |
 | Stored as | session row | hash only | hash only | hash only |
 
@@ -762,9 +762,17 @@ also visible to any local process that can read `/proc/<pid>/environ`, `ps`
 output, or tmux pane metadata. Accepted (§11).
 
 **What that token actually carries.** `permissions: { channels: ["read",
-"write"], subshells: ["read", "write"], prompts: ["read", "write"] }`
-(`services/subshell-tokens.ts:33`):
-the map is a coarse scope gate, not a row fence. The MCP tools self-restrict
+"write"], subshells: ["read", "write"], prompts: ["read", "write"],
+transfers: ["read", "write"] }` (`modules/subshells/tokens.ts:28`):
+the map is a coarse scope gate, not a row fence. That is the map when the
+pane's MCP wiring is ON, which is still the default at both levels; with the
+account or node switch off, the key is minted as `{ report: ["write"] }`
+instead, so the harness-hook verbs and token self-extension keep working and
+none of the sibling surface below rides the key at all (§6). One caveat
+travels with that sentence: on opencode and pi the child-roster
+reporter is a harness extension bundled into the MCP registration rather than
+a hook command line, so a disabled pane of those dialects simply reports no
+roster, the door for it notwithstanding. The MCP tools self-restrict
 the pane to its own row for reporting, but the raw REST surface resolves the
 token as its OWNER with shares switched off (§3), which means a
 prompt-injected pane can create, restart and **terminate** the owner's OTHER
@@ -1122,6 +1130,25 @@ consequences are:
   `preview-display-unsupported`) instead of half-serving silently. Browser
   document isolation, bearer-link exposure, and local-user limits are accounted
   separately in §11.15.
+- **The subshell MCP wiring is switchable per account and per node, both
+  defaulting ON.** Off on either switch and a new launch or restart gets no MCP
+  wiring and a report-only token, so §4's sibling surface is gone from the key
+  rather than merely left without a tool naming it; a running pane keeps the
+  MCP child and token it already has. The node's half is enforced on the
+  machine: the row pushes to a local mirror, a launch frame that still carries
+  wiring material has it stripped, and `subshell mcp` refuses at the command
+  itself; a child whose node never learned the mirror, or whose account alone
+  is off, instead exits at identity registration. Either way the MCP never
+  acts on a report-only key (a disabled child whose plane is momentarily
+  unreachable may still enumerate its tools, but every call is refused at the
+  guard), and the node owner's no is not something a tenant account can talk
+  past. A disabled pane still holds its credential:
+  the four report verbs and token self-extension answer to it, and that is its
+  whole scope-gated reach now, since reading even its own log asks for the
+  `subshells` scope it no longer carries (the log stays readable on disk by
+  whoever owns that OS account, §11). The §3 deliberately-public bearer reads
+  answer to any valid credential, this one included; the switch is not a
+  per-pane instance of that posture, and it does not narrow it either.
 - **Node shares and subshell shares are independent axes.** Sharing a node does
   not hand out subshell tokens, but anything launched there trusts the machine.
 - **Whoever owns the node's OS user owns every pane launched there**, including
@@ -2878,6 +2905,7 @@ Audit events are written, grouped by family:
   `node.allowed_dirs.update`, `node.config.update`,
   `node.maintenance.update`, `node.ssh_enabled.update`,
   `node.ssh_wide_forwards.update` (the boolean itself; which node, who flipped it),
+  `node.mcp_enabled.update` (the boolean itself; which node, who flipped it),
   `node.ssh_identity.register` (spec 2026-10-08 §4.3: the signing-key
   bootstrap lands when the link's answer fills the EMPTY slot, `via: "link"`
   and nothing else in the metadata - never the key value; the idempotent

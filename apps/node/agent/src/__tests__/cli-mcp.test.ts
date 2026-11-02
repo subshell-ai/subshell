@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parseArgs, run } from "../cli.js";
+import { writeMcpEnabled } from "../mcp-enabled.js";
 
 /**
  * The `subshell mcp` CLI surface (Task 13). ONLY the reject paths are run
@@ -63,5 +67,26 @@ describe("subshell mcp (CLI wiring)", () => {
     const res = await run(["nope"]);
     expect(res.code).toBe(2);
     expect(res.err).toInclude("subshell mcp");
+  });
+
+  test("the mirror says off → exit 2 naming the switch, before the server starts", async () => {
+    // The whole point of checking the mirror HERE (not only in the launch
+    // executor): a harness that registered `subshell mcp` on the machine itself
+    // months ago has no per-launch registration for the plane to withhold, so
+    // this refusal is what makes "off" true for it. It must land before stdio
+    // is attached, which is why a complete pane env is safe to run here.
+    const dataDir = mkdtempSync(join(tmpdir(), "subshell-mcp-off-"));
+    writeMcpEnabled(dataDir, { on: false, changedAt: "2026-11-01T00:00:00.000Z" });
+    process.env.SUBSHELL_API_KEY = "subshell_test_key";
+    process.env.SUBSHELL_ID = "off-refuse-1";
+    process.env.SUBSHELL_DATA_DIR = dataDir;
+    try {
+      const res = await run(["mcp"]);
+      expect(res.code).toBe(2);
+      expect(msgLine(res.err)).toInclude("turned off on this node");
+      expect(res.out).toBe(""); // stdio never touched
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 });

@@ -1,6 +1,6 @@
 import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
-import { authGuard, requirePerm } from "@/api/auth-guard.js";
+import { authGuard, requirePerm, requireReportPerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/api/middleware/context.plugin.js";
 import { apiModels } from "@/api/schemas/index.js";
 import { HarnessSubagents } from "@/modules/subshells/harness-subagents.js";
@@ -194,10 +194,17 @@ export const subshellSubagentsRoute = new Elysia()
       },
     },
   )
+  // The reporting door stays open to a report-only token, which is what an
+  // MCP-disabled pane holds. WHO walks through is the dialect story: hook-
+  // driven dialects report regardless of the switch, while opencode and pi
+  // ship their reporter as an extension inside the MCP registration,
+  // so a switched-off pane of those dialects loads no bridge and never calls
+  // this route. Shipping the bridge without the wiring would need a
+  // reporting-only registration variant in each plugin.
   .post(
     "/:id/subagents/report",
     async ({ params, body, actor, principal, apiKeyId, apiKeyPermissions, ctx }) => {
-      requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
+      requireReportPerm({ actor, apiKeyPermissions });
       if (actor !== "subshell-key" || principal !== `sess:${params.id}`) {
         throw new HttpError(403, "Only a subshell's own key may report its subagents");
       }

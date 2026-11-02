@@ -18,6 +18,16 @@ export interface UserMetaTable {
    */
   notifyEnabled: Generated<number>;
   /**
+   * 1 = panes this account launches may be wired with the subshell MCP; 0 =
+   * they launch without it, and the pane's token is minted with the reporting
+   * scope only. `Generated` mirrors the column's `NOT NULL DEFAULT 1`, and an
+   * absent `user_meta` row reads the same way: MCP wiring is what every
+   * account got before the switch existed, so an upgrade must not quietly
+   * strip it. `Generated` also means registration can omit it, exactly as
+   * {@link notifyEnabled} does.
+   */
+  mcpEnabled: Generated<number>;
+  /**
    * Per-user terminal attach history cap (trailing lines replayed before the
    * live tail). NULL = no preference → instance default
    * (`SUBSHELL_TERMINAL_REPLAY_LINES`, 100); readers clamp to [1, 200].
@@ -54,16 +64,24 @@ export interface UserMetaTable {
 }
 
 /**
- * Insert shape. `notifyEnabled`, `disabled`, `setupStep`, `approvalState` and
- * `pendingArrivedAt` are optional so registration (which knows only id + role)
- * stays valid; an omitted value takes the DB default (1 = notifications on,
- * 0 = not disabled, NULL = no wizard in progress, "approved", NULL).
+ * Insert shape. `notifyEnabled`, `mcpEnabled`, `disabled`, `setupStep`,
+ * `approvalState` and `pendingArrivedAt` are optional so registration (which
+ * knows only id + role) stays valid; an omitted value takes the DB default
+ * (1 = notifications on, 1 = MCP wiring on, 0 = not disabled, NULL = no wizard
+ * in progress, "approved", NULL).
  */
 export type NewUserMeta = Omit<
   UserMetaTable,
-  "notifyEnabled" | "terminalReplayLines" | "disabled" | "setupStep" | "approvalState" | "pendingArrivedAt"
+  | "notifyEnabled"
+  | "mcpEnabled"
+  | "terminalReplayLines"
+  | "disabled"
+  | "setupStep"
+  | "approvalState"
+  | "pendingArrivedAt"
 > & {
   notifyEnabled?: number;
+  mcpEnabled?: number;
   terminalReplayLines?: number | null;
   disabled?: number;
   approvalState?: string;

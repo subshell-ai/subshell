@@ -13,7 +13,7 @@ import { z } from "zod";
 void z.custom(() => true);
 import { McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
-import { SubshellApi } from "./api-client.js";
+import { ApiError, SubshellApi } from "./api-client.js";
 import type { IdentityKeyPair } from "./crypto.js";
 import { readMcpEnv } from "./env.js";
 import { loadOrCreateIdentity } from "./identity-store.js";
@@ -556,10 +556,60 @@ export function createSubshellMcpServer(deps: { api: ToolApi; own: IdentityKeyPa
 }
 
 /**
+ * The fatal reading of a 403 at identity registration: this pane's token was
+ * minted without the `channels` scope, which happens exactly one way — the
+ * subshell MCP is switched off for the pane, by its owner's account preference
+ * or by the node it runs on. A child that reaches this point did so because a
+ * harness registered `subshell mcp` on its host, not because the plane wired
+ * it, and serving the `subshells`-scoped tools on a report-only key would make
+ * the off switch a lie. The two CLI entries print this message and exit; the
+ * stdio server never connects.
+ */
+export class McpDisabledError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "McpDisabledError";
+  }
+}
+
+/**
+ * Register/rotate this subshell's channel identity so members can seal
+ * replies to us. Best-effort for everything EXCEPT a 403: a 409 (the
+ * server-side `identity_required` only gates create/join) must not stop us
+ * from serving read-only tools, but a 403 means the backend already refused
+ * this pane's MCP use, and serving anyway would be serving on a token whose
+ * owner said no.
+ *
+ * @internal exported for tests; callers use runSubshellMcp.
+ */
+export async function registerPaneIdentity(
+  api: ToolApi,
+  own: IdentityKeyPair,
+  displayName: string | null,
+): Promise<void> {
+  try {
+    await api.req("/api/identities", {
+      method: "POST",
+      body: { publicKey: own.publicJwk, displayName },
+    });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 403) {
+      throw new McpDisabledError(
+        "the subshell MCP is switched off for this pane, so nothing is served: its account preference or the node's setting refuses it, and this token cannot register an identity. A person can allow the MCP again under Preferences or the node's settings, then restart the pane",
+      );
+    }
+    process.stderr.write(`subshell mcp: identity registration failed: ${describeToolError(err).message}\n`);
+  }
+}
+
+/**
  * Boots the `subshell mcp` stdio server: reads env, persists this subshell's
  * identity, registers its public key with the backend, extends this pane's
  * token (now and on an interval), and serves the tools over stdio until the
  * client disconnects.
+ *
+ * A refused registration ({@link McpDisabledError}) exits from here before
+ * anything connects, so a disabled pane's child never serves.
  *
  * Never writes to stdout (the MCP channel) — diagnostics go to stderr.
  */
@@ -567,17 +617,7 @@ export async function runSubshellMcp(): Promise<void> {
   const env = readMcpEnv();
   const api = new SubshellApi({ baseUrl: env.baseUrl, apiKey: env.apiKey });
   const own = await loadOrCreateIdentity(env.dataDir, `sess:${env.subshellId}`);
-  // Register/rotate our key so members can seal replies to us. Best-effort: a
-  // 409 (identity_required handled server-side only gates create/join) must
-  // not stop us from serving read-only tools.
-  try {
-    await api.req("/api/identities", {
-      method: "POST",
-      body: { publicKey: own.publicJwk, displayName: env.subshellName },
-    });
-  } catch (err) {
-    process.stderr.write(`subshell mcp: identity registration failed: ${describeToolError(err).message}\n`);
-  }
+  await registerPaneIdentity(api, own, env.subshellName);
 
   startTokenRenewal(api, env.subshellId);
 

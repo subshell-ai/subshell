@@ -193,6 +193,10 @@ export const NodeViewSchema = t.Object({
     description:
       "Whether SSH port forwards on this machine may bind non-loopback addresses. Off by default: forwards bind loopback only, and widening turns the machine into a router for whatever network reaches the bound port. The owner's decision, refused at launch while false",
   }),
+  mcpEnabled: t.Boolean({
+    description:
+      "Whether panes launched on this machine may be wired with the subshell MCP. On by default: MCP wiring predates the switch, so an unwritten row keeps today's behavior. Off outranks every account preference and is enforced on the machine itself; running panes keep their live MCP child",
+  }),
   held: t.Nullable(
     t.Object({
       reason: t.Union([t.Literal("below-floor"), t.Literal("protocol-mismatch"), t.Literal("encryption-required")], {
@@ -496,6 +500,12 @@ function nodeViewBase(
     virtualDisplayProvider: row.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
     virtualDisplayProviders: storedDisplayProviderIds(row.virtualDisplayProviders),
     sshWideForwards: row.sshWideForwards === 1,
+    // The DEFAULT-ALLOW polarity is deliberate and is the opposite of the
+    // default-deny switches above (ssh, web previews, virtual displays): an
+    // unwritten column (a pre-switch row, or one whose migration added it
+    // with DEFAULT 1) must keep wiring the MCP, because that was every
+    // pane's behavior before the switch existed.
+    mcpEnabled: row.mcpEnabled !== 0,
     // Read from the LIVE registry rather than the row, for the same reason
     // `runtime` is: being held is a fact about a socket that exists right now,
     // and a column would go stale the moment the process ends. It is NOT
