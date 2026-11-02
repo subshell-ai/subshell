@@ -110,9 +110,10 @@ const POST_TIMEOUT_MS = 2000;
 const RESUMED_POST_TIMEOUT_MS = 750;
 const STDIN_TIMEOUT_MS = 2000;
 /**
- * The self-extension that rides every report, capped BELOW the slowest main
- * POST so it never lengthens a hook's worst case: the two run in parallel and
- * the process lives for the max, which stays the main budget's number.
+ * The self-extension that rides every report, held WITHIN every per-verb POST
+ * budget (the verbs run on 750 or 2000; the extend equals the faster one) so
+ * the parallel never lengthens a hook's worst case: the two run together and
+ * the process lives for the max, which stays the verb's own number.
  */
 const EXTEND_TIMEOUT_MS = 750;
 

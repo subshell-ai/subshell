@@ -74,7 +74,7 @@ Registration is a pairing operation, not normal execution over plaintext. The no
 
 ## Readiness and machine reports
 
-The `ready` event identifies the node's release version, protocol version, operating system, architecture, hostname, data directory, and capabilities. It can also report its home directory, invocation path, runtime and service details, maintenance state, the machine's MCP-use preference, and system specs (OS release, CPU model, logical CPU count, total memory, and report time). System specs are optional so older nodes can still connect; the server retains the last report for offline discovery.
+The `ready` event identifies the node's release version, protocol version, operating system, architecture, hostname, data directory, and capabilities. It can also report its home directory, invocation path, runtime and service details, maintenance state, the machine's ssh, preview, and MCP-use mirror states, and system specs (OS release, CPU model, logical CPU count, total memory, and report time). System specs are optional so older nodes can still connect; the server retains the last report for offline discovery.
 
 These reports let the server plan launches for the execution machine rather than guessing its paths from the server host. They can disclose machine names, local paths, and selected environment information to the trusted control plane.
 
@@ -126,7 +126,7 @@ Most commands execute in arrival order on a shared queue, so a long archive oper
 | Files and directories | `stat_dir`, `fs_ls`, `path_exists`, `write_file`, `remove_paths`, `set_allowed_dirs`. |
 | Archive transfer | `archive_create`, `file_read`, `transfer_write`, `archive_extract`, `tree_manifest`. |
 | Machine information | `inventory`, `detect`, `ping`. |
-| Node management | `service`, `agent_log_read`, `set_server_url`, `set_log_level`, `set_maintenance`, `set_ssh_enabled`, `update`. |
+| Node management | `service`, `agent_log_read`, `set_server_url`, `set_log_level`, `set_maintenance`, `set_ssh_enabled`, `set_mcp_enabled`, `update`. |
 | SSH discovery and trust | `ssh_discover_aliases`, `ssh_resolve_config`, `ssh_register_identity`, `ssh_agent_identities`, `ssh_host_key`, `ssh_machine_pin_repair`. |
 | SSH relay and remote setup | `ssh_relay_open`, `ssh_relay_close`, `ssh_exec_stdin` (setup scripts on stdin), legacy `ssh_exec`, `ssh_exec_status`. |
 

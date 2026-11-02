@@ -5,11 +5,10 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  errMessage,
   Label,
   Switch,
 } from "@internal/node-admin";
-import { useEffect, useState } from "react";
+import { useBooleanSetting } from "@/hooks/use-boolean-setting";
 
 /**
  * Account → Preferences: the per-user subshell MCP switch. One value stored in
@@ -19,9 +18,9 @@ import { useEffect, useState } from "react";
  * the subagent roster survives only on the hook-driven dialects, because
  * opencode and pi ship their reporter inside the registration a
  * switched-off pane never writes) but loses the sibling-coordination tools.
- * The two hooks are
- * injectable so the read/write cycle is testable without stubbing fetch (the
- * notifications master switch is the precedent).
+ * The two endpoints are injectable so the read/write cycle is testable without
+ * stubbing fetch, and the state machine is the shared {@link useBooleanSetting}
+ * the notifications master switch also runs.
  */
 
 /** Module-level so the default prop is a STABLE reference: an inline arrow
@@ -43,40 +42,13 @@ export type McpCardProps = {
 
 /** Settings card for "wire the subshell MCP into my panes at all". */
 export function McpCard({ getEnabled = getMcpEnabled, setEnabled = setMcpEnabled }: McpCardProps) {
-  const [enabled, setEnabledState] = useState<boolean | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    getEnabled()
-      .then((on) => live && setEnabledState(on))
-      // A probe that fails must not leave a broken switch: fall back to on
-      // (the documented default) rather than a false "off", which would
-      // silently strip tools from panes the user never opted out of.
-      .catch(() => live && setEnabledState(true));
-    return () => {
-      live = false;
-    };
-  }, [getEnabled]);
-
-  async function toggle() {
-    if (enabled === null) return;
-    const next = !enabled;
-    setBusy(true);
-    setError(null);
-    // Optimistic: move the switch now, roll back only if the write fails. The
-    // server echoes the persisted value, so on success we adopt that.
-    setEnabledState(next);
-    try {
-      setEnabledState(await setEnabled(next));
-    } catch (err) {
-      setEnabledState(enabled);
-      setError(errMessage(err, "The MCP setting could not be changed."));
-    } finally {
-      setBusy(false);
-    }
-  }
+  // The probe-fails-ON fallback and the optimistic rollback live in the shared
+  // hook the notifications master switch also runs, so a fix there lands here.
+  const { enabled, busy, error, toggle } = useBooleanSetting({
+    get: getEnabled,
+    set: setEnabled,
+    errorMessage: "The MCP setting could not be changed.",
+  });
 
   return (
     <Card>

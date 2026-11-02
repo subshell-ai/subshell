@@ -500,10 +500,11 @@ function nodeViewBase(
     virtualDisplayProvider: row.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER,
     virtualDisplayProviders: storedDisplayProviderIds(row.virtualDisplayProviders),
     sshWideForwards: row.sshWideForwards === 1,
-    // The DEFAULT-ALLOW polarity is deliberate and is the opposite of the two
-    // flags above: an unwritten column (a pre-switch row, or one whose
-    // migration added it with DEFAULT 1) must keep wiring the MCP, because
-    // that was every pane's behavior before the switch existed.
+    // The DEFAULT-ALLOW polarity is deliberate and is the opposite of the
+    // default-deny switches above (ssh, web previews, virtual displays): an
+    // unwritten column (a pre-switch row, or one whose migration added it
+    // with DEFAULT 1) must keep wiring the MCP, because that was every
+    // pane's behavior before the switch existed.
     mcpEnabled: row.mcpEnabled !== 0,
     // Read from the LIVE registry rather than the row, for the same reason
     // `runtime` is: being held is a fact about a socket that exists right now,

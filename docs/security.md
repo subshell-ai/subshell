@@ -85,7 +85,7 @@ principals; the fourth is a websocket credential and nothing else.
 | `principal` | `user:<id>` | `user:<systemUserId>` | `sess:<subshellId>` | none |
 | Minted by | sign-up / sign-in / passkey | admin, Server Settings → API keys | the server at subshell start | `POST /api/nodes/enroll` |
 | Scope | the user's own data; **the only actor admin surfaces accept**; the only actor that may mint an UNBOUND WS attach token | explicit versioned grants on new keys; legacy keys retain their previous non-node access. Scoped keys need `subshells:execute` to mint a WS attach token, restricted to a system-owned subshell; legacy keys may bind to any single subshell | pane permission map plus any inherited system-key ceiling; may mint a WS attach token only for its OWN subshell | open `/ws/node` as that node |
-| Lifetime | better-auth session | until disabled or deleted | 7 days, self-extending while the MCP child runs, or (a switched-off pane) while its report hooks fire | long-lived |
+| Lifetime | better-auth session | until disabled or deleted | 7 days, self-extending while the MCP child runs and while the pane's report hooks fire (every report but `exit` rides an extend) | long-lived |
 | Revocation | sign-out / password change / account disable (see "Disabling an account" below) | instant | **instant** on terminate/delete; rotated on auto-restart | delete the node |
 | Stored as | session row | hash only | hash only | hash only |
 
@@ -1139,8 +1139,10 @@ consequences are:
   wiring material has it stripped, and `subshell mcp` refuses at the command
   itself; a child whose node never learned the mirror, or whose account alone
   is off, instead exits at identity registration. Either way the MCP never
-  serves on a report-only key, and the node owner's no is not something a
-  tenant account can talk past. A disabled pane still holds its credential:
+  acts on a report-only key (a disabled child whose plane is momentarily
+  unreachable may still enumerate its tools, but every call is refused at the
+  guard), and the node owner's no is not something a tenant account can talk
+  past. A disabled pane still holds its credential:
   the four report verbs and token self-extension answer to it, and that is its
   whole scope-gated reach now, since reading even its own log asks for the
   `subshells` scope it no longer carries (the log stays readable on disk by

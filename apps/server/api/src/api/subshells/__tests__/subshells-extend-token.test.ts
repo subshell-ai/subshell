@@ -180,9 +180,10 @@ describe("POST /api/subshells/:id/extend-token", () => {
       // revert of any ONE of them to requirePerm silently 403s an opted-out
       // pane's reporting for that verb (runReport swallows failures as "a lost
       // report") while every other suite stays green. `exit` goes LAST on
-      // purpose: it writes the death row, and the roster door 409s a row that
-      // is no longer live (the session door would answer 200 and silently
-      // drop it).
+      // purpose: its report parks the row (alive 0, status still running),
+      // and the roster door 409s any row not alive — while the session door
+      // deliberately still records a parked row, the transcript a pending
+      // auto-restart should resume.
       const s = await subshellWithScopedToken(reportingTokenPermissions());
       expect(
         await bearer(

@@ -604,7 +604,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           return fail(
             2,
             new Error(
-              "subshell mcp: the subshell MCP is turned off on this node, so this command is refused; the node's owner can allow it again under the node's settings",
+              "subshell mcp: the subshell MCP is turned off on this node (or its setting file cannot be read), so this command is refused; the node's owner can allow it again under the node's settings",
             ),
           );
         }

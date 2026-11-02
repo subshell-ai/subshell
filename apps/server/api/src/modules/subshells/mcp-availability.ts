@@ -23,8 +23,9 @@ import { getNodeMcpEnabled } from "@/modules/nodes/mcp-enabled.js";
  * mcp` at all, which is what makes the machine's refusal true for a harness
  * that registered the server on its own months ago.
  *
- * @param userId - the pane's resolved owner (not the actor: a system key
- *   launching a pane owned by someone else asks that person's question)
+ * @param userId - the pane's OWNER, read from the row, never the caller's
+ *   preference substituted: a restart reaches this from an edit-grantee or the
+ *   auto-restart sweep, and the owner's switch is what gets asked every time
  * @param nodeId - the machine the pane will run on, `local` included
  */
 export async function mcpWiringAllowed(userId: string, nodeId: string): Promise<boolean> {

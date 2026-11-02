@@ -1,14 +1,5 @@
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  errMessage,
-  Label,
-  Switch,
-} from "@internal/node-admin";
-import { useEffect, useState } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, Label, Switch } from "@internal/node-admin";
+import { useBooleanSetting } from "@/hooks/use-boolean-setting";
 import { getMasterSwitch, setMasterSwitch } from "@/lib/notifications";
 
 /**
@@ -16,8 +7,9 @@ import { getMasterSwitch, setMasterSwitch } from "@/lib/notifications";
  * 2026-08-31). One value shared across every device, stored in `user_meta`;
  * off means NO subshell push is ever sent to this user, whatever the per-device
  * opt-ins or per-subshell bells say. It complements (does not replace) the
- * per-device {@link NotificationsCard}. The two hooks are injectable so the
- * read/write cycle is testable without stubbing fetch.
+ * per-device {@link NotificationsCard}. The two endpoints are injectable so
+ * the read/write cycle is testable without stubbing fetch, and the state
+ * machine is {@link useBooleanSetting}, shared with the MCP account card.
  */
 
 /** Props exist so tests can drive the switch without a live server. */
@@ -33,39 +25,11 @@ export function NotificationsMasterCard({
   getEnabled = getMasterSwitch,
   setEnabled = setMasterSwitch,
 }: NotificationsMasterCardProps) {
-  const [enabled, setEnabledState] = useState<boolean | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    getEnabled()
-      .then((on) => live && setEnabledState(on))
-      // A probe that fails (offline, 500) must not leave a broken switch:
-      // fall back to on (the documented default) rather than a false "off".
-      .catch(() => live && setEnabledState(true));
-    return () => {
-      live = false;
-    };
-  }, [getEnabled]);
-
-  async function toggle() {
-    if (enabled === null) return;
-    const next = !enabled;
-    setBusy(true);
-    setError(null);
-    // Optimistic: move the switch now, roll back only if the write fails. The
-    // server echoes the persisted value, so on success we adopt that.
-    setEnabledState(next);
-    try {
-      setEnabledState(await setEnabled(next));
-    } catch (err) {
-      setEnabledState(enabled);
-      setError(errMessage(err, "The notification setting could not be changed."));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const { enabled, busy, error, toggle } = useBooleanSetting({
+    get: getEnabled,
+    set: setEnabled,
+    errorMessage: "The notification setting could not be changed.",
+  });
 
   return (
     <Card>
