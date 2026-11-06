@@ -34,8 +34,10 @@ export function DisplayToggle({
   /**
    * The row reads only these fields of the subshell (ruling: a structural
    * subset, so callers pass their loaded row and tests type without casts).
+   * `alive` is the enable confirmation's liveness branch: the flip on a dead
+   * row revives it, and the prompt must not claim to stop a running process.
    */
-  subshell: Pick<SubshellView, "id" | "name" | "nodeId" | "access">;
+  subshell: Pick<SubshellView, "id" | "name" | "nodeId" | "access" | "alive">;
   info: PreviewInfo;
   onBusyChange?: (busy: boolean) => void;
 }) {
@@ -85,7 +87,7 @@ export function DisplayToggle({
     setError(null);
     onBusyChange?.(true);
     const ok = wantOn
-      ? await confirmEnableVirtualDisplay(subshell.name)
+      ? await confirmEnableVirtualDisplay(subshell.name, subshell.alive)
       : await confirmDisableVirtualDisplay(subshell.name);
     if (!ok) {
       onBusyChange?.(false);

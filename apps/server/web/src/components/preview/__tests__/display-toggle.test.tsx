@@ -1,7 +1,9 @@
 /**
  * The picker's Virtual display row (spec 2026-11-06): the on/off flip rides
  * PUT/DELETE /:id/screen, always through the confirmation prompt, and the
- * caches that render the row's truth are invalidated after it. A refused flip
+ * caches that render the row's truth are invalidated after it, with the
+ * `/views` refetch that promise carries pinned as a fetch and the enable
+ * prompt's sentence branched on the row's liveness. A refused flip
  * lands as one red server line under the row; an access blocker disables both
  * directions, while an availability blocker (readiness or an unseen node)
  * disables only the unchecked box, keeping a live display's off path reachable.
@@ -10,13 +12,13 @@
  * does - no seam on `confirmAction`.
  */
 import { afterEach, expect, it } from "bun:test";
-import type { Node } from "@internal/node-admin";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { apiFetch, type Node } from "@internal/node-admin";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
-import type { PreviewInfo } from "@/hooks/use-subshell-preview";
+import { type PreviewInfo, previewInfoQueryKey } from "@/hooks/use-subshell-preview";
 import { DisplayToggle } from "../display-toggle";
 
 const offInfo: PreviewInfo = { nodeEnabled: true, ports: [], cdpPort: null, screen: null };
@@ -24,7 +26,7 @@ const onInfo: PreviewInfo = {
   ...offInfo,
   screen: { display: ":91", viewer: { protocol: "vnc", port: 5910 } },
 };
-const subshell = { id: "s-1", name: "worker", nodeId: "n-1", access: "owner", status: "running", alive: 1 };
+const subshell = { id: "s-1", name: "worker", nodeId: "n-1", access: "owner", status: "running", alive: true };
 const nodeFixture = {
   id: "n-1",
   name: "box",
@@ -49,12 +51,28 @@ afterEach(() => {
 });
 
 /**
+ * A live reader of the pane's preview info, mounted only where a test needs
+ * one: the exact key and URL `useSubshellPreview` runs, so an invalidation of
+ * that key must make THIS read re-fetch. (The real hook also opens the live
+ * feed socket; the probe is the query alone, not the whole feed machinery.)
+ */
+function ViewsProbe(): ReactElement | null {
+  useQuery({
+    queryKey: previewInfoQueryKey("s-1"),
+    queryFn: () => apiFetch<PreviewInfo>("/api/subshells/s-1/views"),
+  });
+  return null;
+}
+
+/**
  * Renders the row over `info` and records every call to its own `/screen`
  * path. `failScreenWith` answers the nth `/screen` call with a 409 carrying
  * the structured body the real server sends (the server's sentence included),
  * past the end of the array every call succeeds. `holdScreen` parks every
- * `/screen` answer until it resolves (the mid-flight state), and `holdNodes`
- * parks the node list (the pre-load window).
+ * `/screen` answer until it resolves (the mid-flight state), `holdNodes`
+ * parks the node list (the pre-load window), `alive` carries the pane's
+ * liveness into the enable prompt's branch, and `viewsProbe` mounts the
+ * `/views` reader the flip's invalidation has to re-fetch.
  */
 function renderToggle(
   info: PreviewInfo,
@@ -63,6 +81,8 @@ function renderToggle(
   failScreenWith: string[] = [],
   holdScreen?: Promise<void>,
   holdNodes?: Promise<void>,
+  alive: boolean = true,
+  viewsProbe = false,
 ): ScreenCall[] {
   const calls: ScreenCall[] = [];
   seenPaths = [];
@@ -92,7 +112,8 @@ function renderToggle(
   const tree: ReactElement = (
     <QueryClientProvider client={client}>
       <ConfirmProvider>
-        <DisplayToggle subshellId="s-1" subshell={{ ...subshell, access }} info={info} />
+        <DisplayToggle subshellId="s-1" subshell={{ ...subshell, access, alive }} info={info} />
+        {viewsProbe ? <ViewsProbe /> : null}
       </ConfirmProvider>
     </QueryClientProvider>
   );
@@ -132,6 +153,9 @@ it("asks before enabling, sends nothing on Cancel, and PUTs the default size on 
   fireEvent.click(control);
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).getByText("Enable virtual display?")).toBeTruthy();
+  // The running pane hears the honest restart sentence (the enable prompt's
+  // liveness branch, spec 2026-11-06 final wave).
+  expect(within(dialog).queryAllByText(/stops and starts again/).length).toBeGreaterThan(0);
   fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   await expectNoDialog();
   expect(calls.length).toBe(0);
@@ -144,6 +168,40 @@ it("asks before enabling, sends nothing on Cancel, and PUTs the default size on 
   expect(calls[0]?.url).toBe("/api/subshells/s-1/screen");
   expect(calls[0]?.method).toBe("PUT");
   expect(JSON.parse(String(calls[0]?.body))).toEqual({ width: 1280, height: 800 });
+});
+
+it("tells a stopped pane the enable truth: the flip starts it fresh, nothing is interrupted", async () => {
+  const calls = renderToggle(offInfo, "owner", nodeFixture, [], undefined, undefined, false);
+  const control = await readyControl();
+  fireEvent.click(control);
+  const dialog = within(await screen.findByRole("dialog"));
+  expect(dialog.queryAllByText(/starts it fresh with the new screen/).length).toBeGreaterThan(0);
+  // The live pane's sentence would claim to stop a process that already ended.
+  expect(dialog.queryAllByText(/stops and starts again/).length).toBe(0);
+  // The resume caveat rides both variants.
+  expect(dialog.queryAllByText(/resume its conversation/).length).toBeGreaterThan(0);
+  fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+  await expectNoDialog();
+  expect(calls.length).toBe(0);
+});
+
+it("refetches /views when an enable lands, so the row's truth re-reads without waiting on a poll", async () => {
+  // The spec's "the invalidation path that refetches /views after each flip,"
+  // pinned as a refetch rather than an invalidation flag: with a live reader
+  // mounted on the pane's preview key, the landed PUT must make it hit the
+  // URL again, not merely mark the cache stale. The row-key invalidation
+  // prefix-matches the same query, so "grew by at least one" is the promise,
+  // not an exact count.
+  const calls = renderToggle(offInfo, "owner", nodeFixture, [], undefined, undefined, true, true);
+  const views = () => seenPaths.filter((p) => p.endsWith("/views")).length;
+  await waitFor(() => expect(views()).toBe(1)); // the probe's own first read lands
+  const control = await readyControl();
+  fireEvent.click(control);
+  const dialog = await screen.findByRole("dialog");
+  const beforeConfirm = views();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Enable display" }));
+  await waitFor(() => expect(calls.length).toBe(1));
+  await waitFor(() => expect(views()).toBeGreaterThan(beforeConfirm)); // the invalidation became a fetch
 });
 
 it("flips a running display off through its own confirm, with a DELETE", async () => {

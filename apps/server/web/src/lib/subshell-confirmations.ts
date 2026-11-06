@@ -92,14 +92,21 @@ export function confirmCloseSubshells(n: number): Promise<boolean> {
 }
 
 /**
- * Confirmation before turning a live subshell's virtual display ON
- * (spec 2026-11-06): enabling restarts its process, so the sentence is the
- * restart prompt's honest consequence, not a surprise after the click.
+ * Confirmation before turning a subshell's virtual display ON
+ * (spec 2026-11-06): enabling restarts the row's process, so the sentence is
+ * the restart prompt's honest consequence, not a surprise after the click.
+ * The description branches on liveness, the same split the plain restart
+ * prompt keeps: a LIVE pane's process really stops, while the flip on a
+ * stopped one revives it, so it says the row starts fresh rather than
+ * claiming to interrupt something that already ended. The resume caveat
+ * rides both sentences.
  */
-export function confirmEnableVirtualDisplay(name: string): Promise<boolean> {
+export function confirmEnableVirtualDisplay(name: string, alive: boolean): Promise<boolean> {
   return confirmAction({
     title: "Enable virtual display?",
-    description: `"${name}" restarts to pick up the new screen: its process stops and starts again. Whether the agent can resume its conversation depends on the agent and its saved history.`,
+    description: alive
+      ? `"${name}" restarts to pick up the new screen: its process stops and starts again. Whether the agent can resume its conversation depends on the agent and its saved history.`
+      : `"${name}" isn't running, so the flip starts it fresh with the new screen. Whether the agent can resume its conversation depends on the agent and its saved history.`,
     confirmLabel: "Enable display",
     danger: true,
   });
