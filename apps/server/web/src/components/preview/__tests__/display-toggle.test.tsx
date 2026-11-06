@@ -154,8 +154,10 @@ it("asks before enabling, sends nothing on Cancel, and PUTs the default size on 
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).getByText("Enable virtual display?")).toBeTruthy();
   // The running pane hears the honest restart sentence (the enable prompt's
-  // liveness branch, spec 2026-11-06 final wave).
+  // liveness branch, spec 2026-11-06 final wave), interruption included: the
+  // clause is what tells a person mid-turn that pressing the button kills it.
   expect(within(dialog).queryAllByText(/needs a restart/).length).toBeGreaterThan(0);
+  expect(within(dialog).queryAllByText(/stops what it's doing now/).length).toBeGreaterThan(0);
   fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   await expectNoDialog();
   expect(calls.length).toBe(0);
@@ -194,7 +196,7 @@ it("PUTs the provider the picker selects alongside the size", async () => {
   expect(JSON.parse(String(calls[0]?.body))).toEqual({ width: 1280, height: 800, provider: "native-example" });
 });
 
-it("tells a stopped pane the enable truth: the flip starts it fresh, nothing is interrupted", async () => {
+it("tells a stopped pane the enable truth: turning it on starts it fresh, nothing is interrupted", async () => {
   const calls = renderToggle(offInfo, "owner", nodeFixture, [], undefined, undefined, false);
   const control = await readyControl();
   fireEvent.click(control);
@@ -202,6 +204,7 @@ it("tells a stopped pane the enable truth: the flip starts it fresh, nothing is 
   expect(dialog.queryAllByText(/starts it fresh with the new screen/).length).toBeGreaterThan(0);
   // The live pane's sentence would claim to stop a process that already ended.
   expect(dialog.queryAllByText(/needs a restart/).length).toBe(0);
+  expect(dialog.queryAllByText(/stops what it's doing now/).length).toBe(0);
   // The resume caveat rides both variants.
   expect(dialog.queryAllByText(/pick its conversation back up/).length).toBeGreaterThan(0);
   fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));

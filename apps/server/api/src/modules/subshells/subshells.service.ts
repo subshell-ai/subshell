@@ -1423,10 +1423,13 @@ export class SubshellsService extends BaseService {
    *         the preset this restart rides — the row's own or the swap target —
    *         is switched off; 404 when access to it was removed. Nothing is
    *         written or killed by either refusal.
-   * @throws ApiError 409 RESTART_IN_FLIGHT when a swap-carrying restart finds
-   *         the id's in-flight lease held: the running revival composes the
-   *         first caller's preset, so this one is refused rather than joined
-   *         into a 200 that would promise a swap that never lands.
+   * @throws ApiError 409 RESTART_IN_FLIGHT when a restart that must not join
+   *         finds the id's in-flight lease held: a swap (`refuseJoin` set by
+   *         its own shape) would have the running revival compose the first
+   *         caller's preset, and a display flip needs the fresh revival to
+   *         bake its new screen, so either is refused rather than joined into
+   *         a 200 that would promise something the running restart never
+   *         does. A plain restart with `refuseJoin` unset still joins.
    * @param swapPresetTo - the optional preset swap riding this restart
    *         (spec 2026-09-23): `null` = swap to presetless, `undefined` = no
    *         swap. Validated here, written by the manager at the swap point.
@@ -1628,11 +1631,12 @@ export class SubshellsService extends BaseService {
    * no live display PROCEEDS, because the restart reallocates the screen and
    * that is the spec's healing path. The restart never joins one already in
    * flight, so the revival always composes its launch from this write. A
-   * refusal rolls its own write back while that write is still what the column
-   * holds, and leaves a clear or re-set that won mid-flight alone, so the row
-   * never claims a screen this act failed to apply. A restart that succeeds
-   * leaves the config in place, and every later restart reallocates from it
-   * until a clear wins. An edit act, like restart itself.
+   * refusal rolls its own write back while that write is still what the
+   * column holds and no restart holds the lease, so a refused act never
+   * undoes a clear that won and never erases the desired state a running
+   * revival is about to bake. A restart that succeeds leaves the config in
+   * place, and every later restart reallocates from it until a clear wins. An
+   * edit act, like restart itself.
    */
   async setSubshellScreen(
     viewerId: string,
@@ -1717,10 +1721,20 @@ export class SubshellsService extends BaseService {
       // a refused join, and any other failure land in the catch below.
       await this.restartSubshell(viewerId, id, actor, undefined, undefined, systemKeyPermissions, true);
     } catch (err) {
-      // Roll the write back, but only while this call's value is still what the
-      // column holds. A clear or re-set that won during the restart is a
-      // finished act we must not undo, so we leave whatever it stored and let
-      // the row stay honest; the caller's 4xx asks them to retry against that.
+      // Roll the write back, but only while this call's value is still what
+      // the column holds AND no restart is composing a pane from it. Two
+      // shapes need the guard. A clear that won mid-flight is a finished act
+      // we must not undo (its null never equals what this call wrote, so the
+      // value check alone already spares it). A DOUBLE ON needs the lease
+      // check: two flips to a stopped row both skip the running-guard, one
+      // takes the lease, and the refused loser's restore of its stale `prior`
+      // could otherwise land before the winning revival's post-park re-read
+      // and erase the config that revival is about to bake. While the lease
+      // is held the column belongs to that revival, so we leave whatever it
+      // finds there; the caller's 4xx asks them to retry against it.
+      if (this.#manager.isRestartInFlight(id)) {
+        throw err;
+      }
       const current = await this.repos.subshells.findById(id);
       if (current && current.screenConfig === wrote) {
         await this.repos.subshells.update(id, { screenConfig: prior });

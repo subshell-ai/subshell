@@ -19,8 +19,9 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
  * display down first and the queued `closeFor` then finds nothing. One
  * cosmetic edge rides the other side of that gap, and the sweep is its only
  * actor: a launch cannot land between the pre-read and the close, because
- * every command (launch included) runs on the serialized executor chain and
- * these two calls sit in one synchronous span. A sweep rehydrating a display
+ * launch runs on the serialized executor chain (only `input` rides its own
+ * chain, and it allocates nothing) and these two calls sit in one synchronous
+ * span. A sweep rehydrating a display
  * there leaves `closed: false` while `closeFor` tears down what that sweep
  * just brought back. Nothing consumes `closed` in the SPA, so this is
  * recorded, not fixed.

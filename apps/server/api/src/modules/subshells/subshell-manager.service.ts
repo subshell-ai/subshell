@@ -979,6 +979,12 @@ export class SubshellManagerService {
    *         Both audit rows of this act carry it — falling back to the row's
    *         owner only for callers with no distinct viewer, so a grantee's
    *         restart and preset switch are attributed to the grantee.
+   * @param refuseJoin - set by the virtual-display flip (spec 2026-11-06):
+   *         only a revival that reads the row AFTER the flip's write bakes the
+   *         new screen, so an in-flight lease earns {@link
+   *         RestartInFlightJoinError} instead of a join that would answer 200
+   *         for a display the pane never got. Unset (the plain restart route)
+   *         keeps the join behavior byte-identical.
    */
   async restartSubshell(
     userId: string,

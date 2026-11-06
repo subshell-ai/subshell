@@ -453,9 +453,22 @@ describe("PUT /api/subshells/:id/screen", () => {
       expect(res.status).toBe(409);
       expect(body.code).toBe(BackendErrorCodes.RESTART_IN_FLIGHT);
       expect(body.message).toContain("already restarting");
-      expect((await subshells.findById(id))!.screenConfig).toBeNull(); // rolled back, not left applied
+      // NOT rolled back while the lease is held: a restore of this call's
+      // stale prior could race the holder's own re-read for the config it is
+      // about to bake, so the column keeps this flip's request for the retry.
+      expect(JSON.parse((await subshells.findById(id))!.screenConfig!)).toEqual({
+        width: 640,
+        height: 480,
+        provider: "xvfb-x11vnc",
+      });
       releaseLaunch();
       expect((await restart).ok).toBe(true); // the held restart itself lands
+      // The 409's promise, pinned end to end: ask again once it settles, and
+      // the retry rides a real restart - no lease held now, no live display,
+      // so the guard walks it through and the launch carries the screen.
+      const again = await putScreen(id, ownerCookie, { width: 640, height: 480 });
+      expect(again.status).toBe(200);
+      expect(sim.cmdsOf("launch").at(-1)?.screen).toEqual({ width: 640, height: 480, provider: "xvfb-x11vnc" });
     } finally {
       releaseLaunch();
       sim.detach();
