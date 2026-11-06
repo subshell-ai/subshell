@@ -1,9 +1,9 @@
 /**
  * Confirmation prompts for the destructive subshell action, asked by
  * `useSubshellMutations` (the menu, the cards, the rows, the terminal's
- * exited panel) and by the workspace's pane header, so the wording — and
- * the fact that it asks at all — stays identical wherever it is triggered
- * from.
+ * exited panel), by the workspace's pane header, and by the preview picker's
+ * virtual display toggle, so the wording — and the fact that it asks at all —
+ * stays identical wherever it is triggered from.
  *
  * "Close" is the human word for DELETE (spec 2026-09-03 close-vocabulary
  * design): it stops the process AND removes the row and its log. It replaced
@@ -87,6 +87,30 @@ export function confirmCloseSubshells(n: number): Promise<boolean> {
     title: "Close the selected subshells?",
     description: `This stops the processes and permanently deletes ${count(n)} and their history. You can't undo this.`,
     confirmLabel: "Close subshells",
+    danger: true,
+  });
+}
+
+/**
+ * Confirmation before turning a live subshell's virtual display ON
+ * (spec 2026-11-06): enabling restarts its process, so the sentence is the
+ * restart prompt's honest consequence, not a surprise after the click.
+ */
+export function confirmEnableVirtualDisplay(name: string): Promise<boolean> {
+  return confirmAction({
+    title: "Enable virtual display?",
+    description: `"${name}" restarts to pick up the new screen: its process stops and starts again. Whether the agent can resume its conversation depends on the agent and its saved history.`,
+    confirmLabel: "Enable display",
+    danger: true,
+  });
+}
+
+/** Confirmation before turning the display OFF: what's drawn on it dies. */
+export function confirmDisableVirtualDisplay(name: string): Promise<boolean> {
+  return confirmAction({
+    title: "Turn off virtual display?",
+    description: `Anything running on "${name}"'s virtual screen closes, and the node frees the memory and CPU it uses. The subshell keeps running.`,
+    confirmLabel: "Turn off display",
     danger: true,
   });
 }

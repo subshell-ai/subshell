@@ -18,6 +18,7 @@ export function VirtualDisplayField({
   onProviderChange,
   resetReason,
   launchError,
+  disabledReason,
 }: {
   node: Node | null;
   id: string;
@@ -27,6 +28,12 @@ export function VirtualDisplayField({
   provider?: string;
   onProviderChange?: (provider: string | undefined) => void;
   resetReason?: string;
+  /**
+   * Why this control is off-limits for THIS viewer (access, not availability):
+   * the tooltip names it; availability reasons come from readiness. A checked
+   * box stays live either way, so a view-only grantee can still read the on state.
+   */
+  disabledReason?: string;
   /**
    * The launch this control lost: a create the node refused over the display
    * (the budget, a provider that does not run here, the switch). It arrives
@@ -55,12 +62,18 @@ export function VirtualDisplayField({
     provider,
   );
   const defaultProvider = nodeDefaultForMachine(node?.virtualDisplayProvider, node?.os);
+  // One blocker string decides the tooltip branch: the viewer's access limit
+  // reads through the same explain-yourself wrapper the availability `reason`
+  // already uses, and when `disabledReason` is absent every expression below
+  // evaluates to exactly what it rendered before the prop existed.
+  const blocker = disabledReason ?? reason;
+  const blockerLabel = disabledReason ?? `Virtual display unavailable. ${reason}`;
   const control = (
     <div className="flex items-center gap-3">
       <Checkbox
         id={id}
         checked={checked}
-        disabled={Boolean(reason) && !checked}
+        disabled={(Boolean(reason) || Boolean(disabledReason)) && !checked}
         onCheckedChange={onChange}
         aria-describedby={[
           `${id}-hint`,
@@ -75,23 +88,17 @@ export function VirtualDisplayField({
   );
   return (
     <div className="flex flex-col gap-2 border-t pt-3">
-      {reason ? (
+      {blocker ? (
         <Tooltip>
           <TooltipTrigger
             render={
               // biome-ignore lint/a11y/useSemanticElements: a native button cannot contain the checkbox; this focusable wrapper explains why it is disabled.
-              <span
-                role="button"
-                aria-disabled={true}
-                tabIndex={0}
-                className="inline-flex"
-                aria-label={`Virtual display unavailable. ${reason}`}
-              />
+              <span role="button" aria-disabled={true} tabIndex={0} className="inline-flex" aria-label={blockerLabel} />
             }
           >
             {control}
           </TooltipTrigger>
-          <TooltipContent>{reason}</TooltipContent>
+          <TooltipContent>{blocker}</TooltipContent>
         </Tooltip>
       ) : (
         control
