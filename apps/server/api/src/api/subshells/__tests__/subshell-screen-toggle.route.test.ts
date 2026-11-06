@@ -1,7 +1,11 @@
 /**
  * The live display toggle (spec 2026-11-06). PUT /:id/screen writes the row's
  * desired screen and rides the existing restart to apply it: a refusal
- * anywhere leaves screen_config exactly as it was. DELETE clears the column
+ * anywhere leaves screen_config exactly as it was. The "already has a display"
+ * refusal fires only while the plane believes a display is live for the pane
+ * (the broker memory `/views` answers `screen` from), so a dead row that kept
+ * its config or a display the node reported lost heals through the same PUT.
+ * DELETE clears the column
  * FIRST (desired-state-first) and then sends preview_display_close, always, so
  * a repeated off converges even after a mid-flight failure. Both flips refuse
  * while the node is offline, at edit access, and an ssh pane refuses like
@@ -163,14 +167,43 @@ describe("PUT /api/subshells/:id/screen", () => {
     sim.detach();
   });
 
-  it("a pane that already wants a display refuses: 409, no restart, column unchanged", async () => {
+  it("a dead pane that kept its display config heals: the PUT proceeds and restarts", async () => {
+    // The dup guard reads LIVE state, not the desired column: a row nothing
+    // fed into the broker's display memory for reads OFF in the picker, so
+    // its enable must write the fresh request and restart, not 409 at an
+    // unreachable "turn it off first".
     const sim = attachScriptedNode(agentNode, toggleHandlers());
-    const id = await seedPane("dup", agentNode);
+    const id = await seedPane("dup-dead", agentNode);
     await subshells.update(id, { screenConfig: JSON.stringify({ width: 800, height: 600, provider: "xvfb-x11vnc" }) });
     const res = await putScreen(id, ownerCookie, { width: 1024, height: 768 });
+    expect(res.status).toBe(200);
+    expect(JSON.parse((await subshells.findById(id))!.screenConfig!)).toEqual({
+      width: 1024,
+      height: 768,
+      provider: "xvfb-x11vnc",
+    });
+    expect(sim.cmdsOf("launch").at(-1)?.screen).toEqual({ width: 1024, height: 768, provider: "xvfb-x11vnc" });
+    sim.detach();
+  });
+
+  it("a pane with a live display refuses the second enable: 409, no restart, column unchanged", async () => {
+    // Live state is driven the way the feature itself produces it: the
+    // scripted node's launch ack names the display it allocated, which feeds
+    // the plane's broker memory (remote-launcher's onDisplayOpened). The row
+    // is now running with a remembered screen, and a second PUT is the
+    // checked-box case the spec keeps as a refusal.
+    const sim = attachScriptedNode(agentNode, {
+      ...toggleHandlers(),
+      launch: () => ({ screen: { display: ":97", viewer: { protocol: "vnc", port: 5997 } } }),
+    });
+    const id = await seedPane("dup-live", agentNode);
+    const first = await putScreen(id, ownerCookie, { width: 640, height: 480 });
+    expect(first.status).toBe(200);
+    const res = await putScreen(id, ownerCookie, { width: 1024, height: 768 });
     expect(res.status).toBe(409);
-    expect((await subshells.findById(id))!.screenConfig).toContain("800");
-    expect(sim.countOf("launch")).toBe(0);
+    expect(((await res.json()) as { message: string }).message).toContain("Turn it off first");
+    expect((await subshells.findById(id))!.screenConfig).toContain("640");
+    expect(sim.countOf("launch")).toBe(1); // the 409 restarted nothing
     sim.detach();
   });
 

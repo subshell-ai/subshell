@@ -1607,11 +1607,14 @@ export class SubshellsService extends BaseService {
    * Turns a subshell's virtual display ON at runtime (spec 2026-11-06): writes
    * the resolved request as the row's desired screen state and applies it with
    * the ordinary in-place restart, because the pane's DISPLAY/XAUTHORITY are
-   * baked at spawn. Every refusal rolls the column back, so an act that ends
-   * in a 4xx leaves the row exactly as the flip found it, desired state
-   * included. A restart that succeeds leaves the config in place, and every
-   * later restart reallocates from it until a clear wins. An edit act, like
-   * restart itself.
+   * baked at spawn. The duplicate guard reads the plane's LIVE display state
+   * (the same broker memory `/views` answers `screen` from), not the
+   * desired-state column: config set but no live display PROCEEDS, because the
+   * restart reallocates the screen and that is the spec's healing path. Every
+   * refusal rolls the column back, so an act that ends in a 4xx leaves the row
+   * exactly as the flip found it, desired state included. A restart that
+   * succeeds leaves the config in place, and every later restart reallocates
+   * from it until a clear wins. An edit act, like restart itself.
    */
   async setSubshellScreen(
     viewerId: string,
@@ -1629,14 +1632,26 @@ export class SubshellsService extends BaseService {
       });
     }
     if (row.screenConfig) {
-      // Not a resize door: one display per pane, by design (spec 2026-11-06),
-      // and the code word is honest because the act IS a restart attempt this
-      // 409 family refuses. The SPA only branches on the status.
-      throwApiError({
-        code: BackendErrorCodes.RESTART_IN_FLIGHT,
-        message: "This subshell already has a virtual display. Turn it off first to change its provider or size.",
-        doNotLog: true,
-      });
+      // The guard asks whether a display is LIVE, not whether one is wanted.
+      // The picker's checkbox reads the same broker memory this `/views` answer
+      // comes from, and the probe mirror clears it when the node reports the
+      // display gone. So a pane whose display died (or a dead row that kept
+      // its config) reads OFF in the UI, and its enable must not be a 409
+      // whose remedy ("turn it off first") is unreachable from an unchecked
+      // box: the restart below reallocates and honors the incoming request.
+      // Only a display the plane still believes this pane holds refuses. Not a
+      // resize door: one display per pane, by design (spec 2026-11-06), and
+      // the code word is honest because the act IS a restart attempt this 409
+      // family refuses. The SPA only branches on the status.
+      const remembered = getPreviewBroker().displayForPane(id);
+      const displayLive = row.status === "running" && remembered !== null && remembered.nodeId === row.nodeId;
+      if (displayLive) {
+        throwApiError({
+          code: BackendErrorCodes.RESTART_IN_FLIGHT,
+          message: "This subshell already has a virtual display. Turn it off first to change its provider or size.",
+          doNotLog: true,
+        });
+      }
     }
     // Offline refuses up front: the restart would refuse anyway, and the spec
     // keeps the row honest about what a dead node is currently running.
