@@ -206,4 +206,3 @@ grows the desired-state framing rather than being replaced.
   allocated descriptor, never a stale viewer port.
 - A shared-with-`edit` viewer toggling on someone else's pane: allowed, audited
   like every other edit-tier act, and the owner's sidebar reflects it live.
-</content>

@@ -130,3 +130,23 @@ The helper's **Disable helper** control stops access immediately; the
 [node switch](/previews/setup#enable-node-features) only blocks new operations.
 If the Mac has no running helper, the node reports that requirement instead of
 launching it.
+
+## Turn the display on or off later
+
+You don't need a new subshell to change its screen. Use the Web previews &
+screens icon in the subshell header and switch **Virtual display** in the
+"Open web preview or screen" dialog:
+
+- Turning it on restarts the subshell's process so it starts holding the new
+  screen. Its history stays, and agents that support resume continue the
+  conversation.
+- Turning it off closes that subshell's screen right away. Anyone watching it
+  is disconnected, apps on the screen close, and the Mac frees the memory and
+  CPU it used. The subshell keeps working, and the helper stays enabled for
+  every other subshell.
+
+Both flips need edit access to the subshell and an online node, and the node's
+virtual display settings still apply. After turning a display off, programs
+that were already running keep a stale display setting until the subshell next
+restarts. Turning off one pane's display is not the same as **Disable helper**,
+which stops capture and input for the whole Mac; those rules still apply.

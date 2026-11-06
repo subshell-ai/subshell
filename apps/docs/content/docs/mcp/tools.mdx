@@ -24,6 +24,7 @@ Successful MCP responses contain JSON encoded in a text content block. Failures 
 | `list_subshell_views` | Discover a subshell's apps, browser, and virtual display. |
 | `open_subshell_view` | Create a private app or screen connection. |
 | `watch_subshell_browser` | Start or stop watching browser frames. |
+| `set_subshell_display` | Turn a live subshell's virtual display on or off. |
 | `list_presets` | List saved agent presets and harness catalog entries. |
 | `create_subshell` | Launch from a saved preset, or open a plain terminal without one. |
 | `restart_subshell` | Revive a session in place. |
@@ -99,6 +100,12 @@ Treat the complete link as a secret. Anyone holding it can use the connection wh
 ## watch_subshell_browser
 
 Pass `{ "subshell_id": "SUBSHELL_ID", "on": true }`, optionally with a CDP `port`, to start watching browser frames. Pass `on: false` to stop watching when finished. Frames go to authorized dashboard live subscriptions, not the MCP response. This doesn't provide mouse or keyboard input. The server checks ownership, the node’s web-preview permission, and the browser port, as it does for dashboard requests.
+
+## set_subshell_display
+
+Pass `{ "subshell_id": "SUBSHELL_ID", "screen": { "width": 1280, "height": 800 } }`, optionally with a `provider` ID, to give a running subshell a virtual display; an omitted `provider` uses the node default. Pass `{ "subshell_id": "SUBSHELL_ID", "screen": null }` to take it away. Dimensions are integers from 320 to 4096. Returns `{ ok, screen }` when a display is set and `{ ok, closed }` when one is cleared, where `closed` says whether a display had actually been allocated.
+
+A running process can't be handed a new screen, so enabling restarts the subshell in place: same ID, its history stays, and a harness that supports resume continues the conversation. That means enabling the display of the pane you run in ends this tool call with the restart, the way `restart_subshell` does; the pane comes back by the harness's own means. Disabling closes the display immediately and leaves the pane running, though programs started before the flip keep a stale display setting until the next restart. Both flips refuse while the node is offline, and a refusal changes nothing. Check `get_node` for provider readiness first.
 
 ## list_presets
 

@@ -52,3 +52,14 @@ and the tools don't grant access to another user's shared subshell.
 
 See the [MCP tool reference](/mcp/tools#get_node) for arguments and readiness
 fields, including harness health and SSH settings.
+
+## Ask for a screen mid-task
+
+A running agent can change a screen through MCP instead of recreating its
+pane: `set_subshell_display` turns a virtual display on or off for a live
+subshell, including the agent's own. Turning the display on restarts that
+pane's process, so a call targeting the agent's own subshell ends the tool
+call with the restart, the same way `restart_subshell` does, and the
+conversation continues only if the harness supports resume. Turning one off
+closes the screen right away and leaves the pane running. See
+[set_subshell_display](/mcp/tools#set_subshell_display) for the arguments.

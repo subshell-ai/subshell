@@ -1231,4 +1231,3 @@ State the exact commands run and their results, list any check that couldn't run
 ## Out of scope (say so if asked)
 
 - Resizing a live display (off-then-on only), the Linux pre-allocated-slot design (parked in the spec), macOS-specific UI beyond the shared picker row, mobile (the picker row rides the same components where the picker exists there).
-</content>
