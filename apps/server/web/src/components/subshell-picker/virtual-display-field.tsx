@@ -85,7 +85,13 @@ export function VirtualDisplayField({
   // reads through the same explain-yourself wrapper the availability reason
   // already uses.
   const blocker = disabledReason ?? effectiveReason;
-  const blockerLabel = disabledReason ?? `Virtual display unavailable. ${effectiveReason}`;
+  // A CHECKED box with an availability blocker is not "unavailable": the off
+  // path stays live for it (the disable rule below keeps a checked box
+  // clickable), so the label names the reason alone and cannot contradict the
+  // control it wraps. The prefix stays for the unchecked box, where the reason
+  // really does block turning one on.
+  const blockerLabel =
+    disabledReason ?? (checked ? (effectiveReason ?? "") : `Virtual display unavailable. ${effectiveReason}`);
   const control = (
     <div className="flex items-center gap-3">
       <Checkbox

@@ -170,6 +170,30 @@ it("asks before enabling, sends nothing on Cancel, and PUTs the default size on 
   expect(JSON.parse(String(calls[0]?.body))).toEqual({ width: 1280, height: 800 });
 });
 
+it("PUTs the provider the picker selects alongside the size", async () => {
+  // The spread that carries the pick (`...(provider ? { provider } : {})`) is
+  // this row's own behavior, and every other enable here pins the no-provider
+  // body. A node holding two offered providers (the second an id this package
+  // does not ship, so the OS gate leaves it offered) makes the pick real.
+  const multi = { ...nodeFixture, virtualDisplayProviders: ["xvfb-x11vnc", "native-example"] } as Node;
+  const calls = renderToggle(offInfo, "owner", multi);
+  await readyControl(); // the node read and the first check land before the picker exists to open
+  fireEvent.click(screen.getByRole("combobox", { name: "Display provider" }));
+  const option = await screen.findByRole("option", { name: "native-example" });
+  fireEvent.pointerDown(option);
+  fireEvent.pointerUp(option);
+  fireEvent.click(option);
+  // The provider pick re-runs the readiness check and remounts the row's
+  // wrapper, so the checkbox is re-queried fresh, exactly as readyControl's
+  // comment warns: a held node from before the pick receives nothing.
+  const live = await readyControl();
+  fireEvent.click(live);
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Enable and restart" }));
+  await waitFor(() => expect(calls.length).toBe(1));
+  expect(JSON.parse(String(calls[0]?.body))).toEqual({ width: 1280, height: 800, provider: "native-example" });
+});
+
 it("tells a stopped pane the enable truth: the flip starts it fresh, nothing is interrupted", async () => {
   const calls = renderToggle(offInfo, "owner", nodeFixture, [], undefined, undefined, false);
   const control = await readyControl();

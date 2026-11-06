@@ -37,7 +37,7 @@ export function DisplayToggle({
    * `alive` is the enable confirmation's liveness branch: the flip on a dead
    * row revives it, and the prompt must not claim to stop a running process.
    */
-  subshell: Pick<SubshellView, "id" | "name" | "nodeId" | "access" | "alive">;
+  subshell: Pick<SubshellView, "name" | "nodeId" | "access" | "alive">;
   info: PreviewInfo;
   onBusyChange?: (busy: boolean) => void;
 }) {
@@ -73,8 +73,9 @@ export function DisplayToggle({
     // A refused flip says so: one honest red line under the row, in the
     // server's own words. No retry machinery, no toast.
     onError: (err) => setError(errMessage(err, "Couldn't change the virtual display.")),
-    // The skeleton's onFinally: this @tanstack/react-query exposes the same
-    // settle point as onSettled, which every mutation hook in the app uses.
+    // A refused flip releases the control exactly like a landed one: the busy
+    // handshake opened in `flip` and nothing else closes it on the error path,
+    // so the clear rides the settle point, not `onSuccess`.
     onSettled: () => onBusyChange?.(false),
   });
   async function flip(wantOn: boolean) {
@@ -123,7 +124,7 @@ export function DisplayToggle({
             ? undefined
             : data === undefined
               ? "Checking this node…"
-              : "This pane's node isn't shared with you, so the dashboard can't check its display options from here. Turning off a display that's on still works."
+              : "This subshell's node isn't shared with you, so the dashboard can't check its display options from here. Turning off a display that's on still works."
         }
       />
       {error && (

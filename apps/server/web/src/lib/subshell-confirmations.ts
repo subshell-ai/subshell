@@ -2,7 +2,7 @@
  * Confirmation prompts for the destructive subshell action, asked by
  * `useSubshellMutations` (the menu, the cards, the rows, the terminal's
  * exited panel), by the workspace's pane header, and by the preview picker's
- * virtual display toggle, so the wording — and the fact that it asks at all —
+ * virtual display toggle, so the wording, and the fact that it asks at all,
  * stays identical wherever it is triggered from.
  *
  * "Close" is the human word for DELETE (spec 2026-09-03 close-vocabulary
@@ -108,8 +108,8 @@ export function confirmEnableVirtualDisplay(alive: boolean): Promise<boolean> {
   return confirmAction({
     title: "Enable virtual display?",
     description: alive
-      ? "This subshell session needs a restart. The agent will pick its conversation back up if it keeps history."
-      : "This subshell session isn't running, so the flip starts it fresh with the new screen. The agent will pick its conversation back up if it keeps history.",
+      ? "This subshell session needs a restart, which stops what it's doing now. The agent will pick its conversation back up if it keeps history."
+      : "This subshell session isn't running, so turning it on starts it fresh with the new screen. The agent will pick its conversation back up if it keeps history.",
     confirmLabel: alive ? "Enable and restart" : "Enable and start",
     danger: false,
   });
