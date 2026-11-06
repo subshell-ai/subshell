@@ -198,9 +198,11 @@ grows the desired-state framing rather than being replaced.
   with no display (the clear lands before anything else can read the column).
 - Toggle off while GUI apps are drawing: their X connections break like a
   `screenLost`, and the terminal keeps running.
-- Toggle on a pane whose harness can't resume: the confirmation is the only
-  thing standing between the user and a lost conversation; it must be
-  unskippable.
+- Toggle on a pane whose harness can't resume: the confirmation from the
+  picker is the only thing standing between the user and a lost conversation;
+  there it must be unskippable. The MCP path ships no confirm dialog at all
+  (its section puts the consequences in the tool's description), so for an
+  agent that copy is the warning.
 - Rapid off-then-on: the node's per-pane queue serializes them; the on restart
   must not race a half-closed display, and the ack must carry a freshly
   allocated descriptor, never a stale viewer port.
@@ -216,7 +218,12 @@ design; these three say what shipped and what the wording above cannot mean.
   back, so "a refusal writes nothing" holds end to end. Only an unhandled
   crash between the write and the restart leaves intent on the row, and that
   is exactly what "The desired-state model"'s crash sentence describes. The
-  two sentences are the same story from two ends, not a contradiction.
+  two sentences are the same story from two ends, not a contradiction. The
+  case this governs is the kill landing and the relaunch then failing: the
+  pane stays dead and the desired write still rolls back, so a plain retry is
+  the path. `restartSubshell` gives the toggle no way to tell a pre-kill
+  refusal from a post-kill one, and rolling back every handled throw was
+  chosen so a 4xx always leaves the row as the flip found it.
 - The picker's enable sends the launch default 1280x800 and carries no size
   control. So the UI section's "the same size and provider controls as the
   launch form" narrows to the provider control. Sizes and providers change by
