@@ -155,7 +155,7 @@ it("asks before enabling, sends nothing on Cancel, and PUTs the default size on 
   expect(within(dialog).getByText("Enable virtual display?")).toBeTruthy();
   // The running pane hears the honest restart sentence (the enable prompt's
   // liveness branch, spec 2026-11-06 final wave).
-  expect(within(dialog).queryAllByText(/stops and starts again/).length).toBeGreaterThan(0);
+  expect(within(dialog).queryAllByText(/needs a restart to get a screen/).length).toBeGreaterThan(0);
   fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   await expectNoDialog();
   expect(calls.length).toBe(0);
@@ -163,7 +163,7 @@ it("asks before enabling, sends nothing on Cancel, and PUTs the default size on 
   // launch form's default size and no provider (the node default answers).
   fireEvent.click(control);
   const again = await screen.findByRole("dialog");
-  fireEvent.click(within(again).getByRole("button", { name: "Enable display" }));
+  fireEvent.click(within(again).getByRole("button", { name: "Enable and restart" }));
   await waitFor(() => expect(calls.length).toBe(1));
   expect(calls[0]?.url).toBe("/api/subshells/s-1/screen");
   expect(calls[0]?.method).toBe("PUT");
@@ -177,9 +177,9 @@ it("tells a stopped pane the enable truth: the flip starts it fresh, nothing is 
   const dialog = within(await screen.findByRole("dialog"));
   expect(dialog.queryAllByText(/starts it fresh with the new screen/).length).toBeGreaterThan(0);
   // The live pane's sentence would claim to stop a process that already ended.
-  expect(dialog.queryAllByText(/stops and starts again/).length).toBe(0);
+  expect(dialog.queryAllByText(/needs a restart to get a screen/).length).toBe(0);
   // The resume caveat rides both variants.
-  expect(dialog.queryAllByText(/resume its conversation/).length).toBeGreaterThan(0);
+  expect(dialog.queryAllByText(/pick its conversation back up/).length).toBeGreaterThan(0);
   fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
   await expectNoDialog();
   expect(calls.length).toBe(0);
@@ -199,7 +199,7 @@ it("refetches /views when an enable lands, so the row's truth re-reads without w
   fireEvent.click(control);
   const dialog = await screen.findByRole("dialog");
   const beforeConfirm = views();
-  fireEvent.click(within(dialog).getByRole("button", { name: "Enable display" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Enable and restart" }));
   await waitFor(() => expect(calls.length).toBe(1));
   await waitFor(() => expect(views()).toBeGreaterThan(beforeConfirm)); // the invalidation became a fetch
 });
@@ -268,14 +268,14 @@ it("surfaces a refused flip as the server's own line, and clears it on the next 
   const control = await readyControl();
   fireEvent.click(control);
   const dialog = await screen.findByRole("dialog");
-  fireEvent.click(within(dialog).getByRole("button", { name: "Enable display" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Enable and restart" }));
   await waitFor(() => expect(calls.length).toBe(1));
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain(refusal);
   // A later attempt that lands clears the line: the flip itself resets it.
   fireEvent.click(screen.getByRole("checkbox", { name: "Virtual display" }));
   const again = await screen.findByRole("dialog");
-  fireEvent.click(within(again).getByRole("button", { name: "Enable display" }));
+  fireEvent.click(within(again).getByRole("button", { name: "Enable and restart" }));
   await waitFor(() => expect(calls.length).toBe(2));
   await waitFor(() => expect(screen.queryByRole("alert") === null).toBe(true));
 });
@@ -330,7 +330,7 @@ it("blocks the box in both directions while a flip is in flight, and frees it wh
   const control = await readyControl();
   fireEvent.click(control);
   const dialog = await screen.findByRole("dialog");
-  fireEvent.click(within(dialog).getByRole("button", { name: "Enable display" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Enable and restart" }));
   await waitFor(() => expect(calls.length).toBe(1));
   const mid = await screen.findByRole("checkbox", { name: "Virtual display" });
   await waitFor(() => expect(mid.getAttribute("aria-disabled")).toBe("true"));

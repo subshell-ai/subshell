@@ -99,16 +99,19 @@ export function confirmCloseSubshells(n: number): Promise<boolean> {
  * prompt keeps: a LIVE pane's process really stops, while the flip on a
  * stopped one revives it, so it says the row starts fresh rather than
  * claiming to interrupt something that already ended. The resume caveat
- * rides both sentences.
+ * rides both sentences, and the button mirrors the split ("Enable and
+ * restart" / "Enable and start"). Enabling is deliberately NOT the
+ * destructive style: it loses nothing. Only the OFF prompt goes red, because
+ * that one closes whatever is drawn on the screen.
  */
 export function confirmEnableVirtualDisplay(name: string, alive: boolean): Promise<boolean> {
   return confirmAction({
     title: "Enable virtual display?",
     description: alive
-      ? `"${name}" restarts to pick up the new screen: its process stops and starts again. Whether the agent can resume its conversation depends on the agent and its saved history.`
-      : `"${name}" isn't running, so the flip starts it fresh with the new screen. Whether the agent can resume its conversation depends on the agent and its saved history.`,
-    confirmLabel: "Enable display",
-    danger: true,
+      ? `"${name}" needs a restart to get a screen. The agent will pick its conversation back up if it keeps history.`
+      : `"${name}" isn't running, so the flip starts it fresh with the new screen. The agent will pick its conversation back up if it keeps history.`,
+    confirmLabel: alive ? "Enable and restart" : "Enable and start",
+    danger: false,
   });
 }
 
