@@ -12,6 +12,7 @@ import type { ApiKeyPermission } from "@internal/subshell-protocol";
 import {
   joinPresetPrompt,
   NODE_RESULT_MAINTENANCE,
+  parseNodePreviewDisplayCloseResult,
   parsePresetPromptBlocks,
   parseVirtualDisplayRequest,
   type VirtualDisplayRequest,
@@ -25,14 +26,16 @@ import type { SubshellSharePermission } from "@/db/types/subshell-shares.db-type
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import type { GuardActor } from "@/modules/auth/actor.js";
 import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/modules/nodes/access.js";
+import { resolveNodeDisplayRequest } from "@/modules/nodes/display-selection.js";
 import { launcherFor } from "@/modules/nodes/launcher-registry.js";
 import { getLive, isNodeOffline } from "@/modules/nodes/node-registry.js";
-import { NodeRpcError } from "@/modules/nodes/node-rpc.js";
+import { NodeRpcError, sendCommand } from "@/modules/nodes/node-rpc.js";
 import { getVirtualDisplayEnabled } from "@/modules/nodes/preview-enabled.js";
 import { isNodeOfflineError } from "@/modules/nodes/remote-launcher.js";
 import { getNotifyService } from "@/modules/notifications/notify.service.js";
 import { harnessUsable } from "@/modules/plugins/availability.js";
 import { presetAccess } from "@/modules/presets/access.js";
+import { getLocalPreviewRuntime } from "@/modules/previews/local-preview.js";
 import { getPreviewBroker } from "@/modules/previews/preview-broker.js";
 import { lockdownEnabled } from "@/modules/server/lockdown.js";
 import { serverSubshellsEnabled } from "@/modules/server/server-as-node.js";
@@ -1401,6 +1404,9 @@ export class SubshellsService extends BaseService {
    * A refusal at the gate, in validation, at maintenance or by the offline
    * pre-gate writes nothing; a revive that fails after the swap leaves the
    * row dead keeping the chosen preset (the next Start again uses it).
+   * {@link setSubshellScreen} rides this method to apply a virtual display
+   * toggle (spec 2026-11-06), rolling back its own column write when the
+   * restart refuses.
    * @throws SubshellError 404 when absent/invisible to the caller, or when a
    *         terminate/delete won the restart race (converge on "gone").
    * @throws HttpError 403 when the caller holds only `view`.
@@ -1595,6 +1601,120 @@ export class SubshellsService extends BaseService {
       );
     }
     return { id: revived.id, tmuxSocket: revived.tmuxSocket, promptDelivered };
+  }
+
+  /**
+   * Turns a subshell's virtual display ON at runtime (spec 2026-11-06): writes
+   * the resolved request as the row's desired screen state and applies it with
+   * the ordinary in-place restart, because the pane's DISPLAY/XAUTHORITY are
+   * baked at spawn. Every refusal rolls the column back, so an act that ends
+   * in a 4xx leaves the row exactly as the flip found it, desired state
+   * included. A restart that succeeds leaves the config in place, and every
+   * later restart reallocates from it until a clear wins. An edit act, like
+   * restart itself.
+   */
+  async setSubshellScreen(
+    viewerId: string,
+    id: string,
+    request: VirtualDisplayRequest,
+    actor: GuardActor,
+    systemKeyPermissions: ApiKeyPermission[] | null = null,
+  ): Promise<{ ok: true; screen: VirtualDisplayRequest & { provider: string } }> {
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
+    if (row.ssh !== null) {
+      throwApiError({
+        code: BackendErrorCodes.SSH_NO_RESTART,
+        message: "SSH panes do not have virtual displays; launch a new one to reconnect",
+        doNotLog: true,
+      });
+    }
+    if (row.screenConfig) {
+      // Not a resize door: one display per pane, by design (spec 2026-11-06),
+      // and the code word is honest because the act IS a restart attempt this
+      // 409 family refuses. The SPA only branches on the status.
+      throwApiError({
+        code: BackendErrorCodes.RESTART_IN_FLIGHT,
+        message: "This subshell already has a virtual display. Turn it off first to change its provider or size.",
+        doNotLog: true,
+      });
+    }
+    // Offline refuses up front: the restart would refuse anyway, and the spec
+    // keeps the row honest about what a dead node is currently running.
+    if (row.nodeId !== LOCAL_NODE_ID && isNodeOffline(row.nodeId)) {
+      throwApiError({
+        code: BackendErrorCodes.NODE_OFFLINE,
+        message: "This node is offline, but the subshell may still be running on it. Bring it online and toggle again.",
+        doNotLog: true,
+      });
+    }
+    const resolved = await resolveNodeDisplayRequest(row.nodeId, request, 409);
+    const prior = row.screenConfig;
+    await this.repos.subshells.update(id, { screenConfig: JSON.stringify(resolved) });
+    try {
+      // The restart carries every launch gate (lockdown, maintenance, local
+      // switch) and announces the act; a refused one lands in the catch below.
+      await this.restartSubshell(viewerId, id, actor, undefined, undefined, systemKeyPermissions);
+    } catch (err) {
+      await this.repos.subshells.update(id, { screenConfig: prior });
+      throw err;
+    }
+    return { ok: true, screen: resolved };
+  }
+
+  /**
+   * Turns a subshell's virtual display OFF at runtime (spec 2026-11-06):
+   * clears the desired state FIRST, then tears the display down (on the node
+   * for an agent row, directly for the built-in `local` one). Clearing first
+   * is what makes a mid-flight failure converge rather than lie: the row
+   * never wants a screen the user just dismissed, and the close is sent on
+   * EVERY call (even with no config), so a repeated off finishes what a
+   * dropped one left. The pane keeps running with its now-stale DISPLAY until
+   * it next restarts; the docs say so out loud.
+   */
+  async clearSubshellScreen(viewerId: string, id: string, actor: GuardActor): Promise<{ ok: true; closed: boolean }> {
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
+    if (row.ssh !== null) {
+      throwApiError({
+        code: BackendErrorCodes.SSH_NO_RESTART,
+        message: "SSH panes do not have virtual displays; launch a new one to reconnect",
+        doNotLog: true,
+      });
+    }
+    if (row.nodeId !== LOCAL_NODE_ID && isNodeOffline(row.nodeId)) {
+      throwApiError({
+        code: BackendErrorCodes.NODE_OFFLINE,
+        message: "This node is offline, but its display may still be running. Bring it online and turn it off again.",
+        doNotLog: true,
+      });
+    }
+    await this.repos.subshells.update(id, { screenConfig: null });
+    publishLive({ kind: "subshell.changed", id });
+    try {
+      if (row.nodeId === LOCAL_NODE_ID) {
+        const had = getLocalPreviewRuntime().displays.getFor(id) !== null;
+        await getLocalPreviewRuntime().displays.closeFor(id);
+        if (had) await getPreviewBroker().onDisplayClosed(id, "revoked");
+        return { ok: true, closed: had };
+      }
+      const parsed = parseNodePreviewDisplayCloseResult(
+        await sendCommand(row.nodeId, { type: "preview_display_close", paneId: id }),
+      );
+      // A malformed answer means the node predates the grammar (the version
+      // gate should have held it); the display was asked to close regardless.
+      const closed = parsed?.closed ?? false;
+      if (closed) await getPreviewBroker().onDisplayClosed(id, "revoked");
+      return { ok: true, closed };
+    } catch (err) {
+      if (err instanceof NodeRpcError) {
+        throwApiError({
+          code: BackendErrorCodes.NODE_OFFLINE,
+          message:
+            "The node dropped while its display was closing. The screen is cleared from the subshell; turn it off again once the node reconnects to free the processes.",
+          doNotLog: true,
+        });
+      }
+      throw err;
+    }
   }
 
   /**
