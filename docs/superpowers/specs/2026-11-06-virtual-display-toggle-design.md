@@ -226,3 +226,10 @@ design; these three say what shipped and what the wording above cannot mean.
   the display row with an explanatory note in place of a readiness answer,
   and keeps the off path for a display that's on. Enabling from there is
   deliberately left to a follow-up that answers readiness per-pane.
+- Off-flip audit wording: the close row keeps the reason word `"revoked"`
+  because that union is node wire grammar (`PreviewCloseReason` rides
+  `preview_close`), not plane vocabulary; inventing a toggle-off word would be
+  a protocol change for an audit noun. What tells a user's toggle from a
+  node-side teardown is the acting-user field the close row now carries when a
+  person made the call, which also answers the review's "audited like every
+  other edit-tier act" for the off path.
