@@ -9,8 +9,8 @@ import { VirtualDisplayRequestSchema } from "@/api/schemas/virtual-display.js";
  * (spec 2026-11-06): the request becomes the row's desired screen state and
  * the subshell restarts in place to pick it up (same id, log retained, the
  * conversation resumes when the harness supports resume). A refusal at any
- * gate — visibility, edit access, ssh pane, an already-set display, the node
- * being offline, the node's own display policy — writes nothing.
+ * gate (visibility, edit access, ssh pane, the node being offline, a display
+ * already live for the pane, the node's own display policy) writes nothing.
  */
 export const setSubshellScreenRoute = new Elysia()
   .use(contextPlugin)

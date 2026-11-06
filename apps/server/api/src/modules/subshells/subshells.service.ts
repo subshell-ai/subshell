@@ -35,6 +35,7 @@ import { isNodeOfflineError } from "@/modules/nodes/remote-launcher.js";
 import { getNotifyService } from "@/modules/notifications/notify.service.js";
 import { harnessUsable } from "@/modules/plugins/availability.js";
 import { presetAccess } from "@/modules/presets/access.js";
+import { liveScreenForPane } from "@/modules/previews/live-screen.js";
 import { getLocalPreviewRuntime } from "@/modules/previews/local-preview.js";
 import { getPreviewBroker } from "@/modules/previews/preview-broker.js";
 import { lockdownEnabled } from "@/modules/server/lockdown.js";
@@ -1607,10 +1608,12 @@ export class SubshellsService extends BaseService {
    * Turns a subshell's virtual display ON at runtime (spec 2026-11-06): writes
    * the resolved request as the row's desired screen state and applies it with
    * the ordinary in-place restart, because the pane's DISPLAY/XAUTHORITY are
-   * baked at spawn. The duplicate guard reads the plane's LIVE display state
-   * (the same broker memory `/views` answers `screen` from), not the
-   * desired-state column: config set but no live display PROCEEDS, because the
-   * restart reallocates the screen and that is the spec's healing path. Every
+   * baked at spawn. The duplicate guard computes the LIVE screen with the same
+   * shared predicate `/views` answers `screen` from (`liveScreenForPane`: the
+   * cached ports answer, which the plane's display memory fills only while the
+   * node names no lost screen), not the desired-state column: config set but
+   * no live display PROCEEDS, because the restart reallocates the screen and
+   * that is the spec's healing path. Every
    * refusal rolls the column back, so an act that ends in a 4xx leaves the row
    * exactly as the flip found it, desired state included. A restart that
    * succeeds leaves the config in place, and every later restart reallocates
@@ -1631,20 +1634,44 @@ export class SubshellsService extends BaseService {
         doNotLog: true,
       });
     }
+    // Offline refuses up front, BEFORE the duplicate guard reads the pane's
+    // last ports answer: a stale-memory pane on an ungracefully-dead node must
+    // hear the offline sentence, not "already has a virtual display" whose
+    // remedy is unreachable while the node is down. The restart would refuse
+    // anyway, and the spec keeps the row honest about what a dead node is
+    // currently running.
+    if (row.nodeId !== LOCAL_NODE_ID && isNodeOffline(row.nodeId)) {
+      throwApiError({
+        code: BackendErrorCodes.NODE_OFFLINE,
+        message: "This node is offline, but the subshell may still be running on it. Bring it online and toggle again.",
+        doNotLog: true,
+      });
+    }
     if (row.screenConfig) {
-      // The guard asks whether a display is LIVE, not whether one is wanted.
-      // The picker's checkbox reads the same broker memory this `/views` answer
-      // comes from, and the probe mirror clears it when the node reports the
-      // display gone. So a pane whose display died (or a dead row that kept
-      // its config) reads OFF in the UI, and its enable must not be a 409
-      // whose remedy ("turn it off first") is unreachable from an unchecked
-      // box: the restart below reallocates and honors the incoming request.
-      // Only a display the plane still believes this pane holds refuses. Not a
+      // The guard asks whether a display is LIVE, not whether one is wanted,
+      // and it decides with the SAME predicate `/views` answers `screen` from
+      // (`liveScreenForPane`): the cached ports answer, which the plane's
+      // display memory fills only while the node names no lost screen and the
+      // remembered node matches. A pane whose display the node reported gone
+      // (or a dead row that kept its config) reads OFF in the picker, and its
+      // enable must not be a 409 whose remedy ("turn it off first") is
+      // unreachable from an unchecked box: the restart below reallocates and
+      // honors the incoming request. A refused ports scan reads as no live
+      // screen exactly as it does in `/views`, so it heals rather than
+      // refuses. Only a display that predicate still calls live refuses. Not a
       // resize door: one display per pane, by design (spec 2026-11-06), and
       // the code word is honest because the act IS a restart attempt this 409
       // family refuses. The SPA only branches on the status.
-      const remembered = getPreviewBroker().displayForPane(id);
-      const displayLive = row.status === "running" && remembered !== null && remembered.nodeId === row.nodeId;
+      let displayLive = false;
+      if (row.status === "running") {
+        // `/views` answers a non-running row with no screen and pays no RPC,
+        // and the guard mirrors that: dead rows heal without a round trip.
+        try {
+          displayLive = (await liveScreenForPane(getPreviewBroker(), row.nodeId, id)).screen !== null;
+        } catch {
+          displayLive = false;
+        }
+      }
       if (displayLive) {
         throwApiError({
           code: BackendErrorCodes.RESTART_IN_FLIGHT,
@@ -1652,15 +1679,6 @@ export class SubshellsService extends BaseService {
           doNotLog: true,
         });
       }
-    }
-    // Offline refuses up front: the restart would refuse anyway, and the spec
-    // keeps the row honest about what a dead node is currently running.
-    if (row.nodeId !== LOCAL_NODE_ID && isNodeOffline(row.nodeId)) {
-      throwApiError({
-        code: BackendErrorCodes.NODE_OFFLINE,
-        message: "This node is offline, but the subshell may still be running on it. Bring it online and toggle again.",
-        doNotLog: true,
-      });
     }
     const resolved = await resolveNodeDisplayRequest(row.nodeId, request, 409);
     const prior = row.screenConfig;
@@ -1705,10 +1723,15 @@ export class SubshellsService extends BaseService {
     await this.repos.subshells.update(id, { screenConfig: null });
     publishLive({ kind: "subshell.changed", id });
     try {
+      // The close audit rides `viewerId` as its actor: this row names who
+      // turned the display off, like the restart row on the enable side names
+      // its grantee. The reason word stays "revoked" because PreviewCloseReason
+      // is the node's wire vocabulary (protocol `node-frames.ts`), not audit
+      // prose; the actor column is what tells a user toggle from a teardown.
       if (row.nodeId === LOCAL_NODE_ID) {
         const had = getLocalPreviewRuntime().displays.getFor(id) !== null;
         await getLocalPreviewRuntime().displays.closeFor(id);
-        if (had) await getPreviewBroker().onDisplayClosed(id, "revoked");
+        if (had) await getPreviewBroker().onDisplayClosed(id, "revoked", viewerId);
         return { ok: true, closed: had };
       }
       const parsed = parseNodePreviewDisplayCloseResult(
@@ -1717,10 +1740,41 @@ export class SubshellsService extends BaseService {
       // A malformed answer means the node predates the grammar (the version
       // gate should have held it); the display was asked to close regardless.
       const closed = parsed?.closed ?? false;
-      if (closed) await getPreviewBroker().onDisplayClosed(id, "revoked");
+      if (closed) await getPreviewBroker().onDisplayClosed(id, "revoked", viewerId);
       return { ok: true, closed };
     } catch (err) {
       if (err instanceof NodeRpcError) {
+        // The up-front gate refused the settled-offline case, so anything
+        // landing here happened DURING the call. Which sentence is honest
+        // depends on how the call died: a dropped link, a missed deadline,
+        // an agent that predates the command, or an agent that answered no.
+        if (err.code === "timeout") {
+          throwApiError({
+            code: BackendErrorCodes.NODE_UNREACHABLE,
+            message:
+              "The node didn't answer while its display was closing. The screen is cleared from the subshell; turn it off again to make sure the node frees the processes.",
+            doNotLog: true,
+          });
+        }
+        if (err.code === "unsupported") {
+          throwApiError({
+            code: BackendErrorCodes.NODE_AGENT_TOO_OLD,
+            message:
+              "This node's version doesn't support closing a display mid-run. Update the node and turn it off again, or restart the subshell to free the processes.",
+            doNotLog: true,
+          });
+        }
+        if (err.code === "failed") {
+          // The node ANSWERED this: its refusal rides `detail` verbatim, and
+          // an operator greps that word, not our sentence.
+          throwApiError({
+            code: BackendErrorCodes.NODE_UNREACHABLE,
+            message: `The node answered it would not close the display, so its processes may still be running there. The saved screen is cleared; turning it off again sends the close again.${
+              err.detail === undefined ? "" : ` The node said: ${err.detail}`
+            }`,
+            doNotLog: true,
+          });
+        }
         throwApiError({
           code: BackendErrorCodes.NODE_OFFLINE,
           message:

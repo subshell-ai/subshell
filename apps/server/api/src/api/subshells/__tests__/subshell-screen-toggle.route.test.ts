@@ -2,12 +2,18 @@
  * The live display toggle (spec 2026-11-06). PUT /:id/screen writes the row's
  * desired screen and rides the existing restart to apply it: a refusal
  * anywhere leaves screen_config exactly as it was. The "already has a display"
- * refusal fires only while the plane believes a display is live for the pane
- * (the broker memory `/views` answers `screen` from), so a dead row that kept
- * its config or a display the node reported lost heals through the same PUT.
- * DELETE clears the column
+ * refusal fires only while a display is live for the pane by the SAME
+ * predicate `/views` answers `screen` through (`liveScreenForPane`: the ports
+ * answer, filled by plane memory only while the node names no lost screen),
+ * so a dead row that kept its config or a display the node reported lost
+ * heals through the same PUT, and an offline node answers the offline
+ * sentence before the guard reads anything. DELETE clears the column
  * FIRST (desired-state-first) and then sends preview_display_close, always, so
- * a repeated off converges even after a mid-flight failure. Both flips refuse
+ * a repeated off converges even after a mid-flight failure, and a mid-flight
+ * failure names WHICH failure it was (dropped link, silence, missing support,
+ * or the node's own refusal). A closed display drops its ports-cache entry, so
+ * the follow-up `/views` reads OFF without waiting out the 5 s window, and the
+ * close audit names the acting viewer. Both flips refuse
  * while the node is offline, at edit access, and an ssh pane refuses like
  * restart refuses. A foreign row is 404; the composed anonymous rejection is
  * owned by api-surface-auth.test.ts.
@@ -28,7 +34,7 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { resetNodeRegistryForTests } from "@/modules/nodes/node-registry.js";
 import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/testing/api/auth-tables.js";
-import { attachScriptedNode, ok, probeAllAlive, type ScriptedHandlers, statDirEcho } from "@/testing/scripted-node.js";
+import { attachScriptedNode, restartLifecycleHandlers, type ScriptedHandlers } from "@/testing/scripted-node.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(subshellRoutes);
 const nodes = new NodesRepository(db);
@@ -36,24 +42,16 @@ const subshells = new SubshellsRepository(db);
 const shares = new SubshellSharesRepository(db);
 
 /**
- * The lifecycle the toggle's restart triggers on the scripted node, copied
- * from restart-prompt.route.test.ts's lifecycle() map verbatim (that map is
- * the set the restart path actually sends; unscripted traffic fails loudly),
- * plus the one new arm the off-flip sends.
+ * The restart lifecycle comes from the shared fixture factory (the same map
+ * restart-prompt.route.test.ts runs), plus the off-flip's own arm; `extra`
+ * layers the per-case answers (a launch ack, the ports scan, a refusal) that
+ * a real node gives alongside.
  */
-function toggleHandlers(): ScriptedHandlers {
+function toggleHandlers(extra: ScriptedHandlers = {}): ScriptedHandlers {
   return {
-    stat_dir: statDirEcho,
-    launch: ok,
-    terminate: ok,
-    kill: ok,
-    input: ok,
-    resize: ok,
-    probe: probeAllAlive,
-    prompt_deliver: () => ({ promptDelivered: true }),
-    path_exists: () => ({ exists: true }),
-    remove_paths: ok,
+    ...restartLifecycleHandlers(),
     preview_display_close: () => ({ closed: true }),
+    ...extra,
   };
 }
 
@@ -86,6 +84,18 @@ async function deleteScreen(id: string, cookie: string) {
       headers: { cookie: `better-auth.session_token=${cookie}` },
     }),
   );
+}
+async function getViews(id: string, cookie: string) {
+  return app.fetch(
+    new Request(`http://localhost:3099/api/subshells/${id}/views`, {
+      headers: { cookie: `better-auth.session_token=${cookie}` },
+    }),
+  );
+}
+
+/** A display the scripted node allocates and reports, as a real node answers. */
+function screenAnswer(display: string, port: number) {
+  return { display, viewer: { protocol: "vnc", port } };
 }
 
 /** One fresh dead row per case (no cross-test row reuse). */
@@ -188,13 +198,17 @@ describe("PUT /api/subshells/:id/screen", () => {
 
   it("a pane with a live display refuses the second enable: 409, no restart, column unchanged", async () => {
     // Live state is driven the way the feature itself produces it: the
-    // scripted node's launch ack names the display it allocated, which feeds
-    // the plane's broker memory (remote-launcher's onDisplayOpened). The row
-    // is now running with a remembered screen, and a second PUT is the
-    // checked-box case the spec keeps as a refusal.
+    // scripted node's launch ack names the display it allocated (feeding the
+    // plane's broker memory via remote-launcher's onDisplayOpened), and its
+    // ports scan reports the same screen, as a real node's does once its own
+    // walk has run. The guard now asks the ports answer first, exactly like
+    // `/views` renders it, so a second PUT is the checked-box case the spec
+    // keeps as a refusal.
+    const screen = screenAnswer(":97", 5997);
     const sim = attachScriptedNode(agentNode, {
       ...toggleHandlers(),
-      launch: () => ({ screen: { display: ":97", viewer: { protocol: "vnc", port: 5997 } } }),
+      launch: () => ({ screen }),
+      preview_ports_get: () => ({ ports: [], cdpPort: null, screen }),
     });
     const id = await seedPane("dup-live", agentNode);
     const first = await putScreen(id, ownerCookie, { width: 640, height: 480 });
@@ -205,6 +219,61 @@ describe("PUT /api/subshells/:id/screen", () => {
     expect((await subshells.findById(id))!.screenConfig).toContain("640");
     expect(sim.countOf("launch")).toBe(1); // the 409 restarted nothing
     sim.detach();
+  });
+
+  it("regression pin: a display the node reported lost heals, even while the plane still remembers it", async () => {
+    // The M5 finding, pinned: `/views` reads the pane OFF as soon as the node
+    // reports `screenLost` (the death outranks the plane's memory), so an
+    // enable whose duplicate guard still read raw memory was a 409 with an
+    // unreachable remedy from an unchecked box. Guard and read are one
+    // predicate now: the PUT proceeds and the restart reallocates.
+    const screen = screenAnswer(":95", 5995);
+    let reportedLost = false;
+    const sim = attachScriptedNode(agentNode, {
+      ...toggleHandlers(),
+      launch: () => ({ screen }),
+      preview_ports_get: () =>
+        reportedLost
+          ? { ports: [], cdpPort: null, screen: null, screenLost: "xvfb exited since the pane launched" }
+          : { ports: [], cdpPort: null, screen },
+    });
+    const id = await seedPane("lost-heal", agentNode);
+    expect((await putScreen(id, ownerCookie, { width: 640, height: 480 })).status).toBe(200); // ack feeds memory
+    reportedLost = true; // the node's walk finds the dead provider...
+    const views = (await (await getViews(id, ownerCookie)).json()) as { screen: unknown; screenLost?: string };
+    expect(views.screen).toBeNull(); // ...and `/views` reads the pane OFF, the death outranking memory
+    expect(views.screenLost).toBeDefined();
+    // ...and the guard reads the same cached answer a moment later: checked
+    // OFF means ENABLE, never the unreachable "turn it off first".
+    const res = await putScreen(id, ownerCookie, { width: 1024, height: 768 });
+    expect(res.status).toBe(200);
+    expect(JSON.parse((await subshells.findById(id))!.screenConfig!)).toEqual({
+      width: 1024,
+      height: 768,
+      provider: "xvfb-x11vnc",
+    });
+    expect(sim.countOf("launch")).toBe(2);
+    sim.detach();
+  });
+
+  it("an offline node with a remembered live display answers the offline sentence, not the duplicate one", async () => {
+    // Ordering is part of the story: the guard reads the node's last ports
+    // answer, and on a node that died ungracefully that answer may be a
+    // memory of a display nobody can turn off. Offline first, always.
+    const screen = screenAnswer(":94", 5994);
+    const sim = attachScriptedNode(agentNode, {
+      ...toggleHandlers(),
+      launch: () => ({ screen }),
+      preview_ports_get: () => ({ ports: [], cdpPort: null, screen }),
+    });
+    const id = await seedPane("offline-order", agentNode);
+    expect((await putScreen(id, ownerCookie, { width: 640, height: 480 })).status).toBe(200); // running, live, remembered
+    sim.detach(); // the link dies with the display still allocated and the config set
+    const res = await putScreen(id, ownerCookie, { width: 1024, height: 768 });
+    expect(res.status).toBe(409);
+    const message = ((await res.json()) as { message: string }).message;
+    expect(message).toContain("This node is offline");
+    expect(message).not.toContain("already has a virtual display");
   });
 
   it("the node switch off refuses with the node's own word and writes nothing", async () => {
@@ -301,5 +370,81 @@ describe("DELETE /api/subshells/:id/screen", () => {
     expect((await deleteScreen(id, viewerCookie)).status).toBe(403);
     expect((await deleteScreen(id, strangerCookie)).status).toBe(404);
     expect((await subshells.findById(id))!.screenConfig).toContain("800");
+  });
+
+  it("a close the node refused says the node answered no, quotes its word, and is not the drop story", async () => {
+    const sim = attachScriptedNode(agentNode, {
+      ...toggleHandlers(),
+      preview_display_close: () => new Error("preview plumbing unavailable in this daemon context"),
+    });
+    const id = await seedPane("off-refused", agentNode);
+    await subshells.update(id, { screenConfig: JSON.stringify({ width: 800, height: 600, provider: "xvfb-x11vnc" }) });
+    const res = await deleteScreen(id, ownerCookie);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe(BackendErrorCodes.NODE_UNREACHABLE);
+    expect(body.message).toContain("The node answered it would not close the display");
+    expect(body.message).toContain("The node said: preview plumbing unavailable in this daemon context");
+    // The other branches' sentences are other stories: this node ANSWERED.
+    expect(body.message).not.toContain("dropped while its display was closing");
+    expect(body.message).not.toContain("didn't answer");
+    // Desired-state-first still holds: the refusal keeps the saved wish cleared.
+    expect((await subshells.findById(id))!.screenConfig).toBeNull();
+    sim.detach();
+  });
+
+  it("the close audit names the acting viewer beside the wire's reason word", async () => {
+    // A user toggle and a node teardown both end in "revoked" (that union is
+    // the node's wire vocabulary, not audit prose), so the row's ACTOR column
+    // is what tells them apart, the way the enable side's restart row names
+    // its grantee.
+    const screen = screenAnswer(":93", 5993);
+    const sim = attachScriptedNode(agentNode, {
+      ...toggleHandlers(),
+      launch: () => ({ screen }),
+      preview_ports_get: () => ({ ports: [], cdpPort: null, screen }),
+    });
+    const id = await seedPane("off-audit", agentNode);
+    expect((await putScreen(id, ownerCookie, { width: 640, height: 480 })).status).toBe(200);
+    expect(((await (await deleteScreen(id, ownerCookie)).json()) as { closed: boolean }).closed).toBe(true);
+    const rows = await db
+      .selectFrom("auditEvents")
+      .where("action", "=", "node.preview_display.close")
+      .where("metadataJson", "like", `%${id}%`)
+      .select(["actorUserId", "metadataJson"])
+      .execute();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.actorUserId).toBe(ownerId);
+    const meta = JSON.parse(String(rows[0]!.metadataJson)) as { paneId: string; reason: string; display: string };
+    expect(meta.paneId).toBe(id);
+    expect(meta.display).toBe(":93");
+    expect(meta.reason).toBe("revoked");
+    sim.detach();
+  });
+
+  it("a successful close drops the ports cache: the same-window /views reads the pane OFF without waiting", async () => {
+    const screen = screenAnswer(":92", 5992);
+    let displayOpen = true;
+    const sim = attachScriptedNode(agentNode, {
+      ...toggleHandlers(),
+      launch: () => ({ screen }),
+      preview_ports_get: () =>
+        displayOpen ? { ports: [], cdpPort: null, screen } : { ports: [], cdpPort: null, screen: null },
+      preview_display_close: () => {
+        displayOpen = false;
+        return { closed: true };
+      },
+    });
+    const id = await seedPane("off-cache", agentNode);
+    expect((await putScreen(id, ownerCookie, { width: 640, height: 480 })).status).toBe(200);
+    const warm = (await (await getViews(id, ownerCookie)).json()) as { screen: unknown };
+    expect(warm.screen).toEqual(screen); // this read caches the live answer...
+    const off = await deleteScreen(id, ownerCookie);
+    expect(((await off.json()) as { closed: boolean }).closed).toBe(true);
+    // ...and the close must have invalidated it: still inside the 5 s window,
+    // the next read re-asks the node and the gone display reads OFF.
+    const after = (await (await getViews(id, ownerCookie)).json()) as { screen: unknown };
+    expect(after.screen).toBeNull();
+    sim.detach();
   });
 });
