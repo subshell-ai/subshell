@@ -1,6 +1,6 @@
 ---
 "@internal/server": minor
-"@internal/node": minor
+"@internal/node": patch
 "@internal/docs": patch
 ---
 

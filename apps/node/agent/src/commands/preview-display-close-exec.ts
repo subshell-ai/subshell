@@ -17,10 +17,13 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
  * queue: `sweepOrphans` in `packages/pane-runtime/src/preview/display.ts`
  * walks the providers directly, so a sweep landing mid-flight can take the
  * display down first and the queued `closeFor` then finds nothing. One
- * cosmetic edge rides the other side of that gap: a launch allocating between
- * the pre-read and the close leaves `closed: false` while `closeFor` tears
- * down the display that launch just allocated. Nothing consumes `closed` in
- * the SPA, so this is recorded, not fixed.
+ * cosmetic edge rides the other side of that gap, and the sweep is its only
+ * actor: a launch cannot land between the pre-read and the close, because
+ * every command (launch included) runs on the serialized executor chain and
+ * these two calls sit in one synchronous span. A sweep rehydrating a display
+ * there leaves `closed: false` while `closeFor` tears down what that sweep
+ * just brought back. Nothing consumes `closed` in the SPA, so this is
+ * recorded, not fixed.
  */
 export async function execPreviewDisplayClose(
   ctx: CommandContext,

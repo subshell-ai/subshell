@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { type DisplayChild, type XvfbDisplayDeps as DisplayDeps, XvfbDisplayProvider } from "@internal/pane-runtime";
 import { HARNESS_BINARY_PLACEHOLDER, type NodeEvent, parseNodePreviewPortsResult } from "@internal/subshell-protocol";
 import type { Cmd, CommandContext } from "../commands/context.js";
+import { dispatchCommand } from "../commands/index.js";
 import { execLaunch } from "../commands/launch.js";
 import { execPreviewDisplayClose } from "../commands/preview-display-close-exec.js";
 import { execPreviewPorts, PREVIEW_NODE_OFF, type PreviewPortsSeams } from "../commands/preview-ports-exec.js";
@@ -1098,6 +1099,22 @@ describe("preview_display_close (live display toggle)", () => {
     expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
     expect(existsSync(xauthorityPath(dataDir, PANE))).toBe(false);
     expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-90.lock"))).toBe(false);
+  });
+
+  it("the command switch routes preview_display_close here (wiring pin, the preview_close family's habit)", async () => {
+    // Every other case drives the executor directly, which the switch cannot
+    // break: a deleted or mislabeled `case` arm compiles and answers
+    // `unsupported` at runtime, and the plane would map that to its
+    // update-the-node refusal forever. This is the one call through dispatch.
+    const dataDir = onDir("toggle-close-dispatch");
+    const { deps } = makeDeps();
+    const reg = new PreviewDisplays(dataDir, deps);
+    await reg.openFor(PANE, { width: 640, height: 480 });
+    expect(await dispatchCommand(portsCtx(dataDir, reg), { type: "preview_display_close", paneId: PANE })).toEqual({
+      ok: true,
+      data: { closed: true },
+    });
+    expect(reg.getFor(PANE)).toBeNull();
   });
 
   it("answers closed:false for a pane that owns no display, and a repeat says the same", async () => {
