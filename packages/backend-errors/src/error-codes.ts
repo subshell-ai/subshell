@@ -95,7 +95,17 @@ export enum BackendErrorCodes {
   NODE_RESTART_KILLS_PANES = "NODE_RESTART_KILLS_PANES",
   NODE_RUNNING_SUBSHELLS = "NODE_RUNNING_SUBSHELLS",
   NODE_UNREACHABLE = "NODE_UNREACHABLE",
-  /** `POST /api/subshells/:id/restart` with a `presetId`: another restart for this subshell already holds the in-flight lease. A plain restart would join it; a swap cannot ride another caller's revival, so nothing was written and the caller may retry once the running restart finishes. */
+  /**
+   * A restart for this subshell already holds the in-flight lease, or the act
+   * IS one this restart-refusing family exists to refuse. Three situations,
+   * and retryability differs, so the message is the authority:
+   * `POST /api/subshells/:id/restart` with a `presetId` cannot ride another
+   * caller's revival (nothing was written; retry once the running restart
+   * finishes); `PUT /api/subshells/:id/screen` over a LIVE display is NOT
+   * retryable (the remedy is to turn the display off first, and its message
+   * says so); and the same screen flip refuses to join a restart in flight
+   * (its write rolled back; asking again after that restart settles is sound).
+   */
   RESTART_IN_FLIGHT = "RESTART_IN_FLIGHT",
   /** `POST /api/admin/server/restart`: the installed service definition would close live panes; pass `force`. */
   RESTART_KILLS_PANES = "RESTART_KILLS_PANES",

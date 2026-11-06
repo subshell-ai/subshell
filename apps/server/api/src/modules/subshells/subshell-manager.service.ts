@@ -136,6 +136,17 @@ const restartInFlight = new Map<string, Promise<{ id: string; tmuxSocket: string
  */
 export class RestartInFlightSwapError extends Error {}
 
+/**
+ * Raised when a fresh-config restart - the virtual-display flip (spec
+ * 2026-11-06) - finds the in-flight lease already held. Like a swap it must
+ * NOT join: the running revival composed its launch from the row it read at
+ * ITS own entry, before the flip's `screen_config` write, so a joined 200
+ * would claim a display the pane never actually got.
+ * {@link SubshellsService.setSubshellScreen} rolls its write back on this
+ * throw; the caller turns the display on again once the running restart lands.
+ */
+export class RestartInFlightJoinError extends Error {}
+
 /** The app-wide push notifier, used when no sink is injected. */
 const defaultNotify: (subshellId: string, kind: NotifyKind) => Promise<void> = async (id, kind) => {
   // Static import (module-level) — dynamic imports break `bun build --compile`.
@@ -975,6 +986,7 @@ export class SubshellManagerService {
     swapPresetTo?: string | null,
     actorUserId?: string,
     systemKeyPermissions: ApiKeyPermission[] | null = null,
+    refuseJoin = false,
   ): Promise<{ id: string; tmuxSocket: string } | null> {
     // The audit subject of BOTH rows of this act: the acting viewer when the
     // caller knows one, the owner as the legacy/sweep fallback. They move
@@ -994,6 +1006,14 @@ export class SubshellManagerService {
       if (swapPresetTo !== undefined) {
         throw new RestartInFlightSwapError(
           `restart in flight for ${sourceId}: a swap-carrying restart does not join it`,
+        );
+      }
+      // Same reasoning for a fresh-config restart (the display flip): joining
+      // would revive the pane from the pre-write row and answer a 200 for a
+      // screen it never got. The toggle rolls its write back and retries.
+      if (refuseJoin) {
+        throw new RestartInFlightJoinError(
+          `restart in flight for ${sourceId}: a fresh-config restart does not join it`,
         );
       }
       return existing; // same owner, already restarting — join it

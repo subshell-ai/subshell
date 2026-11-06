@@ -57,6 +57,7 @@ import type { LogCursorRequest, LogWindowReader } from "@/modules/subshells/log-
 import {
   PROMPT_POLL_MS,
   PROMPT_SETTLE_TIMEOUT_MS,
+  RestartInFlightJoinError,
   RestartInFlightSwapError,
   readSubshellLogWindow,
   type SshLaunchPlumbing,
@@ -1441,6 +1442,7 @@ export class SubshellsService extends BaseService {
     swapPresetTo?: string | null,
     prompt?: string,
     systemKeyPermissions: ApiKeyPermission[] | null = null,
+    refuseJoin = false,
   ): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
     // An ssh pane refuses restart (spec 2026-10-07 decision 7): its session
@@ -1564,7 +1566,7 @@ export class SubshellsService extends BaseService {
       });
     }
     const revived = await this.#manager
-      .restartSubshell(row.userId, id, swapPresetTo, viewerId, systemKeyPermissions)
+      .restartSubshell(row.userId, id, swapPresetTo, viewerId, systemKeyPermissions, refuseJoin)
       .catch((err) => {
         // A swap that arrived mid-restart is REFUSED, not joined: the running
         // revival composes someone else's preset, and a 200 for this swap
@@ -1573,6 +1575,17 @@ export class SubshellsService extends BaseService {
           throwApiError({
             code: BackendErrorCodes.RESTART_IN_FLIGHT,
             message: "This subshell is already restarting. Wait for it to finish before switching presets.",
+            doNotLog: true,
+          });
+        }
+        // A display flip that found a restart already running refuses the same
+        // way, and for the same reason: it needs the fresh revival to bake its
+        // new screen, so it declines the join, rolls its write back, and asks
+        // the caller to turn the display on again once this restart lands.
+        if (err instanceof RestartInFlightJoinError) {
+          throwApiError({
+            code: BackendErrorCodes.RESTART_IN_FLIGHT,
+            message: "This subshell is already restarting. Turn the display on again once it settles.",
             doNotLog: true,
           });
         }
@@ -1613,11 +1626,13 @@ export class SubshellsService extends BaseService {
    * cached ports answer, which the plane's display memory fills only while the
    * node names no lost screen), not the desired-state column: config set but
    * no live display PROCEEDS, because the restart reallocates the screen and
-   * that is the spec's healing path. Every
-   * refusal rolls the column back, so an act that ends in a 4xx leaves the row
-   * exactly as the flip found it, desired state included. A restart that
-   * succeeds leaves the config in place, and every later restart reallocates
-   * from it until a clear wins. An edit act, like restart itself.
+   * that is the spec's healing path. The restart never joins one already in
+   * flight, so the revival always composes its launch from this write. A
+   * refusal rolls its own write back while that write is still what the column
+   * holds, and leaves a clear or re-set that won mid-flight alone, so the row
+   * never claims a screen this act failed to apply. A restart that succeeds
+   * leaves the config in place, and every later restart reallocates from it
+   * until a clear wins. An edit act, like restart itself.
    */
   async setSubshellScreen(
     viewerId: string,
@@ -1657,33 +1672,30 @@ export class SubshellsService extends BaseService {
     // and the node row, so it needs nothing the guard computes; a refused
     // one writes nothing, exactly as it did one step later.
     const resolved = await resolveNodeDisplayRequest(row.nodeId, request, 409);
-    if (row.screenConfig) {
+    if (row.status === "running") {
       // The guard asks whether a display is LIVE, not whether one is wanted,
-      // and it decides with the SAME predicate `/views` answers `screen` from
+      // and it answers with the same predicate `/views` reads `screen` from
       // (`liveScreenForPane`): the cached ports answer, which the plane's
       // display memory fills only while the node names no lost screen and the
-      // remembered node matches. The resolver above has already refused what
-      // policy forbids, so reaching here means `/views` is not masking and a
-      // live answer IS the checked box the sentence speaks to. A pane whose
-      // display the node reported gone (or a dead row that kept its config)
-      // reads OFF in the picker, and its
-      // enable must not be a 409 whose remedy ("turn it off first") is
-      // unreachable from an unchecked box: the restart below reallocates and
-      // honors the incoming request. A refused ports scan reads as no live
-      // screen exactly as it does in `/views`, so it heals rather than
-      // refuses. Only a display that predicate still calls live refuses. Not a
-      // resize door: one display per pane, by design (spec 2026-11-06), and
-      // the code word is honest because the act IS a restart attempt this 409
-      // family refuses. The SPA only branches on the status.
+      // remembered node matches. The policy resolver above already refused what
+      // the node's display switch forbids, so a live answer here really is the
+      // checked box the refusal speaks to. We ask whenever the pane is running,
+      // not only when it already carries a saved config: a live display with a
+      // null column is reachable by design, when an OFF close was refused and
+      // the node kept the processes running, and an ON over it would otherwise
+      // reuse that old display and echo the new size as though it were applied.
+      // A pane whose display the node reported gone, or a stopped row that kept
+      // its config, reads as no live screen (the predicate calls a reported-lost
+      // display OFF, and a non-running row pays no ports RPC), so it heals
+      // through the restart instead of refusing. Only a display the predicate
+      // still calls live refuses: one display per pane, by design (spec
+      // 2026-11-06), and the code word is honest because the act IS a restart
+      // this 409 family refuses. The SPA only branches on the status.
       let displayLive = false;
-      if (row.status === "running") {
-        // `/views` answers a non-running row with no screen and pays no RPC,
-        // and the guard mirrors that: dead rows heal without a round trip.
-        try {
-          displayLive = (await liveScreenForPane(getPreviewBroker(), row.nodeId, id)).screen !== null;
-        } catch {
-          displayLive = false;
-        }
+      try {
+        displayLive = (await liveScreenForPane(getPreviewBroker(), row.nodeId, id)).screen !== null;
+      } catch {
+        displayLive = false;
       }
       if (displayLive) {
         throwApiError({
@@ -1694,13 +1706,25 @@ export class SubshellsService extends BaseService {
       }
     }
     const prior = row.screenConfig;
-    await this.repos.subshells.update(id, { screenConfig: JSON.stringify(resolved) });
+    const wrote = JSON.stringify(resolved);
+    await this.repos.subshells.update(id, { screenConfig: wrote });
     try {
-      // The restart carries every launch gate (lockdown, maintenance, local
-      // switch) and announces the act; a refused one lands in the catch below.
-      await this.restartSubshell(viewerId, id, actor, undefined, undefined, systemKeyPermissions);
+      // The restart carries every launch gate (lockdown, maintenance, the
+      // local switch) and announces the act. `refuseJoin` makes it start a
+      // fresh revival rather than ride one already in flight: only a revival
+      // that reads the row AFTER this write bakes the new screen, so joining
+      // would answer 200 for a display the pane never got. A refused restart,
+      // a refused join, and any other failure land in the catch below.
+      await this.restartSubshell(viewerId, id, actor, undefined, undefined, systemKeyPermissions, true);
     } catch (err) {
-      await this.repos.subshells.update(id, { screenConfig: prior });
+      // Roll the write back, but only while this call's value is still what the
+      // column holds. A clear or re-set that won during the restart is a
+      // finished act we must not undo, so we leave whatever it stored and let
+      // the row stay honest; the caller's 4xx asks them to retry against that.
+      const current = await this.repos.subshells.findById(id);
+      if (current && current.screenConfig === wrote) {
+        await this.repos.subshells.update(id, { screenConfig: prior });
+      }
       throw err;
     }
     return { ok: true, screen: resolved };
@@ -1714,7 +1738,14 @@ export class SubshellsService extends BaseService {
    * never wants a screen the user just dismissed, and the close is sent on
    * EVERY call (even with no config), so a repeated off finishes what a
    * dropped one left. The pane keeps running with its now-stale DISPLAY until
-   * it next restarts; the docs say so out loud.
+   * it next restarts; the docs say so out loud. The teardown forgets the
+   * plane's display memory and writes the close audit, but deliberately does
+   * not run the full pane-seam `closeForPane`: that would also close the
+   * pane's web-preview lanes, which must survive a display off. An attached
+   * screen viewer's lane is therefore left to socket-level EOF when the
+   * node's x11vnc dies, and a display open racing this close is not
+   * cancelled; both are the accepted shape of keeping the two lane families
+   * independent.
    */
   async clearSubshellScreen(viewerId: string, id: string, actor: GuardActor): Promise<{ ok: true; closed: boolean }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
