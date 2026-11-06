@@ -212,7 +212,8 @@ grows the desired-state framing rather than being replaced.
 ## Amendments (while building)
 
 Dated 2026-11-06, from the whole-branch review. The sections above record the
-design; these three say what shipped and what the wording above cannot mean.
+design; the bullets below say what shipped and what the wording above cannot
+mean.
 
 - Rollback, read precisely: a HANDLED refusal rolls the `screen_config` write
   back, so "a refusal writes nothing" holds end to end. Only an unhandled
@@ -240,3 +241,11 @@ design; these three say what shipped and what the wording above cannot mean.
   node-side teardown is the acting-user field the close row now carries when a
   person made the call, which also answers the review's "audited like every
   other edit-tier act" for the off path.
+- The `closed` distinction lives on the API/MCP side, not in the UI:
+  §Protocol's "the UI uses to tell 'closed it' from 'there wasn't one'"
+  overstates what shipped. `DELETE /:id/screen` answers `closed` and the MCP
+  toggle relays that response, so the bit is a caller-facing fact, and the
+  executor documents the race with the orphan sweep where it can honestly
+  read false while the display still dies. The shipped picker consumes
+  nothing from it: after a landed flip it re-reads `/views`, and the box
+  renders from that answer.
