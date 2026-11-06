@@ -8,6 +8,8 @@ import {
   OpenSubshellViewSchema,
   openSubshellView,
   ScreenSchema,
+  SetSubshellDisplaySchema,
+  setSubshellDisplay,
   watchSubshellBrowser,
 } from "../view-tools.js";
 
@@ -387,7 +389,7 @@ describe("MCP preview discovery and launch", () => {
   it("doesn't open a capability for an absent display or absent app port", async () => {
     const { deps, calls } = fixture(() => ({ nodeEnabled: true, screen: null }));
     await expect(openSubshellView(deps, { subshell_id: "x", kind: "screen" })).rejects.toThrow(
-      "no available virtual display",
+      /no available virtual display.*set_subshell_display/,
     );
     await expect(openSubshellView(deps, { subshell_id: "x", kind: "app" })).rejects.toThrow("require a port");
     expect(calls.every((c) => c.method === "GET")).toBe(true);
@@ -423,6 +425,26 @@ describe("MCP preview discovery and launch", () => {
       ["POST", { port: 9222 }],
       ["DELETE", undefined],
     ]);
+  });
+
+  it("set_subshell_display PUTs the request and DELETEs on null", async () => {
+    const { deps, calls } = fixture(() => ({ ok: true }));
+    await setSubshellDisplay(deps, { subshell_id: "s-1", screen: { width: 1280, height: 800 } });
+    expect(calls[0]).toMatchObject({
+      path: "/api/subshells/s-1/screen",
+      method: "PUT",
+      body: { width: 1280, height: 800 },
+    });
+    await setSubshellDisplay(deps, { subshell_id: "s-1", screen: null });
+    expect(calls[1]).toMatchObject({ path: "/api/subshells/s-1/screen", method: "DELETE" });
+  });
+
+  it("set_subshell_display requires an explicit screen choice", () => {
+    expect(SetSubshellDisplaySchema.safeParse({ subshell_id: "s-1" }).success).toBe(false);
+    expect(
+      SetSubshellDisplaySchema.safeParse({ subshell_id: "s-1", screen: { width: 4097, height: 800 } }).success,
+    ).toBe(false);
+    expect(SetSubshellDisplaySchema.safeParse({ subshell_id: "s-1", screen: null }).success).toBe(true);
   });
 });
 

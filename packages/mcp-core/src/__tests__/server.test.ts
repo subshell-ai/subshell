@@ -71,6 +71,9 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
         "list_subshell_views",
         "open_subshell_view",
         "watch_subshell_browser",
+        // The live display toggle (spec 2026-11-06): one tool, both directions,
+        // the choice carried by the argument like create_subshell's screen.
+        "set_subshell_display",
         "read_subshell_log",
         "send_to_subshell",
         // The terminal family (spec 2026-10-02): one command in a shell pane,

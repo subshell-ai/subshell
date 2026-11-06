@@ -50,6 +50,8 @@ import {
   openSubshellView,
   OpenSubshellViewSchema,
   ScreenSchema,
+  setSubshellDisplay,
+  SetSubshellDisplaySchema,
   watchSubshellBrowser,
   WatchSubshellBrowserSchema,
 } from "./view-tools.js";
@@ -210,6 +212,16 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
       inputSchema: WatchSubshellBrowserSchema,
     },
     guard((args: z.infer<typeof WatchSubshellBrowserSchema>) => watchSubshellBrowser(deps, args)),
+  );
+  server.registerTool(
+    "set_subshell_display",
+    {
+      title: "Set subshell display",
+      description:
+        "Turn a live subshell's virtual display on or off without recreating it. Pass screen {width,height,provider?} to enable: the subshell restarts in place (same id and history; resuming harnesses continue the conversation) because a running process cannot be handed a new DISPLAY. Pass screen:null to disable: the display closes immediately and the pane keeps running, though processes started before this call keep a stale DISPLAY until the next restart. Enabling your OWN pane ends this tool call with the restart, like restart_subshell. Check get_node first for provider readiness. Both flips refuse while the node is offline.",
+      inputSchema: SetSubshellDisplaySchema,
+    },
+    guard((args: z.infer<typeof SetSubshellDisplaySchema>) => setSubshellDisplay(deps, args)),
   );
   server.registerTool(
     "list_presets",
