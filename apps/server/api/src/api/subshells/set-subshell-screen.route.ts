@@ -52,7 +52,7 @@ export const setSubshellScreenRoute = new Elysia()
         operationId: "setSubshellScreen",
         tags: ["subshells"],
         description:
-          "Give this subshell a virtual display now: stores the screen request as desired state and restarts the subshell in place so its process starts with the display. Refused while the node is offline or when a display is already live; a refusal changes nothing",
+          "Give this subshell a virtual display now: stores the screen request as desired state and restarts the subshell in place so its process starts with the display. Refused while the node is offline or when a display is already live; a gate refusal writes nothing (a restart that fails after its kill leaves the pane stopped, with the request rolled back)",
       },
     },
   );

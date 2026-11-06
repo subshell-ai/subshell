@@ -8,9 +8,10 @@ import { apiModels } from "@/api/schemas/index.js";
  * off (spec 2026-11-06): the desired state clears first, then the node closes
  * the display and frees its memory and CPU; the pane keeps running. Idempotent
  * by design — a pane with no display answers success, and the close command
- * rides every call so a repeated off converges after a dropped one. Refused
- * only at visibility, access, the ssh refusal, or an offline node, all before
- * anything is written.
+ * rides every call so a repeated off converges after a dropped one. The
+ * visibility, access, ssh, and offline refusals all land before anything is
+ * written; a node that fails mid-call 409s after the clear, and the row stays
+ * cleared so a repeat off finishes the job.
  */
 export const clearSubshellScreenRoute = new Elysia()
   .use(contextPlugin)
