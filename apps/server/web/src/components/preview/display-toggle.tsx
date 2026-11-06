@@ -1,4 +1,4 @@
-import { apiFetch } from "@internal/node-admin";
+import { apiFetch, errMessage } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { VirtualDisplayField } from "@/components/subshell-picker/virtual-display-field";
@@ -18,7 +18,8 @@ const DEFAULT_DISPLAY_SIZE = { width: 1280, height: 800 } as const;
  * default size. On: unchecked means "turn it off" after its own confirm; the
  * display's processes close and the node frees them, the pane keeps running.
  * Both paths invalidate the preview and row caches the moment they land; the
- * restart's own live frames and the info poll make the row honest after.
+ * restart's own live frames and the info poll make the row honest after. A
+ * refused flip leaves the server's own sentence in a red line under the row.
  */
 export function DisplayToggle({
   subshellId,
@@ -39,6 +40,7 @@ export function DisplayToggle({
   const { data } = useNodes();
   const node = data?.nodes.find((n) => n.id === subshell.nodeId) ?? null;
   const [provider, setProvider] = useState<string | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
   const on = info.screen !== null;
   const mutate = useMutation({
     // PUT awaits the full in-place restart server-side (kill + relaunch), so
@@ -60,11 +62,15 @@ export function DisplayToggle({
       void queryClient.invalidateQueries({ queryKey: SUBSHELL_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: WORKSPACE_QUERY_KEY });
     },
+    // A refused flip says so: one honest red line under the row, in the
+    // server's own words. No retry machinery, no toast.
+    onError: (err) => setError(errMessage(err, "Couldn't change the virtual display.")),
     // The skeleton's onFinally: this @tanstack/react-query exposes the same
     // settle point as onSettled, which every mutation hook in the app uses.
     onSettled: () => onBusyChange?.(false),
   });
   async function flip(wantOn: boolean) {
+    setError(null);
     onBusyChange?.(true);
     const ok = wantOn
       ? await confirmEnableVirtualDisplay(subshell.name)
@@ -76,20 +82,36 @@ export function DisplayToggle({
     mutate.mutate(wantOn);
   }
   return (
-    <VirtualDisplayField
-      node={node}
-      id={`preview-display-${subshellId}`}
-      checked={on}
-      // The field's own availability `reason` disables the box when the node
-      // cannot serve a display; `disabledReason` covers the viewer's access.
-      onChange={(checked) => void flip(Boolean(checked))}
-      provider={provider}
-      onProviderChange={on ? undefined : setProvider}
-      disabledReason={
-        subshell.access === "view"
-          ? "Turning a virtual display on or off needs edit access to this subshell."
-          : undefined
-      }
-    />
+    <>
+      <VirtualDisplayField
+        node={node}
+        id={`preview-display-${subshellId}`}
+        checked={on}
+        // The field's own availability `reason` disables the box when the node
+        // cannot serve a display; `disabledReason` covers the viewer's access.
+        onChange={(checked) => void flip(Boolean(checked))}
+        provider={provider}
+        onProviderChange={on ? undefined : setProvider}
+        disabledReason={
+          subshell.access === "view"
+            ? "Turning a virtual display on or off needs edit access to this subshell."
+            : undefined
+        }
+        // The pane's node is fixed and named in the dialog's header, so the
+        // launch form's "Choose a node first." would be a non sequitur here;
+        // when the viewer cannot see the node there is no readiness to read,
+        // and the override says what is actually true instead.
+        reasonOverride={
+          node
+            ? undefined
+            : "This pane's node isn't shared with you, so the dashboard can't check its display options from here. Turning off a display that's on still works."
+        }
+      />
+      {error && (
+        <p role="alert" className="text-destructive text-detail">
+          {error}
+        </p>
+      )}
+    </>
   );
 }

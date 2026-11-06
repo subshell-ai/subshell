@@ -19,6 +19,7 @@ export function VirtualDisplayField({
   resetReason,
   launchError,
   disabledReason,
+  reasonOverride,
 }: {
   node: Node | null;
   id: string;
@@ -30,10 +31,23 @@ export function VirtualDisplayField({
   resetReason?: string;
   /**
    * Why this control is off-limits for THIS viewer (access, not availability):
-   * the tooltip names it; availability reasons come from readiness. A checked
-   * box stays live either way, so a view-only grantee can still read the on state.
+   * the tooltip names it, and unlike an availability reason it disables the
+   * box in BOTH directions, because either flip is refused for this viewer.
+   * A disabled checkbox still reads its checked state, so nobody loses sight
+   * of a live display. Availability blockers keep the checked box live (see
+   * `reasonOverride` for whose availability cannot be asked here).
    */
   disabledReason?: string;
+  /**
+   * Replaces the readiness `reason` everywhere it is consumed: the checkbox's
+   * availability half, the tooltip blocker fold, the `aria-describedby` reason
+   * entry, and the gold line. It exists for callers whose availability
+   * question cannot be asked here, like a picker row on a pane whose node this
+   * viewer cannot see: the node is fixed and named, and "choose a node" would
+   * be a lie. Launch callers never pass it, and nothing renders differently
+   * when it is absent.
+   */
+  reasonOverride?: string;
   /**
    * The launch this control lost: a create the node refused over the display
    * (the budget, a provider that does not run here, the switch). It arrives
@@ -62,23 +76,33 @@ export function VirtualDisplayField({
     provider,
   );
   const defaultProvider = nodeDefaultForMachine(node?.virtualDisplayProvider, node?.os);
+  // The override, when given, IS this control's availability story: it feeds
+  // the disable expression, the tooltip, the aria entry, and the gold line,
+  // exactly where the hook's reason would. With both new props absent every
+  // expression below evaluates to what it rendered before they existed.
+  const effectiveReason = reasonOverride ?? reason;
   // One blocker string decides the tooltip branch: the viewer's access limit
-  // reads through the same explain-yourself wrapper the availability `reason`
-  // already uses, and when `disabledReason` is absent every expression below
-  // evaluates to exactly what it rendered before the prop existed.
-  const blocker = disabledReason ?? reason;
-  const blockerLabel = disabledReason ?? `Virtual display unavailable. ${reason}`;
+  // reads through the same explain-yourself wrapper the availability reason
+  // already uses.
+  const blocker = disabledReason ?? effectiveReason;
+  const blockerLabel = disabledReason ?? `Virtual display unavailable. ${effectiveReason}`;
   const control = (
     <div className="flex items-center gap-3">
       <Checkbox
         id={id}
         checked={checked}
-        disabled={(Boolean(reason) || Boolean(disabledReason)) && !checked}
+        // Two kinds of blocker, two rules: an ACCESS blocker (`disabledReason`)
+        // disables both directions, because the server refuses either flip for
+        // this viewer (a disabled box still reads its checked state). An
+        // AVAILABILITY blocker disables only the unchecked box, so a person
+        // can always turn a display off, even while the node's settings say
+        // odd things about starting one.
+        disabled={(Boolean(effectiveReason) && !checked) || Boolean(disabledReason)}
         onCheckedChange={onChange}
         aria-describedby={[
           `${id}-hint`,
           `${id}-cost`,
-          ...(reason ? [`${id}-reason`] : []),
+          ...(effectiveReason ? [`${id}-reason`] : []),
           ...(resetReason ? [`${id}-reset`] : []),
           ...(launchError && checked ? [`${id}-launch-error`] : []),
         ].join(" ")}
@@ -132,14 +156,14 @@ export function VirtualDisplayField({
       <p id={`${id}-cost`} className="text-detail text-warning">
         Uses extra memory and CPU. Not required for web app previews.
       </p>
-      {reason && (
+      {effectiveReason && (
         <p id={`${id}-reason`} className="text-detail text-warning">
           {needsSetup ? (
             <a href="https://docs.subshell.sh/previews/setup" target="_blank" rel="noreferrer" className="underline">
               Set up virtual display
             </a>
           ) : (
-            reason
+            effectiveReason
           )}
         </p>
       )}

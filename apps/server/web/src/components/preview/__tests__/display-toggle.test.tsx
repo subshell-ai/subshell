@@ -1,7 +1,11 @@
 /**
  * The picker's Virtual display row (spec 2026-11-06): the on/off flip rides
  * PUT/DELETE /:id/screen, always through the confirmation prompt, and the
- * caches that render the row's truth are invalidated after it. The prompt is
+ * caches that render the row's truth are invalidated after it. A refused flip
+ * lands as one red server line under the row; an access blocker disables both
+ * directions, while an availability blocker (readiness or an unseen node)
+ * disables only the unchecked box, keeping a live display's off path reachable.
+ * The prompt is
  * driven through the real ConfirmProvider dialog, as the plugins route test
  * does - no seam on `confirmAction`.
  */
@@ -44,8 +48,18 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-/** Renders the row over `info` and records every call to its own `/screen` path. */
-function renderToggle(info: PreviewInfo, access: "owner" | "view" = "owner", node: Node = nodeFixture): ScreenCall[] {
+/**
+ * Renders the row over `info` and records every call to its own `/screen`
+ * path. `failScreenWith` answers the nth `/screen` call with a 409 carrying
+ * the structured body the real server sends (the server's sentence included),
+ * past the end of the array every call succeeds.
+ */
+function renderToggle(
+  info: PreviewInfo,
+  access: "owner" | "view" | "edit" = "owner",
+  node: Node = nodeFixture,
+  failScreenWith: string[] = [],
+): ScreenCall[] {
   const calls: ScreenCall[] = [];
   seenPaths = [];
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -53,6 +67,13 @@ function renderToggle(info: PreviewInfo, access: "owner" | "view" = "owner", nod
     seenPaths.push(url);
     if (url.includes("/screen")) {
       calls.push({ url, method: init?.method, body: typeof init?.body === "string" ? init.body : undefined });
+      const failure = failScreenWith[calls.length - 1];
+      if (failure !== undefined) {
+        return Response.json(
+          { errId: "test-err", code: "RESTART_IN_FLIGHT", message: failure, statusCode: 409 },
+          { status: 409 },
+        );
+      }
       return Response.json({ ok: true });
     }
     if (url.includes("display-readiness")) return Response.json({ supported: true, missing: [] });
@@ -153,4 +174,59 @@ it("shows the node's own reason when its display switch is off, and clicks send 
   fireEvent.click(screen.getByRole("checkbox", { name: "Virtual display" }));
   expect(screen.queryAllByRole("dialog").length).toBe(0);
   await waitFor(() => expect(calls.length).toBe(0));
+});
+
+it("keeps the access limit on a checked box, so a view-only viewer cannot reach the off flip", async () => {
+  // The whole-branch review's Important 1: a checked box used to ignore the
+  // access blocker, handing this viewer an off-confirm whose DELETE the server
+  // 403s. The limit covers both directions now, and the disabled box still
+  // reads its checked state.
+  const calls = renderToggle(onInfo, "view");
+  const control = await screen.findByRole("checkbox", { name: "Virtual display" });
+  expect(control.getAttribute("aria-checked")).toBe("true");
+  expect(control.getAttribute("aria-disabled")).toBe("true");
+  const blocker = await screen.findByRole("button", { name: /edit access/i });
+  expect(blocker.getAttribute("aria-disabled")).toBe("true");
+  fireEvent.click(screen.getByRole("checkbox", { name: "Virtual display" }));
+  expect(screen.queryAllByRole("dialog").length).toBe(0);
+  expect(calls.length).toBe(0);
+});
+
+it("surfaces a refused flip as the server's own line, and clears it on the next success", async () => {
+  const refusal = "This subshell already has a virtual display. Turn it off first to change its provider or size.";
+  const calls = renderToggle(offInfo, "owner", nodeFixture, [refusal]);
+  const control = await readyControl();
+  fireEvent.click(control);
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Enable display" }));
+  await waitFor(() => expect(calls.length).toBe(1));
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain(refusal);
+  // A later attempt that lands clears the line: the flip itself resets it.
+  fireEvent.click(screen.getByRole("checkbox", { name: "Virtual display" }));
+  const again = await screen.findByRole("dialog");
+  fireEvent.click(within(again).getByRole("button", { name: "Enable display" }));
+  await waitFor(() => expect(calls.length).toBe(2));
+  await waitFor(() => expect(screen.queryByRole("alert") === null).toBe(true));
+});
+
+it("explains the real blocker when the pane's node isn't shared with the viewer", async () => {
+  // An edit grantee on a pane whose node they cannot see: the launch form's
+  // "Choose a node first." is a non sequitur in a dialog whose node is fixed
+  // and named. The accurate note replaces it (unchecked box disabled by the
+  // availability rule), while an ON display keeps its off path live.
+  const calls = renderToggle(offInfo, "edit", { ...nodeFixture, id: "a-node-not-shared" });
+  await screen.findByText(/isn't shared with you/);
+  expect(screen.queryByText(/Choose a node first/) === null).toBe(true);
+  expect(screen.getByRole("checkbox", { name: "Virtual display" }).getAttribute("aria-disabled")).toBe("true");
+  fireEvent.click(screen.getByRole("checkbox", { name: "Virtual display" }));
+  expect(screen.queryAllByRole("dialog").length).toBe(0);
+  expect(calls.length).toBe(0);
+  cleanup();
+  const onCalls = renderToggle(onInfo, "edit", { ...nodeFixture, id: "a-node-not-shared" });
+  await screen.findByText(/isn't shared with you/);
+  const live = await screen.findByRole("checkbox", { name: "Virtual display" });
+  expect(live.getAttribute("aria-checked")).toBe("true");
+  expect(live.getAttribute("aria-disabled")).not.toBe("true");
+  expect(onCalls.length).toBe(0);
 });
