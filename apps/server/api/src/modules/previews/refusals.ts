@@ -47,21 +47,25 @@ export function detailIsNodeOff(detail: string): boolean {
 /**
  * The screen-launch remedies, keyed by word. `launch` (Task 9's create path)
  * renders these as 400s that name both the refusal and the next step; the
- * node's own words ride along so the operator can grep them.
+ * node's own words ride along so the operator can grep them. The runtime
+ * display toggle rides the same map, because its restart sends the same
+ * launch command: every remedy here must read true for a launch AND for a
+ * flip on a live pane, so the advice never tells a running pane to start
+ * over when turning the display off is the reachable act.
  */
 export const SCREEN_LAUNCH_REMEDIES: Readonly<Record<string, string>> = {
   "preview-display-provider-disabled":
-    "This display provider is disabled on the node. Enable it in node settings, or choose another provider for a new subshell.",
+    "This display provider is disabled on the node. Enable it in node settings or choose another provider.",
   "preview-display-provider-conflict":
-    "This subshell already has a display from a different provider. Start a new subshell to use another provider.",
+    "This subshell already has a display from a different provider. Turn the display off first to switch providers.",
   "preview-node-off":
-    "Virtual displays are disabled on this node. Turn on Allow virtual displays in node settings, then launch again.",
+    "Virtual displays are disabled on this node. Turn on Allow virtual displays in node settings, then try again.",
   [PREVIEW_DISPLAY_UNSUPPORTED]:
-    "The selected virtual display provider is not supported on this node. Choose a supported provider in node settings, or launch without a virtual display.",
+    "The selected virtual display provider is not supported on this node. Choose a supported provider in node settings, or go without a virtual display.",
   [PREVIEW_DISPLAY_MISSING_REQUIREMENTS]:
-    "The selected virtual display provider has unmet requirements. Check the requirements in node settings, or launch without a virtual display.",
+    "The selected virtual display provider has unmet requirements. Check the requirements in node settings, or go without a virtual display.",
   [PREVIEW_DISPLAY_NOT_READY]:
-    "That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or launch without a screen.",
+    "That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or go without a screen.",
 };
 
 /**

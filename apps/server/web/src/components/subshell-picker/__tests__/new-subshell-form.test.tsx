@@ -157,7 +157,7 @@ describe("NewSubshellForm launch-error placement", () => {
 
   /** The AI PC's own answer, kept verbatim: the tail word is what routes it. */
   const REFUSAL =
-    "API 400: That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or launch without a screen. (preview-display-not-ready: display :90 / rfb 5910 not answering within 10000ms (Xvfb socket never appeared))";
+    "API 400: That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or go without a screen. (preview-display-not-ready: display :90 / rfb 5910 not answering within 10000ms (Xvfb socket never appeared))";
 
   it("moves a display refusal off a checkbox that has been turned off", async () => {
     // The refusal explains the display the person chose, so it belongs under
