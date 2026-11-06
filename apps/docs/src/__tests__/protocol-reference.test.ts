@@ -17,10 +17,10 @@ const FRAMES = path.join(PKG_DIR, "..", "..", "packages", "subshell-protocol", "
 
 describe("protocol reference", () => {
   test("the stated implemented protocol equals NODE_PROTOCOL_VERSION", () => {
-    const stated = /The implemented protocol is \*\*(\d+)\*\*/.exec(fs.readFileSync(PAGE, "utf8"));
-    expect(stated, "the page must state the implemented protocol").not.toBeNull();
-    const shipped = /export const NODE_PROTOCOL_VERSION = (\d+);/.exec(fs.readFileSync(FRAMES, "utf8"));
-    expect(shipped, "node-frames.ts must export a numeric NODE_PROTOCOL_VERSION").not.toBeNull();
-    expect(stated[1]).toBe(shipped[1]);
+    const page = /The implemented protocol is \*\*(\d+)\*\*/.exec(fs.readFileSync(PAGE, "utf8"));
+    const frames = /export const NODE_PROTOCOL_VERSION = (\d+);/.exec(fs.readFileSync(FRAMES, "utf8"));
+    const stated = page === null ? "no stated protocol in node-protocol.mdx" : page[1];
+    const shipped = frames === null ? "no numeric NODE_PROTOCOL_VERSION in node-frames.ts" : frames[1];
+    expect(stated).toBe(shipped);
   });
 });
