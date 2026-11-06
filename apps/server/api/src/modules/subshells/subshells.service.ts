@@ -1647,13 +1647,26 @@ export class SubshellsService extends BaseService {
         doNotLog: true,
       });
     }
+    // Policy BEFORE the duplicate guard, because the two read different
+    // things: the guard asks what's LIVE, the resolver asks what's ALLOWED.
+    // `/views` masks `screen` by the node's display switch, so a pane whose
+    // display the plane still holds reads OFF in the picker once the switch
+    // is off, and THAT flip's honest refusal is the switch sentence the
+    // resolver names, never the dup one whose "turn it off first" the user
+    // can't reach from an unchecked box. The resolve reads only the request
+    // and the node row, so it needs nothing the guard computes; a refused
+    // one writes nothing, exactly as it did one step later.
+    const resolved = await resolveNodeDisplayRequest(row.nodeId, request, 409);
     if (row.screenConfig) {
       // The guard asks whether a display is LIVE, not whether one is wanted,
       // and it decides with the SAME predicate `/views` answers `screen` from
       // (`liveScreenForPane`): the cached ports answer, which the plane's
       // display memory fills only while the node names no lost screen and the
-      // remembered node matches. A pane whose display the node reported gone
-      // (or a dead row that kept its config) reads OFF in the picker, and its
+      // remembered node matches. The resolver above has already refused what
+      // policy forbids, so reaching here means `/views` is not masking and a
+      // live answer IS the checked box the sentence speaks to. A pane whose
+      // display the node reported gone (or a dead row that kept its config)
+      // reads OFF in the picker, and its
       // enable must not be a 409 whose remedy ("turn it off first") is
       // unreachable from an unchecked box: the restart below reallocates and
       // honors the incoming request. A refused ports scan reads as no live
@@ -1680,7 +1693,6 @@ export class SubshellsService extends BaseService {
         });
       }
     }
-    const resolved = await resolveNodeDisplayRequest(row.nodeId, request, 409);
     const prior = row.screenConfig;
     await this.repos.subshells.update(id, { screenConfig: JSON.stringify(resolved) });
     try {
@@ -1740,6 +1752,10 @@ export class SubshellsService extends BaseService {
       // A malformed answer means the node predates the grammar (the version
       // gate should have held it); the display was asked to close regardless.
       const closed = parsed?.closed ?? false;
+      // The close row exists only while broker memory still holds the pane:
+      // after a PLANE restart that memory is empty until the pane's first
+      // reconcile probe refills it, so a toggle-off inside that window closes
+      // honestly with no audit row, self-healing within one probe pass.
       if (closed) await getPreviewBroker().onDisplayClosed(id, "revoked", viewerId);
       return { ok: true, closed };
     } catch (err) {

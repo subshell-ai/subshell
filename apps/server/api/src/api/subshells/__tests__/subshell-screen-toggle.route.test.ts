@@ -6,8 +6,10 @@
  * predicate `/views` answers `screen` through (`liveScreenForPane`: the ports
  * answer, filled by plane memory only while the node names no lost screen),
  * so a dead row that kept its config or a display the node reported lost
- * heals through the same PUT, and an offline node answers the offline
- * sentence before the guard reads anything. DELETE clears the column
+ * heals through the same PUT, an offline node answers the offline sentence
+ * before the guard reads anything, and policy refusals (the node's display
+ * switch, provider state) answer first too: a picker `/views` masks OFF
+ * never hears the duplicate sentence. DELETE clears the column
  * FIRST (desired-state-first) and then sends preview_display_close, always, so
  * a repeated off converges even after a mid-flight failure, and a mid-flight
  * failure names WHICH failure it was (dropped link, silence, missing support,
@@ -219,6 +221,39 @@ describe("PUT /api/subshells/:id/screen", () => {
     expect((await subshells.findById(id))!.screenConfig).toContain("640");
     expect(sim.countOf("launch")).toBe(1); // the 409 restarted nothing
     sim.detach();
+  });
+
+  it("the node's switch off answers a masked-OFF picker's enable with the node-off sentence, not the duplicate one", async () => {
+    // The switch-off mask divergence (final review): `/views` masks `screen`
+    // by the node's switch, so when an owner turns it off while the plane
+    // still holds the pane's display live, the picker reads OFF and an
+    // enable's honest cause is the switch. The resolver answers policy
+    // BEFORE the duplicate guard reads live state, so the node-off sentence
+    // wins and the row keeps what it had.
+    const screen = screenAnswer(":96", 5996);
+    const setSwitch = (on: number) =>
+      db.updateTable("nodes").set({ virtualDisplayEnabled: on }).where("id", "=", offNode).execute();
+    await setSwitch(1); // the owner has not noticed the switch yet
+    const sim = attachScriptedNode(offNode, {
+      ...toggleHandlers(),
+      launch: () => ({ screen }),
+      preview_ports_get: () => ({ ports: [], cdpPort: null, screen }),
+    });
+    try {
+      const id = await seedPane("off-masked", offNode);
+      expect((await putScreen(id, ownerCookie, { width: 640, height: 480 })).status).toBe(200); // live, remembered
+      await setSwitch(0); // the display is still up when the owner flips it off
+      const res = await putScreen(id, ownerCookie, { width: 1024, height: 768 });
+      expect(res.status).toBe(409);
+      const message = ((await res.json()) as { message: string }).message;
+      expect(message).toContain("(preview-node-off)");
+      expect(message).not.toContain("already has a virtual display");
+      expect((await subshells.findById(id))!.screenConfig).toContain("640"); // the refusal changed nothing
+      expect(sim.countOf("launch")).toBe(1); // and restarted nothing
+    } finally {
+      sim.detach();
+      await setSwitch(0); // leave the fixture as beforeAll made it
+    }
   });
 
   it("regression pin: a display the node reported lost heals, even while the plane still remembers it", async () => {

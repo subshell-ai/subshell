@@ -5,8 +5,11 @@ import type { PreviewBroker } from "@/modules/previews/preview-broker.js";
  * The ONE screen decision, computed from the node's ports answer exactly the
  * way `GET /api/subshells/:id/views` answers `screen`. The info route renders
  * it and the runtime-toggle guard refuses on it, so the checkbox the user
- * reads and the guard that answers it can never disagree about which display
- * is live.
+ * reads and the guard that answers it agree about WHICH display is live.
+ * Whether a flip is ALLOWED is read elsewhere and answered first: policy
+ * refusals (the node's display switch, provider state) come from the request
+ * resolver before this predicate is consulted, so a picker `/views` masks OFF
+ * never meets the duplicate-display sentence.
  *
  * The rules the pair must keep agreeing on:
  * - the launch ack names the screen before the node's own scan reports it, so
