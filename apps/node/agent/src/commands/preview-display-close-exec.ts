@@ -1,4 +1,5 @@
 import type { JsonValue } from "@internal/subshell-protocol";
+import { isSubshellId } from "../subshell-meta.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 
 /**
@@ -25,6 +26,12 @@ export async function execPreviewDisplayClose(
   ctx: CommandContext,
   cmd: Cmd<"preview_display_close">,
 ): Promise<CommandResult> {
+  // The id guard every sibling composition site keeps: `closeFor` ends at the
+  // providers' per-pane dirs under the data dir, so a hostile id like
+  // `../../../../x` must be refused before the registry, the queue, or any
+  // path built from it is touched — the same `invalid subshell id` result
+  // `launch` and the `allocate` path answer (launch.ts's gate, display.ts's).
+  if (!isSubshellId(cmd.paneId)) return { ok: false, error: "invalid subshell id" };
   if (!ctx.previewDisplays) {
     return { ok: false, error: "preview plumbing unavailable in this daemon context" };
   }

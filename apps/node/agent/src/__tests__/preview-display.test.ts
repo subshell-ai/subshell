@@ -1140,4 +1140,31 @@ describe("preview_display_close (live display toggle)", () => {
     await runDisplaySweep(ctx, reg); // trusted census, pane absent: nothing on disk to rehydrate
     expect(reg.getFor(PANE)).toBeNull();
   });
+
+  it("a malformed pane id is refused before the registry is touched: no getFor, no closeFor", async () => {
+    // The id guard every composition site keeps: closeFor ends in the
+    // providers' per-pane dirs, so `../x` must never reach even the pre-read.
+    const dataDir = onDir("toggle-close-bad-id");
+    const { deps } = makeDeps();
+    const reg = new PreviewDisplays(dataDir, deps);
+    await reg.openFor(PANE, { width: 640, height: 480 }); // a live display the refusal must leave alone
+    const touched: string[] = [];
+    const spy = {
+      getFor: (paneId: string) => {
+        touched.push(`getFor:${paneId}`);
+        return reg.getFor(paneId);
+      },
+      closeFor: async (paneId: string) => {
+        touched.push(`closeFor:${paneId}`);
+        await reg.closeFor(paneId);
+      },
+    } as unknown as PreviewDisplays;
+    const answer = await execPreviewDisplayClose(portsCtx(dataDir, spy), {
+      type: "preview_display_close",
+      paneId: "../x",
+    });
+    expect(answer).toEqual({ ok: false, error: "invalid subshell id" });
+    expect(touched).toEqual([]);
+    expect(reg.getFor(PANE)).not.toBeNull();
+  });
 });
