@@ -168,7 +168,10 @@ export function VirtualDisplayField({
         </p>
       )}
       {needsSetup && <DisplayMissingRequirements missing={check.data?.missing} />}
-      {shouldCheck && reason && !check.isFetching && (
+      {/* One story for the reason everywhere, Recheck included. Inert for every
+          current caller: `shouldCheck` needs a node, and a caller without one
+          (the picker row that passes the override) never reaches this line. */}
+      {shouldCheck && effectiveReason && !check.isFetching && (
         <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => void check.refetch()}>
           Recheck
         </Button>
