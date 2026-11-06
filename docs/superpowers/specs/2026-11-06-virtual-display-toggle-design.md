@@ -206,3 +206,23 @@ grows the desired-state framing rather than being replaced.
   allocated descriptor, never a stale viewer port.
 - A shared-with-`edit` viewer toggling on someone else's pane: allowed, audited
   like every other edit-tier act, and the owner's sidebar reflects it live.
+
+## Amendments (while building)
+
+Dated 2026-11-06, from the whole-branch review. The sections above record the
+design; these three say what shipped and what the wording above cannot mean.
+
+- Rollback, read precisely: a HANDLED refusal rolls the `screen_config` write
+  back, so "a refusal writes nothing" holds end to end. Only an unhandled
+  crash between the write and the restart leaves intent on the row, and that
+  is exactly what "The desired-state model"'s crash sentence describes. The
+  two sentences are the same story from two ends, not a contradiction.
+- The picker's enable sends the launch default 1280x800 and carries no size
+  control. So the UI section's "the same size and provider controls as the
+  launch form" narrows to the provider control. Sizes and providers change by
+  toggling off then on from an agent (the MCP tool takes explicit dimensions)
+  or on a fresh launch, per "No resize".
+- Known limitation: an `edit` grantee whose view lacks node visibility sees
+  the display row with an explanatory note in place of a readiness answer,
+  and keeps the off path for a display that's on. Enabling from there is
+  deliberately left to a follow-up that answers readiness per-pane.
