@@ -155,7 +155,7 @@ it("asks before enabling, sends nothing on Cancel, and PUTs the default size on 
   expect(within(dialog).getByText("Enable virtual display?")).toBeTruthy();
   // The running pane hears the honest restart sentence (the enable prompt's
   // liveness branch, spec 2026-11-06 final wave).
-  expect(within(dialog).queryAllByText(/needs a restart to get a screen/).length).toBeGreaterThan(0);
+  expect(within(dialog).queryAllByText(/needs a restart/).length).toBeGreaterThan(0);
   fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   await expectNoDialog();
   expect(calls.length).toBe(0);
@@ -177,7 +177,7 @@ it("tells a stopped pane the enable truth: the flip starts it fresh, nothing is 
   const dialog = within(await screen.findByRole("dialog"));
   expect(dialog.queryAllByText(/starts it fresh with the new screen/).length).toBeGreaterThan(0);
   // The live pane's sentence would claim to stop a process that already ended.
-  expect(dialog.queryAllByText(/needs a restart to get a screen/).length).toBe(0);
+  expect(dialog.queryAllByText(/needs a restart/).length).toBe(0);
   // The resume caveat rides both variants.
   expect(dialog.queryAllByText(/pick its conversation back up/).length).toBeGreaterThan(0);
   fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));

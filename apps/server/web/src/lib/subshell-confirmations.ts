@@ -104,12 +104,12 @@ export function confirmCloseSubshells(n: number): Promise<boolean> {
  * destructive style: it loses nothing. Only the OFF prompt goes red, because
  * that one closes whatever is drawn on the screen.
  */
-export function confirmEnableVirtualDisplay(name: string, alive: boolean): Promise<boolean> {
+export function confirmEnableVirtualDisplay(alive: boolean): Promise<boolean> {
   return confirmAction({
     title: "Enable virtual display?",
     description: alive
-      ? `"${name}" needs a restart to get a screen. The agent will pick its conversation back up if it keeps history.`
-      : `"${name}" isn't running, so the flip starts it fresh with the new screen. The agent will pick its conversation back up if it keeps history.`,
+      ? "This subshell session needs a restart. The agent will pick its conversation back up if it keeps history."
+      : "This subshell session isn't running, so the flip starts it fresh with the new screen. The agent will pick its conversation back up if it keeps history.",
     confirmLabel: alive ? "Enable and restart" : "Enable and start",
     danger: false,
   });

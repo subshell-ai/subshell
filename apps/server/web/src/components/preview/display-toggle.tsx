@@ -87,7 +87,7 @@ export function DisplayToggle({
     setError(null);
     onBusyChange?.(true);
     const ok = wantOn
-      ? await confirmEnableVirtualDisplay(subshell.name, subshell.alive)
+      ? await confirmEnableVirtualDisplay(subshell.alive)
       : await confirmDisableVirtualDisplay(subshell.name);
     if (!ok) {
       onBusyChange?.(false);
