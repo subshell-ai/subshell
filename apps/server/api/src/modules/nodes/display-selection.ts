@@ -59,7 +59,7 @@ export async function resolveNodeDisplayRequest(
   if (!displayProviderRunsOnOs(provider, row.os))
     refused(
       status,
-      "This virtual display provider does not run on this node's operating system. Choose a provider this machine supports, or launch without a virtual display.",
+      "This virtual display provider does not run on this node's operating system. Choose a provider this machine supports, or go without a virtual display.",
       PROVIDER_UNSUPPORTED,
     );
   if (!storedDisplayProviderIds(row.virtualDisplayProviders).includes(provider))
