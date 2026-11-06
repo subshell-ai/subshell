@@ -52,13 +52,17 @@ afterEach(() => {
  * Renders the row over `info` and records every call to its own `/screen`
  * path. `failScreenWith` answers the nth `/screen` call with a 409 carrying
  * the structured body the real server sends (the server's sentence included),
- * past the end of the array every call succeeds.
+ * past the end of the array every call succeeds. `holdScreen` parks every
+ * `/screen` answer until it resolves (the mid-flight state), and `holdNodes`
+ * parks the node list (the pre-load window).
  */
 function renderToggle(
   info: PreviewInfo,
   access: "owner" | "view" | "edit" = "owner",
   node: Node = nodeFixture,
   failScreenWith: string[] = [],
+  holdScreen?: Promise<void>,
+  holdNodes?: Promise<void>,
 ): ScreenCall[] {
   const calls: ScreenCall[] = [];
   seenPaths = [];
@@ -74,10 +78,14 @@ function renderToggle(
           { status: 409 },
         );
       }
+      if (holdScreen) await holdScreen;
       return Response.json({ ok: true });
     }
     if (url.includes("display-readiness")) return Response.json({ supported: true, missing: [] });
-    if (url.includes("/api/nodes")) return Response.json({ nodes: [node] });
+    if (url.includes("/api/nodes")) {
+      if (holdNodes) await holdNodes;
+      return Response.json({ nodes: [node] });
+    }
     return Response.json({});
   }) as unknown as typeof fetch;
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -229,4 +237,50 @@ it("explains the real blocker when the pane's node isn't shared with the viewer"
   expect(live.getAttribute("aria-checked")).toBe("true");
   expect(live.getAttribute("aria-disabled")).not.toBe("true");
   expect(onCalls.length).toBe(0);
+});
+
+it("says it is checking the node while the list loads, and only then blames sharing", async () => {
+  // useNodes() answers undefined until its first fetch lands. Blaming the
+  // shares during that window reads an absence the dashboard never learned
+  // about; the loading phrase is what is true.
+  let releaseNodes!: () => void;
+  const nodesGate = new Promise<void>((resolve) => {
+    releaseNodes = resolve;
+  });
+  renderToggle(offInfo, "edit", { ...nodeFixture, id: "a-node-not-shared" }, [], undefined, nodesGate);
+  await screen.findByText(/Checking this node/);
+  expect(screen.queryByText(/isn't shared with you/) === null).toBe(true);
+  // The list lands, the node is genuinely absent: now the sharing story.
+  releaseNodes();
+  await screen.findByText(/isn't shared with you/);
+});
+
+it("blocks the box in both directions while a flip is in flight, and frees it when the answer lands", async () => {
+  // The PUT server-side awaits a whole restart, so the in-flight window is
+  // seconds long: a DELETE queued behind it would fight a change that is
+  // already committed to happening. Pending-first overrides the reason
+  // sentences; after settle the row is live again.
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const calls = renderToggle(offInfo, "owner", nodeFixture, [], gate);
+  const control = await readyControl();
+  fireEvent.click(control);
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Enable display" }));
+  await waitFor(() => expect(calls.length).toBe(1));
+  const mid = await screen.findByRole("checkbox", { name: "Virtual display" });
+  await waitFor(() => expect(mid.getAttribute("aria-disabled")).toBe("true"));
+  const blocker = await screen.findByRole("button", { name: /display change in progress/i });
+  expect(blocker.getAttribute("aria-disabled")).toBe("true");
+  // A click into the pending box starts nothing.
+  fireEvent.click(screen.getByRole("checkbox", { name: "Virtual display" }));
+  expect(screen.queryAllByRole("dialog").length).toBe(0);
+  expect(calls.length).toBe(1);
+  // Settle: the pending sentence is gone and the box answers again.
+  release();
+  await waitFor(() =>
+    expect(screen.getByRole("checkbox", { name: "Virtual display" }).getAttribute("aria-disabled")).not.toBe("true"),
+  );
 });

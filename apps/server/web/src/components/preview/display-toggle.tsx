@@ -11,6 +11,9 @@ import type { SubshellView } from "@/types/subshell";
 /** The launch form's display size, reused here: the picker offers a default, not a designer. */
 const DEFAULT_DISPLAY_SIZE = { width: 1280, height: 800 } as const;
 
+/** The access limit, verbatim: the box covers both directions with it. */
+const ACCESS_LIMIT = "Turning a virtual display on or off needs edit access to this subshell.";
+
 /**
  * The picker's Virtual display row (spec 2026-11-06). Off: the launch form's
  * own control, checked means "enable it" - the click confirms (the pane
@@ -42,6 +45,9 @@ export function DisplayToggle({
   const [provider, setProvider] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const on = info.screen !== null;
+  // The viewer's access limit, if any: it disables the box in BOTH directions
+  // through the field's `disabledReason` channel.
+  const accessLimit = subshell.access === "view" ? ACCESS_LIMIT : undefined;
   const mutate = useMutation({
     // PUT awaits the full in-place restart server-side (kill + relaunch), so
     // the caches settling after it is the whole sync story - the same promise
@@ -70,6 +76,12 @@ export function DisplayToggle({
     onSettled: () => onBusyChange?.(false),
   });
   async function flip(wantOn: boolean) {
+    // A flip in flight already owns this control; a second one (a DELETE after
+    // a still-running PUT, which awaits a whole restart) would fight it. The
+    // box is disabled meanwhile (the pending-first `disabledReason` below),
+    // but a click can land in the same tick the pending flag was set, so the
+    // action guards itself too.
+    if (mutate.isPending) return;
     setError(null);
     onBusyChange?.(true);
     const ok = wantOn
@@ -92,19 +104,24 @@ export function DisplayToggle({
         onChange={(checked) => void flip(Boolean(checked))}
         provider={provider}
         onProviderChange={on ? undefined : setProvider}
-        disabledReason={
-          subshell.access === "view"
-            ? "Turning a virtual display on or off needs edit access to this subshell."
-            : undefined
-        }
+        // Pending-first: an in-flight flip (a PUT that awaits a whole restart)
+        // is the reason right now, and it overrides the access sentence rather
+        // than concatenating with it. A view-only viewer can't start a flip, so
+        // pending never reaches them; once settled, the access story returns.
+        disabledReason={mutate.isPending ? "Wait for the display change in progress to finish." : accessLimit}
         // The pane's node is fixed and named in the dialog's header, so the
         // launch form's "Choose a node first." would be a non sequitur here;
         // when the viewer cannot see the node there is no readiness to read,
-        // and the override says what is actually true instead.
+        // and the override says what is actually true instead. During the load
+        // window `data` is still undefined, so nothing yet blames sharing: the
+        // dialog's own loading phrase reads until the list lands and the node
+        // is genuinely absent.
         reasonOverride={
           node
             ? undefined
-            : "This pane's node isn't shared with you, so the dashboard can't check its display options from here. Turning off a display that's on still works."
+            : data === undefined
+              ? "Checking this node…"
+              : "This pane's node isn't shared with you, so the dashboard can't check its display options from here. Turning off a display that's on still works."
         }
       />
       {error && (
