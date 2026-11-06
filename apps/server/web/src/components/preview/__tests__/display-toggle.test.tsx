@@ -211,6 +211,10 @@ it("flips a running display off through its own confirm, with a DELETE", async (
   fireEvent.click(control);
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).getByText("Turn off virtual display?")).toBeTruthy();
+  // The body's two promises, pinned the way both enable variants pin theirs:
+  // what dies on the screen, and what the close leaves running.
+  expect(within(dialog).queryAllByText(/virtual screen closes/).length).toBeGreaterThan(0);
+  expect(within(dialog).queryAllByText(/The subshell keeps running/).length).toBeGreaterThan(0);
   fireEvent.click(within(dialog).getByRole("button", { name: "Turn off display" }));
   await waitFor(() => expect(calls.length).toBe(1));
   expect(calls[0]?.url).toBe("/api/subshells/s-1/screen");
