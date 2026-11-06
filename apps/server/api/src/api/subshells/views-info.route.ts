@@ -6,6 +6,7 @@ import { apiModels } from "@/api/schemas/index.js";
 import { gatePreview, previewNodeState } from "@/api/subshells/preview-gate.js";
 import { NodeRpcError } from "@/modules/nodes/node-rpc.js";
 import { getVirtualDisplayEnabled, getWebPreviewsEnabled } from "@/modules/nodes/preview-enabled.js";
+import { liveScreenForPane } from "@/modules/previews/live-screen.js";
 import { getPreviewBroker } from "@/modules/previews/preview-broker.js";
 import { PREVIEW_PORTS_UNSUPPORTED } from "@/modules/previews/refusals.js";
 
@@ -127,23 +128,15 @@ export const viewsInfoRoute = new Elysia()
         return { ...EMPTY_PORTS, ...nodeState };
       }
       try {
-        const broker = getPreviewBroker();
-        const answer = await broker.getPorts(nodeId, params.id);
-        // The launch ack names the screen before the node's own scan
-        // reports it (the bridge is up when the ack flies; a scan can lag
-        // it). The plane's memory may fill a null screen, but it never
-        // masks a live answer and never overwrites a named screenLost: a
-        // death the node reported outranks the plane's memory of the birth.
-        const remembered =
-          answer.screen === null && answer.screenLost === undefined ? broker.displayForPane(params.id) : null;
+        // The screen decision is the shared predicate `PUT /:id/screen`'s
+        // duplicate guard refuses on, so the checkbox and the guard always
+        // agree about which display is live (their memory-vs-answer rules
+        // live in `liveScreenForPane`).
+        const { answer, screen } = await liveScreenForPane(getPreviewBroker(), nodeId, params.id);
         return {
           ports: nodeState.webPreviewsEnabled ? answer.ports : [],
           cdpPort: nodeState.webPreviewsEnabled ? answer.cdpPort : null,
-          screen: nodeState.virtualDisplayEnabled
-            ? remembered && remembered.nodeId === nodeId
-              ? remembered.screen
-              : answer.screen
-            : null,
+          screen: nodeState.virtualDisplayEnabled ? screen : null,
           ...(!nodeState.virtualDisplayEnabled || answer.screenLost === undefined
             ? {}
             : { screenLost: answer.screenLost }),
