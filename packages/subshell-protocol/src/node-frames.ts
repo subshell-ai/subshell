@@ -235,8 +235,15 @@ import {
  * the title and lists every listener it finds, so the same pane would offer a
  * different picker depending on which host ran it; the exact-match handshake
  * rejects one before discovery is ever asked.
+ *
+ * **26 -> 27:** `preview_display_close` ends a pane's allocated virtual
+ * display without touching the pane itself (spec 2026-11-06, live display
+ * toggle). Older nodes answer `unsupported`, which the plane maps to "update
+ * the node", so the exact-match handshake refuses one before the toggle is
+ * ever offered. The version floor and `apps/node/agent/package.json` move to
+ * 3.2.0 in this commit, per the versions.ts rule.
  */
-export const NODE_PROTOCOL_VERSION = 26;
+export const NODE_PROTOCOL_VERSION = 27;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -1325,6 +1332,7 @@ export type NodeCommandBody =
   | PreviewCloseCommand
   | PreviewPortsGetCommand
   | { type: "preview_display_check"; provider?: string }
+  | PreviewDisplayCloseCommand
   | SetPreviewEnabledCommand;
 
 /**
@@ -1720,6 +1728,14 @@ export interface PreviewPortsGetCommand {
   paneId: string;
 }
 
+/** Ends a pane's allocated virtual display without touching the pane. Teardown is never
+ *  policy-gated node-side (the preview_close doctrine): a switched-off node must still be
+ *  able to free the display. An unallocated pane answers closed:false. */
+export interface PreviewDisplayCloseCommand {
+  type: "preview_display_close";
+  paneId: string;
+}
+
 /** The per-machine owner switch, plane sole author. Mirrors set_ssh_enabled's shape (decision 5). */
 export interface SetPreviewEnabledCommand extends NodePreviewEnabledWire {
   type: "set_preview_enabled";
@@ -1735,6 +1751,7 @@ export const PREVIEW_COMMAND_TYPES = [
   "preview_close",
   "preview_ports_get",
   "preview_display_check",
+  "preview_display_close",
   "set_preview_enabled",
 ] as const;
 
@@ -2429,6 +2446,12 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       };
     case "preview_ports_get":
       return isStr(value.paneId) ? { type: "preview_ports_get", paneId: value.paneId } : null;
+    case "preview_display_close":
+      // Stricter than the ports scan beside it on purpose: this is a
+      // teardown addressed to one pane, and an empty id names none of them.
+      return isStr(value.paneId) && value.paneId.length > 0
+        ? { type: "preview_display_close", paneId: value.paneId }
+        : null;
     case "set_preview_enabled": {
       // Same shape as set_maintenance / set_ssh_enabled, strict for the same
       // reason: half a stamp pair is not a decision.
