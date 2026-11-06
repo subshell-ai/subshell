@@ -1,6 +1,7 @@
 ---
 "@internal/server": minor
 "@internal/node": minor
+"@internal/docs": patch
 ---
 
 Turn a running subshell's virtual display on or off from the Web previews &
