@@ -10,8 +10,16 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
  * machine that stopped serving displays. `closeFor` is idempotent across the
  * provider registry, so an unallocated pane is routine: the answer is
  * `closed: false`, not an error. The pre-read of `getFor` is what makes that
- * answer honest; the per-pane open/close queue inside PreviewDisplays keeps
- * it true against a concurrent launch or sweep.
+ * answer honest as of the moment it reads, and the per-pane open/close queue
+ * inside PreviewDisplays keeps the ordering true against a concurrent launch,
+ * whose `openFor` waits behind this close. The orphan sweep is NOT in that
+ * queue: `sweepOrphans` in `packages/pane-runtime/src/preview/display.ts`
+ * walks the providers directly, so a sweep landing mid-flight can take the
+ * display down first and the queued `closeFor` then finds nothing. One
+ * cosmetic edge rides the other side of that gap: a launch allocating between
+ * the pre-read and the close leaves `closed: false` while `closeFor` tears
+ * down the display that launch just allocated. Nothing consumes `closed` in
+ * the SPA, so this is recorded, not fixed.
  */
 export async function execPreviewDisplayClose(
   ctx: CommandContext,
