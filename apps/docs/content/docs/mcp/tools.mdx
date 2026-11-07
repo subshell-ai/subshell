@@ -24,6 +24,7 @@ Successful MCP responses contain JSON encoded in a text content block. Failures 
 | `list_subshell_views` | Discover a subshell's apps, browser, and virtual display. |
 | `open_subshell_view` | Create a private app or screen connection. |
 | `watch_subshell_browser` | Start or stop watching browser frames. |
+| `set_subshell_display` | Turn a live subshell's virtual display on or off. |
 | `list_presets` | List saved agent presets and harness catalog entries. |
 | `create_subshell` | Launch from a saved preset, or open a plain terminal without one. |
 | `restart_subshell` | Revive a session in place. |
@@ -99,6 +100,12 @@ Treat the complete link as a secret. Anyone holding it can use the connection wh
 ## watch_subshell_browser
 
 Pass `{ "subshell_id": "SUBSHELL_ID", "on": true }`, optionally with a CDP `port`, to start watching browser frames. Pass `on: false` to stop watching when finished. Frames go to authorized dashboard live subscriptions, not the MCP response. This doesn't provide mouse or keyboard input. The server checks ownership, the node’s web-preview permission, and the browser port, as it does for dashboard requests.
+
+## set_subshell_display
+
+Pass `{ "subshell_id": "SUBSHELL_ID", "screen": { "width": 1280, "height": 800 } }`, optionally with a `provider` ID, to give a running subshell a virtual display. Leave `provider` out to use the node default. Pass `{ "subshell_id": "SUBSHELL_ID", "screen": null }` to take the display away. Width and height are integers from 320 to 4096. Setting a display returns `{ ok, screen }`, and clearing one returns `{ ok, closed }`, where `closed` tells you whether a display had actually been running.
+
+You can't hand a running process a new screen, so turning the display on restarts the subshell in place. It keeps its ID and its history, and the conversation comes back only if the harness can resume it. That means an agent turning on its own display ends this tool call with the restart, the way `restart_subshell` does; how the pane comes back is up to the harness. Turning the display off happens right away and leaves the pane running, though a program that was already running keeps its old display setting until the next restart. Both requests fail while the node is offline, and an offline refusal changes nothing. If a restart is already running, the enable refusal keeps your request: call the tool again once that restart settles and the display applies. Run `get_node` first to see whether the node has a display provider ready.
 
 ## list_presets
 

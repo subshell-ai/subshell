@@ -41,14 +41,14 @@ export async function resolveNodeDisplayRequest(
   if (row?.virtualDisplayEnabled !== 1)
     refused(
       status,
-      "Virtual displays are disabled on this node. Enable Allow virtual displays in node settings before starting this subshell.",
+      "Virtual displays are disabled on this node. Enable Allow virtual displays in node settings.",
       NODE_OFF,
     );
   const provider = request.provider ?? row.virtualDisplayProvider ?? DEFAULT_VIRTUAL_DISPLAY_PROVIDER;
   if (!VIRTUAL_DISPLAY_PROVIDERS.some((p) => p.id === provider))
     refused(
       status,
-      "This virtual display provider is unavailable. Choose an available provider for a new subshell.",
+      "This virtual display provider is unavailable. Choose an available provider instead.",
       PROVIDER_UNSUPPORTED,
     );
   // The catalog knows which machine each provider drives and the row knows which
@@ -59,13 +59,13 @@ export async function resolveNodeDisplayRequest(
   if (!displayProviderRunsOnOs(provider, row.os))
     refused(
       status,
-      "This virtual display provider does not run on this node's operating system. Choose a provider this machine supports, or launch without a virtual display.",
+      "This virtual display provider does not run on this node's operating system. Choose a provider this machine supports, or go without a virtual display.",
       PROVIDER_UNSUPPORTED,
     );
   if (!storedDisplayProviderIds(row.virtualDisplayProviders).includes(provider))
     refused(
       status,
-      "This virtual display provider is disabled on the node. Enable it in node settings or choose another provider for a new subshell.",
+      "This virtual display provider is disabled on the node. Enable it in node settings or choose another provider.",
       PROVIDER_DISABLED,
     );
   return { ...request, provider };

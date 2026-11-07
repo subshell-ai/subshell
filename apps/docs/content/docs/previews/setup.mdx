@@ -42,10 +42,13 @@ requirements on the selected node, which may be a different machine from the one
 displaying the dashboard. A pending or failed requirements check blocks a launch
 with a virtual display until you resolve it or turn off the launch's display option.
 
-Each subshell saves its provider and display size for restarts. Changing the
-node's default doesn't change existing subshells. Disabling a provider prevents
-new allocations and restarts that need it, while existing displays keep running. Enabling a provider starts
-no processes until a subshell requests a display.
+Each subshell saves the provider and display size it uses, and every restart
+reads that saved choice. It isn't fixed at launch anymore: the **Virtual
+display** toggle in the preview picker updates what the subshell wants, and the
+next restart picks it up. Changing the node's default doesn't change subshells
+that already exist. Turning a provider off stops it taking on new displays and
+blocks a restart that needs it, while displays already running keep going.
+Turning one on starts nothing until a subshell asks for that display.
 
 You can [save a display choice in a preset](/presets/launch-defaults#save-a-virtual-display-choice).
 Review it when changing nodes: if the new node can't provide that display, the

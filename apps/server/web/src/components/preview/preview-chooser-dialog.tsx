@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { DisplayToggle } from "@/components/preview/display-toggle";
 import { NodeUnavailableNote } from "@/components/preview/node-unavailable-note";
 import { nodeReasonLine, PortList } from "@/components/preview/port-list";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -71,6 +72,9 @@ export function PreviewChooserDialog({ subshellId, onClose }: { subshellId: stri
                 onScreen={() => open({ kind: "screen" })}
                 onWatch={() => open({ kind: "browser" })}
               />
+            )}
+            {info && subshell && (
+              <DisplayToggle subshellId={subshellId} subshell={subshell} info={info} onBusyChange={setBusy} />
             )}
             {info?.nodeEnabled && !info.reason && !info.ports.length && !info.screen && !info.cdpPort && (
               <p className="text-detail text-muted-foreground">No apps or screens discovered in this subshell.</p>

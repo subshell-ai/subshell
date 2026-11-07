@@ -1,9 +1,9 @@
 /**
  * Confirmation prompts for the destructive subshell action, asked by
  * `useSubshellMutations` (the menu, the cards, the rows, the terminal's
- * exited panel) and by the workspace's pane header, so the wording — and
- * the fact that it asks at all — stays identical wherever it is triggered
- * from.
+ * exited panel), by the workspace's pane header, and by the preview picker's
+ * virtual display toggle, so the wording, and the fact that it asks at all,
+ * stays identical wherever it is triggered from.
  *
  * "Close" is the human word for DELETE (spec 2026-09-03 close-vocabulary
  * design): it stops the process AND removes the row and its log. It replaced
@@ -87,6 +87,40 @@ export function confirmCloseSubshells(n: number): Promise<boolean> {
     title: "Close the selected subshells?",
     description: `This stops the processes and permanently deletes ${count(n)} and their history. You can't undo this.`,
     confirmLabel: "Close subshells",
+    danger: true,
+  });
+}
+
+/**
+ * Confirmation before turning a subshell's virtual display ON
+ * (spec 2026-11-06): enabling restarts the row's process, so the sentence is
+ * the restart prompt's honest consequence, not a surprise after the click.
+ * The description branches on liveness, the same split the plain restart
+ * prompt keeps: a LIVE pane's process really stops, while the flip on a
+ * stopped one revives it, so it says the row starts fresh rather than
+ * claiming to interrupt something that already ended. The resume caveat
+ * rides both sentences, and the button mirrors the split ("Enable and
+ * restart" / "Enable and start"). Enabling is deliberately NOT the
+ * destructive style: it loses nothing. Only the OFF prompt goes red, because
+ * that one closes whatever is drawn on the screen.
+ */
+export function confirmEnableVirtualDisplay(alive: boolean): Promise<boolean> {
+  return confirmAction({
+    title: "Enable virtual display?",
+    description: alive
+      ? "This subshell session needs a restart, which stops what it's doing now. The agent will pick its conversation back up if it keeps history."
+      : "This subshell session isn't running, so turning it on starts it fresh with the new screen. The agent will pick its conversation back up if it keeps history.",
+    confirmLabel: alive ? "Enable and restart" : "Enable and start",
+    danger: false,
+  });
+}
+
+/** Confirmation before turning the display OFF: what's drawn on it dies. */
+export function confirmDisableVirtualDisplay(name: string): Promise<boolean> {
+  return confirmAction({
+    title: "Turn off virtual display?",
+    description: `Anything running on "${name}"'s virtual screen closes, and the node frees the memory and CPU it uses. The subshell keeps running.`,
+    confirmLabel: "Turn off display",
     danger: true,
   });
 }

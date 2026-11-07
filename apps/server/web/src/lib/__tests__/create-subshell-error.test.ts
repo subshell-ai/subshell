@@ -62,7 +62,7 @@ describe("isDisplayLaunchRefusal", () => {
   it("routes the budget refusal the AI PC actually answered", () => {
     expect(
       isDisplayLaunchRefusal(
-        "API 400: That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or launch without a screen. (preview-display-not-ready: display :90 / rfb 5910 not answering within 10000ms (Xvfb socket never appeared))",
+        "API 400: That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or go without a screen. (preview-display-not-ready: display :90 / rfb 5910 not answering within 10000ms (Xvfb socket never appeared))",
       ),
     ).toBe(true);
   });
