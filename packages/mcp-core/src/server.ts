@@ -218,7 +218,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     {
       title: "Set subshell display",
       description:
-        "Turn a live subshell's virtual display on or off without recreating it. Pass screen {width,height,provider?} to enable: the subshell restarts in place (same id and history; resuming harnesses continue the conversation) because a running process cannot be handed a new DISPLAY. Pass screen:null to disable: the display closes immediately and the pane keeps running, though processes started before this call keep a stale DISPLAY until the next restart. Enabling your OWN pane ends this tool call with the restart, like restart_subshell. Check get_node first for provider readiness. Both flips refuse while the node is offline.",
+        "Turn a live subshell's virtual display on or off without recreating it. Pass screen {width,height,provider?} to enable: the subshell restarts in place (same id and history; resuming harnesses continue the conversation) because a running process cannot be handed a new DISPLAY. Pass screen:null to disable: the display closes immediately and the pane keeps running, though processes started before this call keep a stale DISPLAY until the next restart. Enabling your OWN pane ends this tool call with the restart, like restart_subshell. Check get_node first for provider readiness. Both flips refuse while the node is offline. If a 409 says a restart is already running, your enable request was kept: call the tool again once that restart settles and it applies.",
       inputSchema: SetSubshellDisplaySchema,
     },
     guard((args: z.infer<typeof SetSubshellDisplaySchema>) => setSubshellDisplay(deps, args)),

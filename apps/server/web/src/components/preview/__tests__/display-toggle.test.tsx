@@ -325,6 +325,11 @@ it("explains the real blocker when the pane's node isn't shared with the viewer"
   const live = await screen.findByRole("checkbox", { name: "Virtual display" });
   expect(live.getAttribute("aria-checked")).toBe("true");
   expect(live.getAttribute("aria-disabled")).not.toBe("true");
+  // The wrapper's announced label must not contradict the operable box it
+  // wraps: an availability blocker on a CHECKED box names the reason alone,
+  // never "unavailable" (the unchecked box keeps that prefix).
+  const wrapper = await screen.findByRole("button", { name: /isn't shared with you/ });
+  expect(String(wrapper.getAttribute("aria-label")).toLowerCase()).not.toContain("unavailable");
   expect(onCalls.length).toBe(0);
 });
 

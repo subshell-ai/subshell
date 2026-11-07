@@ -215,16 +215,27 @@ Dated 2026-11-06, from the whole-branch review. The sections above record the
 design; the bullets below say what shipped and what the wording above cannot
 mean.
 
-- Rollback, read precisely: a HANDLED refusal rolls the `screen_config` write
-  back, so "a refusal writes nothing" holds end to end. Only an unhandled
-  crash between the write and the restart leaves intent on the row, and that
-  is exactly what "The desired-state model"'s crash sentence describes. The
-  two sentences are the same story from two ends, not a contradiction. The
-  case this governs is the kill landing and the relaunch then failing: the
-  pane stays dead and the desired write still rolls back, so a plain retry is
-  the path. `restartSubshell` gives the toggle no way to tell a pre-kill
-  refusal from a post-kill one, and rolling back every handled throw was
-  chosen so a 4xx always leaves the row as the flip found it.
+- Rollback, read precisely: the original "every handled throw rolls the write
+  back, so a 4xx always leaves the row as the flip found it" held at design
+  time and was amended while building, twice over. A refusal of the flip's OWN
+  restart still rolls back (the kill landing and the relaunch then failing
+  leaves the pane dead and the column as found, so a plain retry is the path),
+  and every refusal before the write still writes nothing. But the rollback
+  became a compare-and-swap: it restores the prior value only while the column
+  still holds what this call wrote, so a clear or re-set that won during the
+  restart is never undone. And the flip's restart refuses to JOIN a restart
+  already in flight (`RestartInFlightJoinError`, a 409 that asks for a retry
+  once it settles): joining would revive the pane from the pre-write row and
+  answer 200 for a screen the pane never got, and while that other restart
+  holds the lease the column belongs to its revival, so the refused flip KEEPS
+  its write instead of restoring a stale prior. Two flips to a stopped row
+  can write byte-identical JSON, so no value-equality check can tell whose
+  write it is; the lease check is what makes the loser's restore safe. The
+  net contract for a machine client: some 409s leave the row untouched, one
+  409 family keeps the new request for a retry, and the message names which.
+  Only an unhandled crash between the write and the restart leaves intent on
+  the row outside these paths, and that is what "The desired-state model"'s
+  crash sentence describes.
 - The picker's enable sends the launch default 1280x800 and carries no size
   control. So the UI section's "the same size and provider controls as the
   launch form" narrows to the provider control. Sizes and providers change by

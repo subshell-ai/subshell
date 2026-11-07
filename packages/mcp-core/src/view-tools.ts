@@ -171,7 +171,7 @@ export async function openSubshellView(deps: ToolDeps, args: z.infer<typeof Open
 export const SetSubshellDisplaySchema = z.object({
   subshell_id: z.string().min(1),
   screen: ScreenSchema.nullable().describe(
-    "A {width,height,provider?} request turns the display ON: the subshell restarts in place and its process starts holding the new screen (resuming harnesses continue the conversation). null turns it OFF immediately without a restart; apps drawing on the screen close and the node frees its memory and CPU. Both flips refuse while the node is offline.",
+    "A {width,height,provider?} request turns the display ON: the subshell restarts in place and its process starts holding the new screen (resuming harnesses continue the conversation). null turns it OFF immediately without a restart; apps drawing on the screen close and the node frees its memory and CPU. Both flips refuse while the node is offline. If a 409 says a restart is already running, your enable request was kept: call the tool again once that restart settles and it applies.",
   ),
 });
 
