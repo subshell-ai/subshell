@@ -1,5 +1,16 @@
 # @internal/node
 
+## 3.2.1
+
+### Patch Changes
+
+- [#492](https://github.com/subshell-ai/subshell/pull/492) [`0f393a4`](https://github.com/subshell-ai/subshell/commit/0f393a4025093d878772aa2f7f3cd143a266574c) Thanks [@theogravity](https://github.com/theogravity)! - Turn a running subshell's virtual display on or off from the Web previews &
+  screens picker, or with the new set_subshell_display MCP tool. Turning a display
+  on restarts the subshell in place so its process starts on the new screen;
+  turning one off closes the screen immediately and frees the machine's memory
+  and CPU while the subshell keeps running. Nodes and the server must update
+  together (protocol 27).
+
 ## 3.1.4
 
 ### Patch Changes
