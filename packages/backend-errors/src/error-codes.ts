@@ -104,7 +104,9 @@ export enum BackendErrorCodes {
    * finishes); `PUT /api/subshells/:id/screen` over a LIVE display is NOT
    * retryable (the remedy is to turn the display off first, and its message
    * says so); and the same screen flip refuses to join a restart in flight
-   * (its write rolled back; asking again after that restart settles is sound).
+   * (its request stays in the column while that restart holds the lease, so
+   * asking again once it settles applies it; a refusal of the flip's OWN
+   * restart attempt rolls the write back instead).
    */
   RESTART_IN_FLIGHT = "RESTART_IN_FLIGHT",
   /** `POST /api/admin/server/restart`: the installed service definition would close live panes; pass `force`. */

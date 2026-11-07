@@ -142,8 +142,10 @@ export class RestartInFlightSwapError extends Error {}
  * NOT join: the running revival composed its launch from the row it read at
  * ITS own entry, before the flip's `screen_config` write, so a joined 200
  * would claim a display the pane never actually got.
- * {@link SubshellsService.setSubshellScreen} rolls its write back on this
- * throw; the caller turns the display on again once the running restart lands.
+ * {@link SubshellsService.setSubshellScreen} KEEPS its write on this throw
+ * (a restore could race the running restart's own re-read for the config it
+ * is about to bake); the caller turns the display on again once the restart
+ * lands, and that retry applies what the column still holds.
  */
 export class RestartInFlightJoinError extends Error {}
 
@@ -1016,7 +1018,8 @@ export class SubshellManagerService {
       }
       // Same reasoning for a fresh-config restart (the display flip): joining
       // would revive the pane from the pre-write row and answer a 200 for a
-      // screen it never got. The toggle rolls its write back and retries.
+      // screen it never got. The toggle keeps its write for the retry it is
+      // handed - restoring it here would race the holder's own re-read.
       if (refuseJoin) {
         throw new RestartInFlightJoinError(
           `restart in flight for ${sourceId}: a fresh-config restart does not join it`,

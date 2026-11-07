@@ -1407,8 +1407,9 @@ export class SubshellsService extends BaseService {
    * pre-gate writes nothing; a revive that fails after the swap leaves the
    * row dead keeping the chosen preset (the next Start again uses it).
    * {@link setSubshellScreen} rides this method to apply a virtual display
-   * toggle (spec 2026-11-06), rolling back its own column write when the
-   * restart refuses.
+   * toggle (spec 2026-11-06): when the restart itself refuses, the flip rolls
+   * its column write back; when a RUNNING restart holds the lease it keeps
+   * the write, so the retry the 409 asks for still carries the request.
    * @throws SubshellError 404 when absent/invisible to the caller, or when a
    *         terminate/delete won the restart race (converge on "gone").
    * @throws HttpError 403 when the caller holds only `view`.
@@ -1424,12 +1425,14 @@ export class SubshellsService extends BaseService {
    *         is switched off; 404 when access to it was removed. Nothing is
    *         written or killed by either refusal.
    * @throws ApiError 409 RESTART_IN_FLIGHT when a restart that must not join
-   *         finds the id's in-flight lease held: a swap (`refuseJoin` set by
-   *         its own shape) would have the running revival compose the first
-   *         caller's preset, and a display flip needs the fresh revival to
-   *         bake its new screen, so either is refused rather than joined into
-   *         a 200 that would promise something the running restart never
-   *         does. A plain restart with `refuseJoin` unset still joins.
+   *         finds the id's in-flight lease held: a swap is refused by its own
+   *         shape (the manager checks `swapPresetTo` regardless of
+   *         `refuseJoin`) because the running revival composes the first
+   *         caller's preset, and a display flip (`refuseJoin`) needs the
+   *         fresh revival to bake its new screen, so either is refused rather
+   *         than joined into a 200 that would promise something the running
+   *         restart never does. A plain restart with neither marker still
+   *         joins.
    * @param swapPresetTo - the optional preset swap riding this restart
    *         (spec 2026-09-23): `null` = swap to presetless, `undefined` = no
    *         swap. Validated here, written by the manager at the swap point.
@@ -1583,8 +1586,9 @@ export class SubshellsService extends BaseService {
         }
         // A display flip that found a restart already running refuses the same
         // way, and for the same reason: it needs the fresh revival to bake its
-        // new screen, so it declines the join, rolls its write back, and asks
-        // the caller to turn the display on again once this restart lands.
+        // new screen, so it declines the join, leaves its write in the column
+        // for the retry, and asks the caller to turn the display on again once
+        // this restart lands.
         if (err instanceof RestartInFlightJoinError) {
           throwApiError({
             code: BackendErrorCodes.RESTART_IN_FLIGHT,

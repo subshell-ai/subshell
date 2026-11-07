@@ -430,12 +430,12 @@ describe("PUT /api/subshells/:id/screen", () => {
     }
   });
 
-  it("an enable while a restart is in flight refuses the join and rolls its write back", async () => {
+  it("an enable while a restart is in flight refuses the join and keeps its write for the retry", async () => {
     // The in-flight revival composed its launch from the row it read BEFORE
     // this write, so joining would answer 200 for a screen the pane never
-    // got. The flip declines the lease and its 409 asks the caller to try
-    // again once the restart lands (the swap path's RestartInFlightSwapError
-    // is the sibling this mirrors).
+    // got. The flip declines the lease, leaves its request in the column, and
+    // its 409 asks the caller to try again once the restart lands (the swap
+    // path's RestartInFlightSwapError is the sibling this mirrors).
     let releaseLaunch!: () => void;
     const held = new Promise<void>((resolve) => {
       releaseLaunch = resolve;
