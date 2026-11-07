@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.24
+
+### Patch Changes
+
+- [#493](https://github.com/subshell-ai/subshell/pull/493) [`7981c8c`](https://github.com/subshell-ai/subshell/commit/7981c8c1e346df71cb4e0fe3608f90fbee403961) Thanks [@theogravity](https://github.com/theogravity)! - Refresh the website's release listing and download links for the November server, node, and desktop releases.
+
 ## 0.2.23
 
 ### Patch Changes
