@@ -1,5 +1,22 @@
 # @internal/server
 
+## 3.1.0
+
+### Minor Changes
+
+- [#492](https://github.com/subshell-ai/subshell/pull/492) [`0f393a4`](https://github.com/subshell-ai/subshell/commit/0f393a4025093d878772aa2f7f3cd143a266574c) Thanks [@theogravity](https://github.com/theogravity)! - Turn a running subshell's virtual display on or off from the Web previews &
+  screens picker, or with the new set_subshell_display MCP tool. Turning a display
+  on restarts the subshell in place so its process starts on the new screen;
+  turning one off closes the screen immediately and frees the machine's memory
+  and CPU while the subshell keeps running. Nodes and the server must update
+  together (protocol 27).
+
+### Patch Changes
+
+- [#484](https://github.com/subshell-ai/subshell/pull/484) [`c90dee0`](https://github.com/subshell-ai/subshell/commit/c90dee0da29e148f0d4d084f7cf0d3d8d78da916) Thanks [@theogravity](https://github.com/theogravity)! - Fixed "Update all" failing on most nodes when many are registered. An update now fetches the release bytes it's about to authorize before ordering the download, and a fleet of simultaneous node downloads shares one fetch of those bytes instead of each paying for its own. On a plane with a hand-published node binary, this was the difference between every machine timing out on the first try and the whole batch updating at once.
+  
+  The Updates page now tells that wait honestly: while the server is fetching the release bytes, the node's row says exactly that, naming the version, and it keeps saying it through a refresh and in a second tab that never pressed anything. The row switches to "installing" only once the machine has actually been told.
+
 ## 3.0.8
 
 ### Patch Changes
