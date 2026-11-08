@@ -58,6 +58,9 @@ export function SubshellPicker({ workspaceId, existing, onAdd }: SubshellPickerP
           <Plus className="h-3.5 w-3.5" />
         </TippedIconButton>
       ) : (
+        // size="sm" stays deliberate even glyph-only: its horizontal padding
+        // keeps the pill shape. The icon sizes are squares and would flatten
+        // this wide branch into the stacked one's look.
         <TippedIconButton
           tooltip="Add a subshell to this workspace"
           size="sm"
