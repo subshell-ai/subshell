@@ -21,6 +21,7 @@ Successful MCP responses contain JSON encoded in a text content block. Failures 
 | `get_subshell` | Inspect one session. |
 | `list_nodes` | List owned machines, harness health, and SSH and Web previews & screens settings. |
 | `get_node` | Inspect an owned machine and check display prerequisites. |
+| `transfer_node` | Hand an owned machine to another account (needs the `nodes:transfer` grant). |
 | `list_subshell_views` | Discover a subshell's apps, browser, and virtual display. |
 | `open_subshell_view` | Create a private app or screen connection. |
 | `watch_subshell_browser` | Start or stop watching browser frames. |
@@ -83,6 +84,12 @@ enable the helper or grant those permissions. Follow
 [macOS helper setup](/previews/macos) on that node.
 
 A ready display check means its requirements are met. Virtual displays and the chosen provider must also be enabled, the node must permit launches, and launch performs its own checks. Only the token owner's enrolled nodes are available; shares, admin status, and the server's built-in node don't widen this access.
+
+## transfer_node
+
+Pass `{ "node_id": "NODE_ID", "to_user_id": "USER_ID" }`, with `node_id` an id or exact name from `list_nodes` and `to_user_id` the receiving account's id (ids, not e-mails). `retain_access_as_manager` is optional; when true or omitted, this pane's account stays a **Manage** grantee on the machine it gave away, and passing false leaves no grant behind.
+
+The tool needs a credential carrying the `nodes:transfer` permission: a scoped automation key, or a pane launched from one. An ordinary pane token is refused with a refusal that names the door. The handover is one audited transaction; the machine's connection, running subshells, and every other share are unaffected, and re-registration keys minted for the node but never used stop working. Only nodes this pane's account owns are reachable, and the server's built-in node is never transferable. The dashboard procedure and the CLI verb are in [Transfer a node](/nodes/transfer).
 
 ## list_subshell_views
 

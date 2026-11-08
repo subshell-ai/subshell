@@ -1,0 +1,60 @@
+---
+title: "Transfer a node"
+description: "Hand a machine over to another account in one step, without touching the running agent."
+---
+
+Give another account ownership of a node you own. The handover is direct: the receiving account takes over immediately, with no invitation to accept.
+
+Only the node's owner can transfer it. A Manage grantee can't, and neither can an administrator: deciding whose machine a machine is stays the owner's act. The server's own node belongs to the instance, so it isn't transferable.
+
+## What moves, and what doesn't
+
+The machine never notices. Its link to the server, its credentials, its running subshells, and every share you granted other people all carry on untouched; ownership is a line on the row, and the agent's relationship is with the key, not the person.
+
+Two things do change:
+
+- **Unused re-registration keys die.** Any recovery key minted before the transfer and never redeemed stops working, so a key you handed to the old owner can't re-home the machine back.
+- **Your own access is what you choose it to be.** By default you keep a **Manage** share on the machine you gave away, so you can still run it day to day. Turn that off and you part with it completely.
+
+The recipient needs an account on the same server, and it can't be the account you're signed in as. If they already have a node with the same name, the transfer is refused; rename one of them first.
+
+## Transfer from the dashboard
+
+1. In the server dashboard's sidebar, choose **Settings** → **Nodes** and select the machine. Choose **Transfer** at the top of its **Overview** page, beside **Share**.
+2. Pick the account that takes it over, by e-mail. Your own account isn't offered; a transfer to yourself means nothing moved.
+3. Decide whether to keep managing the machine yourself (on by default).
+4. Confirm. The page returns to the node list, because what's left to see there is someone else's machine.
+
+## Transfer from a script
+
+Automation reaches the same act through an API key with the **nodes:transfer** permission (mint one at **Settings** → **Server Settings** → **API keys**). A machine credential may only hand over nodes its own account owns, which is the provisioning pattern: the server mints setup keys, the first enrollment produces a system-owned node, and your automation assigns it.
+
+Get the recipient's id once from `GET /api/users` (any signed-in caller can read the roster), and the node's id from the last path segment of its dashboard page. Then either drive the CLI on the server host:
+
+```bash
+subshell-server node transfer <nodeId> --to <userId> --key-stdin
+```
+
+The key comes from stdin and never from the command line: a bearer written in argv is visible to every local user through `ps` and stays in shell history. Pipe it in from wherever you store it, for example:
+
+```bash
+printf '%s' "$TRANSFER_KEY" | subshell-server node transfer \
+  "<nodeId>" --to "<userId>" --key-stdin --no-keep-manage
+```
+
+Or call the route directly:
+
+```bash
+curl -sS -X POST https://your-server.example:3080/api/nodes/<nodeId>/transfer \
+  -H "authorization: Bearer $TRANSFER_KEY" \
+  -H "content-type: application/json" \
+  -d '{"toUserId": "<userId>", "retainAccessAsManager": true}'
+```
+
+`retainAccessAsManager` is required on the wire: there's no hidden default when a script forgets the field. Add `--json` to the CLI for a machine-readable result.
+
+An agent pane can do the same through the Subshell MCP's **transfer_node** tool, but only when it was launched from a key that carries the grant; an ordinary pane's token gets a refusal that names the door.
+
+## Next steps
+
+See [Share a node](/nodes/sharing) for the levels a new owner can hand back, [API keys](/automation/api-keys) for minting the transfer credential, and [Unenroll a node](/nodes/unenroll) for the other way to let go of a machine.
