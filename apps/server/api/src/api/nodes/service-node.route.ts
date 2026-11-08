@@ -162,11 +162,11 @@ export const serviceNodeRoute = new Elysia()
         );
       }
       if (!nodeCanConfigure(gate.access)) throw new ForbiddenError();
-      // The one-way verbs are the owner's — see OWNER_ONLY_VERBS. Checked
-      // against `access`, not `canManage`: the `local` exception that makes an
-      // admin a manager is irrelevant here because `local` is refused outright
-      // two lines down.
-      if (OWNER_ONLY_VERBS.includes(body.verb) && gate.access !== "owner") throw new ForbiddenError();
+      // The one-way verbs sit on the management band — OWNER_ONLY_VERBS, the
+      // owner and (since spec 2026-11-07) a `manage` grantee, which is exactly
+      // `canManage` here: the `local` exception that would make an admin a
+      // manager is irrelevant because `local` is refused outright above.
+      if (OWNER_ONLY_VERBS.includes(body.verb) && !gate.canManage) throw new ForbiddenError();
       // `force` means "act even though live panes will die", so it is
       // meaningless on the two verbs that cannot end one. Refused rather than
       // ignored: a flag silently accepted where it does nothing is how a

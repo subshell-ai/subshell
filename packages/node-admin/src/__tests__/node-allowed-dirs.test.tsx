@@ -25,6 +25,7 @@ function node(over: Partial<Node> = {}): Node {
     access: "owner",
     canManage: true,
     canRetire: true,
+    canTransfer: false,
     canLaunch: true,
     allowedDirs: [],
     capabilities: [],
@@ -86,7 +87,7 @@ describe("NodeAllowedDirs", () => {
     renderCard({ canManage: false, allowedDirs: [] });
     expect(document.body.textContent).toContain("All directories are allowed.");
     expect(document.body.textContent).not.toContain("Add a directory");
-    expect(screen.getByText("Only the node owner can change these rules.")).toBeDefined();
+    expect(screen.getByText("Only the node's owner or a Manage grantee can change these rules.")).toBeDefined();
     expect(screen.queryByRole("button", { name: /add directory/i })).toBeNull();
   });
 
@@ -105,7 +106,7 @@ describe("NodeAllowedDirs", () => {
   it("shows a non-manager the rules but no way to change them", () => {
     renderCard({ canManage: false, access: "edit", allowedDirs: ["/srv/work"] });
     expect(screen.getByText("/srv/work")).toBeDefined();
-    expect(screen.getByText("Only the node owner can change these rules.")).toBeDefined();
+    expect(screen.getByText("Only the node's owner or a Manage grantee can change these rules.")).toBeDefined();
     expect(screen.queryByRole("button", { name: /add directory/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Remove/ })).toBeNull();
   });

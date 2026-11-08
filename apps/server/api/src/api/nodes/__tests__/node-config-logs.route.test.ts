@@ -167,6 +167,23 @@ describe("/api/nodes logs + config gates", () => {
     expect(((await res.json()) as { code: string }).code).toBe("NODE_OFFLINE");
   });
 
+  /**
+   * `manage` (spec 2026-11-07) joined the owner at this gate: whoever may
+   * re-share and rotate the machine may also point it at another plane —
+   * that was the operator's ceiling call, band and all. Ownership transfer
+   * and the retire gate stayed above it, pinned in their own suites.
+   */
+  it("config: a manage grantee gets past the gate too", async () => {
+    const id = await mkNode();
+    await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "manage" }], aliceId);
+    const res = await req("PATCH", `/api/nodes/${id}/config`, {
+      cookie: carolCookie,
+      body: { serverUrl: "https://plane.example.com" },
+    });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { code: string }).code).toBe("NODE_OFFLINE");
+  });
+
   // Validated BEFORE the node is asked anything, so an unusable address is a
   // 400 rather than a confusing 409 about a machine that is merely offline.
   it("config: an unusable address is refused before the node is dialed", async () => {

@@ -1,4 +1,6 @@
 import type { ApiKeyPermission } from "@internal/subshell-protocol";
+import { type Kysely, sql, type Transaction } from "kysely";
+import type { Database } from "@/db/types/index.js";
 import { authDatabase } from "@/modules/auth/database.js";
 
 /**
@@ -104,6 +106,28 @@ export function setApiKeyExpiry(id: string, expiresAtIso: string): void {
 /** Removes a key row entirely. */
 export function deleteApiKey(id: string): void {
   authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [id]);
+}
+
+/**
+ * Move a key's owning account, INSIDE the caller's app-side transaction
+ * (spec 2026-11-07, the node ownership handover). This is the one member that
+ * runs apikey SQL through the app's Kysely handle rather than `authDatabase()`:
+ * the handover is atomic across the `nodes` row and its bearer key, and app
+ * and auth are two handles on one file - a write on the other handle would
+ * commit outside the transaction, which is exactly the split this act must not
+ * have. Same quoted-camelCase column discipline as the rest of this module
+ * (`referenceId` is better-auth's physical owner column); `/ws/node` verifies
+ * by id and metadata and auth keeps no apikey cache, so the machine notices
+ * nothing.
+ */
+export async function setApiKeyOwner(
+  tx: Kysely<Database> | Transaction<Database>,
+  id: string,
+  userId: string,
+): Promise<void> {
+  await sql`UPDATE apikey SET "referenceId" = ${userId}, "updatedAt" = ${new Date().toISOString()} WHERE id = ${id}`.execute(
+    tx,
+  );
 }
 
 /** All system-kind keys owned by `systemUserId`, newest first. */

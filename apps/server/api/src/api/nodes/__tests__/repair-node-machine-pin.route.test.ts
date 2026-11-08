@@ -210,6 +210,42 @@ describe("the door: EXACTLY the owner", () => {
     expect((await repairRows()).length).toBe(before);
   });
 
+  /**
+   * `manage` (spec 2026-11-07) rides every door the `canManage` band opens,
+   * and this door sat behind two checks that had agreed by accident (route:
+   * canManage = owner; service: owner equality). Widening only the route
+   * would let a manage grantee through the door and refuse them inside it,
+   * so both arms move together.
+   */
+  it("a manage grantee re-pairs on a node they hold manage on", async () => {
+    const nodeC = `${NODE_A}-managed`;
+    const now = new Date().toISOString();
+    await db
+      .insertInto("nodes")
+      .values({
+        id: nodeC,
+        ownerUserId: ownerId,
+        name: nodeC,
+        kind: "agent",
+        status: "offline",
+        createdAt: now,
+        updatedAt: now,
+      } as never)
+      .execute();
+    await new NodeSharesRepository(db).replaceForNode(
+      nodeC,
+      [{ granteeUserId: editorId, permission: "manage" }],
+      ownerId,
+    );
+    try {
+      const res = await post(nodeC, PEER_B, editorCookie);
+      expect(res.status).toBe(200);
+      expect(sentCmds).toHaveLength(1);
+    } finally {
+      await db.deleteFrom("nodes").where("id", "=", nodeC).execute();
+    }
+  });
+
   it("an admin cannot repair a foreign node but manages server pins", async () => {
     // The exact-owner rule, not `canManage`: the admin boost (effective edit)
     // and the seeded-local manage exception both stop at a trust act.

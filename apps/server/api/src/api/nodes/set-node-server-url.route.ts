@@ -118,7 +118,10 @@ export const setNodeServerUrlRoute = new Elysia()
           }),
         );
       }
-      if (gate.access !== "owner") throw new ForbiddenError();
+      // Repointing rides the management band: owner, or a `manage` grantee
+      // (spec 2026-11-07). `canManage` IS that band here because `local` is
+      // refused above, before this line.
+      if (!gate.canManage) throw new ForbiddenError();
 
       const checked = validateNodeServerUrl(body.serverUrl);
       if ("error" in checked) {

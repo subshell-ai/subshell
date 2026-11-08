@@ -79,7 +79,7 @@ export function NodeAllowedDirs({
             <p className="text-detail text-warning">
               {node.kind === "local"
                 ? "Only a server admin can change these rules."
-                : "Only the node owner can change these rules."}
+                : "Only the node's owner or a Manage grantee can change these rules."}
             </p>
           ) : null}
         </CardDescription>

@@ -40,6 +40,7 @@ const base: NodeDetail = {
   access: "owner",
   canManage: true,
   canRetire: true,
+  canTransfer: false,
   canLaunch: true,
   allowedDirs: [],
   capabilities: [],
@@ -143,14 +144,26 @@ describe("NodeServiceCard", () => {
    * `edit` grantee is trusted to interrupt a machine, not to take it off the
    * instance until someone walks to it.
    */
-  it("disables stop and uninstall for anyone but the owner", async () => {
-    await renderServiceCard({ ...base, access: "edit", runtime: runtime() });
+  it("disables stop and uninstall for anyone but the manage band", async () => {
+    // `canManage` is the server's own answer, so an edit viewer arrives with
+    // it false; the card gates on exactly that.
+    await renderServiceCard({ ...base, access: "edit", canManage: false, runtime: runtime() });
     expect(verbButton("Stop").matches(":disabled, [aria-disabled=true]")).toBe(true);
     expect(verbButton("Uninstall service").matches(":disabled, [aria-disabled=true]")).toBe(true);
     // The reachable verbs stay available to the same grantee.
     expect(verbButton("Restart").matches(":disabled, [aria-disabled=true]")).toBe(false);
     expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Install service" })).toBeNull();
+  });
+
+  it("opens stop and uninstall to a manage grantee (spec 2026-11-07)", async () => {
+    // The band this card gates on widened from owner-only to owner∪manage;
+    // the wire says so through `canManage`, and the card must not re-derive
+    // a narrower rule from `access`.
+    await renderServiceCard({ ...base, access: "manage", canManage: true, runtime: runtime() });
+    expect(verbButton("Stop").matches(":disabled, [aria-disabled=true]")).toBe(false);
+    expect(verbButton("Uninstall service").matches(":disabled, [aria-disabled=true]")).toBe(false);
+    expect(screen.queryByText(/Only the node owner/) === null).toBe(true);
   });
 
   it("disables actions when the service state is unknown", async () => {

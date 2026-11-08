@@ -144,6 +144,43 @@ describe("/api/nodes/:id/shares", () => {
     expect(((await detail.json()) as { access: string }).access).toBe("edit");
   });
 
+  it("PUT: a manage grant round-trips on an agent node and reads back as manage (spec 2026-11-07)", async () => {
+    const id = await mkNode(aliceId);
+    const res = await req("PUT", `/${id}/shares`, {
+      cookie: aliceCookie,
+      body: { shares: [{ granteeUserId: bobId, permission: "manage" }] },
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { shares: ShareRow[] }).shares[0]?.permission).toBe("manage");
+    const detail = (await (await req("GET", `/${id}`, { cookie: bobCookie })).json()) as {
+      access: string;
+      canManage: boolean;
+      canRetire: boolean;
+    };
+    expect(detail.access).toBe("manage");
+    // Server-derived flags, the never-re-derive rule: manage manages, and the
+    // retire arm is NOT dragged along (the creep pin at the HTTP surface).
+    expect(detail.canManage).toBe(true);
+    expect(detail.canRetire).toBe(false);
+  });
+
+  it("PUT: a manage grantee may manage the grant set themselves, but not retire via it", async () => {
+    const id = await mkNode(aliceId);
+    await shares.replaceForNode(id, [{ granteeUserId: bobId, permission: "manage" }], aliceId);
+    expect((await req("GET", `/${id}/shares`, { cookie: bobCookie })).status).toBe(200);
+    const reShare = await req("PUT", `/${id}/shares`, {
+      cookie: bobCookie,
+      body: {
+        shares: [
+          { granteeUserId: bobId, permission: "manage" },
+          { granteeUserId: aliceId, permission: "view" },
+        ],
+      },
+    });
+    expect(reShare.status).toBe(200);
+    expect(((await reShare.json()) as { shares: ShareRow[] }).shares.length).toBe(2);
+  });
+
   it("PUT: unknown grantee → 400; invalid permission → 400 via validation", async () => {
     const id = await mkNode(aliceId);
     const bad = await req("PUT", `/${id}/shares`, {
@@ -177,6 +214,21 @@ describe("/api/nodes/:id/shares", () => {
       body: { shares: [{ granteeUserId: null, permission: "edit" }] },
     });
     expect(restore.status).toBe(200);
+  });
+
+  it("local: a manage grant is refused 400 and the stored set is byte-unchanged (spec 2026-11-07)", async () => {
+    // Who manages the control-plane host has always been the admins' own
+    // decision; a `manage` share would hand that machine to one non-admin.
+    const before = await getShares("/local", adminCookie);
+    const bad = await req("PUT", "/local/shares", {
+      cookie: adminCookie,
+      body: { shares: [{ granteeUserId: null, permission: "manage" }] },
+    });
+    expect(bad.status).toBe(400);
+    const after = await getShares("/local", adminCookie);
+    expect(after.map((r) => `${r.granteeUserId}:${r.permission}`)).toEqual(
+      before.map((r) => `${r.granteeUserId}:${r.permission}`),
+    );
   });
 
   it("bearer keys are refused (cookie-only) → 403 before any lookup", async () => {

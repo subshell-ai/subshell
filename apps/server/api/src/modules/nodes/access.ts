@@ -6,24 +6,28 @@ import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
 
 /**
  * A viewer's effective access to one node (spec 2026-08-31 §2). Viewer-relative:
- * the same node is `owner` to its creator, `edit`/`view` to a grantee, and
- * `none` to everyone else. Admins resolve to `edit` (spec §1: instance-wide
- * effective operator access, not ownership) — re-share stays with the real
- * owner via `nodeCanManage`, while delete and re-registration join the admin
- * through `nodeCanRetire` (operator ruling 2026-10-09: an admin who can
- * see every machine must be able to retire one).
+ * the same node is `owner` to its creator, `manage`/`edit`/`view` to a grantee,
+ * and `none` to everyone else. Admins resolve to `edit` (spec §1: instance-wide
+ * effective operator access, not ownership) — re-share sits with `nodeCanManage`
+ * (the owner, or a `manage` grantee since spec 2026-11-07), while delete and
+ * re-registration join the admin through `nodeCanRetire` (operator ruling
+ * 2026-10-09: an admin who can see every machine must be able to retire one).
  */
-export type NodeAccess = "owner" | "edit" | "view" | "none";
+export type NodeAccess = "owner" | "manage" | "edit" | "view" | "none";
 
-const RANK: Record<NodeAccess, number> = { none: 0, view: 1, edit: 2, owner: 3 };
+const RANK: Record<NodeAccess, number> = { none: 0, view: 1, edit: 2, manage: 3, owner: 4 };
 
 /**
  * Pure resolver — no DB. Given the caller's identity, the node row's ownership,
  * and its grant rows, returns the highest access that applies.
  *
  * Order (spec §2): owner wins outright (an admin viewing their OWN node is
- * `owner`, not `edit`); else an admin gets `edit`; else the highest of the
- * Everyone grant and any grant naming this viewer; else `none`.
+ * `owner`, not `edit`); otherwise the highest of the admin's `edit` boost, the
+ * Everyone grant, and any grant naming this viewer; else `none`. The boost is
+ * a STARTING rank rather than an early return so a `manage` grant made TO an
+ * admin survives it — a grant the owner chose outranks a role the resolver
+ * inferred (spec 2026-11-07; the boost alone still reads `edit`, exactly as
+ * before, for every viewer who holds no grant).
  *
  * @param viewerId - The signed-in user asking
  * @param isAdmin - Whether that user holds the admin role
@@ -37,8 +41,7 @@ export function resolveNodeAccess(
   shares: { granteeUserId: string | null; permission: NodeSharePermission }[],
 ): NodeAccess {
   if (viewerId === node.ownerUserId) return "owner";
-  if (isAdmin) return "edit";
-  let best: NodeAccess = "none";
+  let best: NodeAccess = isAdmin ? "edit" : "none";
   for (const s of shares) {
     if (s.granteeUserId !== null && s.granteeUserId !== viewerId) continue;
     if (RANK[s.permission] > RANK[best]) best = s.permission;
@@ -111,19 +114,24 @@ export function nodeCanLaunch(access: NodeAccess): boolean {
   return access !== "none";
 }
 
-/** True when the viewer may change node config (shares, harness state, rename). */
+/** True when the viewer may change node config (detail extras, logs, updates). */
 export function nodeCanConfigure(access: NodeAccess): boolean {
-  return access === "owner" || access === "edit";
+  return RANK[access] >= RANK.edit;
 }
 
 /**
- * True only for the real owner — re-share, rename, maintenance, the allowlist
- * and key rotation (the routes layer on the local-node admin exception via
- * `nodeCanManageFor`). DELETE and RE-REGISTER are NOT here: they are the wider
- * retire gate below, which admins hold on every machine.
+ * True for the real owner or a `manage` grantee — re-share, rename,
+ * maintenance, the allowlist, key rotation, repointing and stop/uninstall
+ * (the routes layer on the local-node admin exception via `nodeCanManageFor`;
+ * a `manage` grant itself is refused on `local` at the shares route, so the
+ * exception and the grant never describe the same decision). Ownership
+ * transfer is NOT here either — it asks for the owner rank alone. DELETE and
+ * RE-REGISTER are not here either: they are the wider retire gate below,
+ * which admins hold on every machine (spec 2026-11-07 widened this gate from
+ * owner-only; it deliberately did not widen `nodeCanRetire`).
  */
 export function nodeCanManage(access: NodeAccess): boolean {
-  return access === "owner";
+  return RANK[access] >= RANK.manage;
 }
 
 /**
@@ -151,6 +159,12 @@ export function nodeCanManageFor(rowKind: NodeKind, access: NodeAccess, isAdmin:
  * (a retirement ends a node; a re-share widens who can use it), and so do
  * rename, maintenance and the allowlist.
  *
+ * It deliberately does NOT reuse `nodeCanManage`, even though until spec
+ * 2026-11-07 the two ranks were one (`owner`). Reusing it would have meant
+ * that adding the `manage` share level quietly handed every manage grantee
+ * DELETE and RE-REGISTER of someone else's machine — the creep this gate's
+ * whole wording exists to refuse. Ask for the owner rank directly.
+ *
  * On `local` this answers the same as `nodeCanManageFor` (the owner there is
  * the system user; admin-on-local was already true). No caller can actually
  * retire `local`: delete 400s on the kind BEFORE this gate, and reregister's
@@ -164,7 +178,20 @@ export function nodeCanManageFor(rowKind: NodeKind, access: NodeAccess, isAdmin:
  * @param isAdmin - Whether the viewer holds the admin role
  */
 export function nodeCanRetire(access: NodeAccess, isAdmin: boolean): boolean {
-  return nodeCanManage(access) || isAdmin;
+  return access === "owner" || isAdmin;
+}
+
+/**
+ * THE transfer rule, in one place (spec 2026-11-07): the owner rank on an
+ * agent node, and nothing wider — not `manage` (the rank stops one below this
+ * act on purpose), not admin (an admin retiring a foreign machine is fleet
+ * care; an admin taking one over is a seizure), and never `local`, which
+ * belongs to the instance rather than to any person. Like the two gates above
+ * the route and the rendered `canTransfer` flag both derive from this call,
+ * so the UI control and the door cannot drift.
+ */
+export function nodeCanTransfer(access: NodeAccess, rowKind: NodeKind): boolean {
+  return access === "owner" && rowKind === "agent";
 }
 
 /** The repositories `loadNodeAccess` needs — injected so tests use a scratch DB. */

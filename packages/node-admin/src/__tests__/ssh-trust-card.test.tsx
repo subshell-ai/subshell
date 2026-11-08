@@ -35,6 +35,7 @@ function node(over: Partial<NodeDetail> = {}): NodeDetail {
     access: "owner",
     canManage: true,
     canRetire: true,
+    canTransfer: false,
     canLaunch: true,
     capabilities: [],
     allowedDirs: [],

@@ -283,6 +283,22 @@ describe("/api/nodes service + runtime", () => {
     }
   });
 
+  /**
+   * `manage` (spec 2026-11-07) carries the owner's management band, so the
+   * two one-way verbs ride it too: a manage grantee passes the gate on every
+   * verb and what they meet is this node being offline (409), never a 403.
+   * The band stops at ownership itself — delete and re-register stayed on
+   * the retire gate, pinned in nodes-crud — and the transfer route is
+   * owner-rank-only by its own suite.
+   */
+  it("a manage grantee may drive every verb, stop and uninstall included", async () => {
+    const id = await mkNode();
+    await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "manage" }], aliceId);
+    for (const verb of ["stop", "uninstall", "restart", "start", "install"] as const) {
+      expect((await req("POST", `/api/nodes/${id}/service`, { cookie: carolCookie, body: { verb } })).status).toBe(409);
+    }
+  });
+
   it("refuses a verb it does not know", async () => {
     const id = await mkNode();
     const res = await req("POST", `/api/nodes/${id}/service`, { cookie: aliceCookie, body: { verb: "reload" } });

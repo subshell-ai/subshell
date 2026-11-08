@@ -39,6 +39,7 @@ type View = {
   ownerLabel?: string;
   canManage: boolean;
   canRetire: boolean;
+  canTransfer: boolean;
   canLaunch: boolean;
   capabilities: string[];
   harnesses: { harnessId: string; installed: boolean; version?: string }[];
@@ -418,6 +419,28 @@ describe("/api/nodes registry CRUD", () => {
     // detail path agrees with list
     expect(((await (await req("GET", "/local", { cookie: adminCookie })).json()) as View).canManage).toBe(true);
     expect(((await (await req("GET", "/local", { cookie: aliceCookie })).json()) as View).canManage).toBe(false);
+  });
+
+  it("canTransfer: the owner's row true; manage grantee, foreign admin, and `local` all false", async () => {
+    // The rendered flag is what gates the Transfer control; the server is the
+    // only one who can see the rank, so the flags must agree with the route.
+    const n = await mkNode(aliceId, `ct-${crypto.randomUUID().slice(0, 8)}`);
+    await nodeShares.replaceForNode(n.id, [{ granteeUserId: bobId, permission: "manage" }], aliceId);
+
+    expect((await list(aliceCookie)).find((x) => x.id === n.id)?.canTransfer).toBe(true);
+    expect(((await (await req("GET", `/${n.id}`, { cookie: aliceCookie })).json()) as View).canTransfer).toBe(true);
+
+    // manage opens every other owner door and stops at ownership — and the
+    // foreign admin is where canRetire and canTransfer finally split: they
+    // retire the machine they can see, they never take it over.
+    expect((await list(bobCookie)).find((x) => x.id === n.id)?.canTransfer).toBe(false);
+    const adminRow = (await list(adminCookie)).find((x) => x.id === n.id);
+    expect(adminRow?.canTransfer).toBe(false);
+    expect(adminRow?.canRetire).toBe(true);
+
+    // `local` is nobody's to hand over, admin or not.
+    expect((await list(aliceCookie)).find((x) => x.id === "local")?.canTransfer).toBe(false);
+    expect(((await (await req("GET", "/local", { cookie: adminCookie })).json()) as View).canTransfer).toBe(false);
   });
 
   /**
