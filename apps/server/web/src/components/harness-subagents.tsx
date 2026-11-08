@@ -115,11 +115,14 @@ function SwitchAgentError() {
  */
 export function HarnessSubagentRows({
   id,
+  parentName,
   alive,
   branchWorkspaceId,
   harnessId,
 }: {
   id: string;
+  /** The live parent's display name; names this group the way the sibling sections name theirs. */
+  parentName: string;
   alive: boolean;
   branchWorkspaceId?: string;
   harnessId?: string;
@@ -136,11 +139,14 @@ export function HarnessSubagentRows({
   // them here makes the sidebar look stale even when reports arrive correctly.
   const showActivity = harnessId !== "claude-code";
   return (
-    // The tree geometry a helper-subshell section uses (ml-5 border-l pl-2
-    // plus a per-child -left-2 connector): when a pane reports both created
-    // subshells and harness subagents, the two child kinds must hang off the
-    // one rail at the one x, so a mixed list reads as a single tree.
-    <div className="-mt-1 ml-5 flex min-w-0 flex-col border-l pt-1 pl-2">
+    // The tree geometry a helper-subshell section uses (ml-5 border-l pl-2,
+    // plus a per-child -left-2 connector). The tick rides top-3.5 rather than
+    // the section child's top-4 because these rows are single-line and 3.5 is
+    // their center; changing it to "match" would offset the tick from the dot.
+    // When a pane reports both kinds of child, both must hang off the one rail
+    // at the one x, and the section carries a name the way each visual twin
+    // does, reusing the title badge's "of {parent}" phrasing.
+    <section aria-label={`Subagents of ${parentName}`} className="-mt-1 ml-5 flex min-w-0 flex-col border-l pt-1 pl-2">
       {data.agents.map((agent) => (
         <div
           key={agent.id}
@@ -151,7 +157,7 @@ export function HarnessSubagentRows({
               variant="ghost"
               size="sm"
               className={cn(
-                "h-auto min-h-7 w-full justify-start gap-1.5 py-1 pr-2 pl-3 font-regular text-detail [&_svg]:size-3",
+                "h-auto min-h-7 w-full justify-start py-1 pr-2 pl-3 font-regular text-detail [&_svg]:size-3",
                 data.selectedId === agent.id && "bg-accent",
               )}
               disabled
@@ -169,7 +175,7 @@ export function HarnessSubagentRows({
                       variant="ghost"
                       size="sm"
                       className={cn(
-                        "h-auto min-h-7 w-full justify-start gap-1.5 py-1 pr-2 pl-3 font-regular text-detail [&_svg]:size-3",
+                        "h-auto min-h-7 w-full justify-start py-1 pr-2 pl-3 font-regular text-detail [&_svg]:size-3",
                         data.selectedId === agent.id && "bg-accent",
                       )}
                       onClick={() =>
@@ -200,7 +206,7 @@ export function HarnessSubagentRows({
         </div>
       ))}
       {select.isError && <SwitchAgentError />}
-    </div>
+    </section>
   );
 }
 
