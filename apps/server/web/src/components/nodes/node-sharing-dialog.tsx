@@ -1,8 +1,20 @@
-import { Button } from "@internal/node-admin";
+import { Button, type NodeShare } from "@internal/node-admin";
 import { ErrorBanner } from "@/components/error-banner";
-import { SharingDialogCore } from "@/components/sharing-dialog-core";
+import { type ShareLevels, SharingDialogCore } from "@/components/sharing-dialog-core";
 import { useNodeShares, useSetNodeShares } from "@/hooks/use-node-shares";
-import { type ShareDraft, useSharableUsers } from "@/hooks/use-subshell-shares";
+import { useSharableUsers } from "@/hooks/use-subshell-shares";
+
+/**
+ * The node ladder: the two shared rungs plus `manage` on top (spec
+ * 2026-11-07). Manage is the whole owner-management band, and the line under
+ * the picker says where it stops, because "everything except…" is exactly
+ * what a person granting it needs to know before they press Save.
+ */
+const NODE_SHARE_LEVELS: ShareLevels<NodeShare["permission"]> = [
+  { value: "view", label: "View" },
+  { value: "edit", label: "View + edit" },
+  { value: "manage", label: "Manage" },
+];
 
 /**
  * Node sharing control (spec 2026-08-31 §9/§10) — the node-flavoured wrapper
@@ -29,7 +41,7 @@ export function NodeSharingDialog({
   const roster = useSharableUsers(open);
   const setShares = useSetNodeShares(nodeId);
 
-  const serverGrants: ShareDraft[] = (shares.data?.shares ?? []).map((s) => ({
+  const serverGrants = (shares.data?.shares ?? []).map((s) => ({
     granteeUserId: s.granteeUserId,
     permission: s.permission,
   }));
@@ -38,8 +50,9 @@ export function NodeSharingDialog({
     <SharingDialogCore
       open={open}
       onOpenChange={onOpenChange}
+      levels={NODE_SHARE_LEVELS}
       title="Share node"
-      description="Let others see this node or run subshells on it. Sharing is private by default."
+      description="Let others see this node or run subshells on it. Manage lets someone change everything about it except transfer ownership or delete it. Sharing is private by default."
       isLoading={shares.isPending || roster.isPending}
       loadError={
         shares.isError || roster.isError ? (

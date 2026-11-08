@@ -16,7 +16,7 @@ import {
 } from "@internal/subshell-protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Share2, Trash2 } from "lucide-react";
+import { ArrowLeftRight, Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { DirectoryPickerInput } from "@/components/directory-picker-input";
 import { EditableText } from "@/components/editable-text";
@@ -30,6 +30,7 @@ import { osLabel } from "@/components/nodes/node-row";
 import { managesNodeSections } from "@/components/nodes/node-section-nav";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
 import { NodeSshCard } from "@/components/nodes/node-ssh-card";
+import { NodeTransferDialog } from "@/components/nodes/node-transfer-dialog";
 import { NodeUpdateCard } from "@/components/nodes/node-update-card";
 import { ServerIdentityRecovery } from "@/components/ssh/server-identity-recovery";
 import { SshTrustSection } from "@/components/ssh/trust-section";
@@ -70,6 +71,7 @@ function NodeDetailPage() {
   const renameNode = useRenameNode(id);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
 
   /** Owner-only rename; a 409 NODE_NAME_TAKEN (or the `local` 400) surfaces inline in the field. */
   async function saveName(name: string): Promise<void> {
@@ -105,10 +107,26 @@ function NodeDetailPage() {
             disabledReason={
               n.kind === "local"
                 ? "Only a server admin can change sharing for this node."
-                : "Only the node owner can change sharing for this node."
+                : "Only the node's owner or a Manage grantee can change sharing."
             }
           >
             <Share2 /> Share
+          </Button>
+          {/* Ownership handover (spec 2026-11-07): the ONE control gated on
+              `canTransfer`, which is narrower than both neighbors — a manage
+              grantee drives everything else about this machine, and an admin
+              can retire it, yet neither may take it over. */}
+          <Button
+            variant="outline"
+            onClick={() => setTransferOpen(true)}
+            disabled={!n.canTransfer}
+            disabledReason={
+              n.kind === "local"
+                ? "The server's own node belongs to the instance, not to a person."
+                : "Only the node's owner can hand it to another account."
+            }
+          >
+            <ArrowLeftRight /> Transfer
           </Button>
           <Button
             variant="outline"
@@ -316,6 +334,17 @@ function NodeDetailPage() {
             />
           )}
           <NodeSharingDialog nodeId={n.id} open={shareOpen} onOpenChange={setShareOpen} canManage={n.canManage} />
+          {transferOpen && (
+            <NodeTransferDialog
+              nodeId={n.id}
+              nodeName={n.name}
+              open
+              onOpenChange={setTransferOpen}
+              // After the handover this page is about someone else's machine,
+              // manage share or not; the list is the honest place to stand.
+              onDone={() => void navigate({ to: "/nodes" })}
+            />
+          )}
         </>
       )}
     </NodePageShell>

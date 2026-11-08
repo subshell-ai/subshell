@@ -1,4 +1,4 @@
-import { SharingDialogCore } from "@/components/sharing-dialog-core";
+import { BASIC_SHARE_LEVELS, SharingDialogCore } from "@/components/sharing-dialog-core";
 import { type ShareDraft, useSetShares, useSharableUsers, useShares } from "@/hooks/use-subshell-shares";
 
 /**
@@ -33,6 +33,7 @@ export function SharingDialog({
     <SharingDialogCore
       open={open}
       onOpenChange={onOpenChange}
+      levels={BASIC_SHARE_LEVELS}
       title="Share subshell"
       description="Let others see or use this subshell. Sharing is private by default."
       warning={
