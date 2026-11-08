@@ -60,6 +60,7 @@ describe("the control-plane host's plugins", () => {
       "netbird",
       "oh-my-pi",
       "open-interpreter",
+      "openclaw",
       "opencode",
       "openhands",
       "pi",

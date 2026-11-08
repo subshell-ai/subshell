@@ -39,6 +39,7 @@ const BUILT_IN_IDS = [
   "hermes",
   "oh-my-pi",
   "open-interpreter",
+  "openclaw",
   "opencode",
   "openhands",
   "pi",

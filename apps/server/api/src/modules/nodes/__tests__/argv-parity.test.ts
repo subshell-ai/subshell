@@ -72,6 +72,10 @@ const SETTINGS_FIXTURES: Record<string, Record<string, unknown>> = {
   hermes: { model: "anthropic/claude-sonnet-4.6", provider: "openrouter", toolsets: "web,files" },
   "oh-my-pi": { model: "sonnet", provider: "anthropic", thinking: "high" },
   "open-interpreter": { model: "gpt-5.1-codex" },
+  // OpenClaw advertises no capabilities at all (2026.11.1: model choice lives in
+  // its config, and MCP is Gateway-scoped by ruling), so like terminal, ssh and
+  // openhands its "settings set" row is the empty object.
+  openclaw: {},
   // OpenHands has no settings capability: SDK 1.21.0's --help exposes no
   // settings flag, so its preset editor stores no keys and its "settings set"
   // row is the empty object, as terminal's and ssh's are for the same reason.
@@ -271,11 +275,11 @@ for (const id of BUILTIN_IDS) {
 }
 
 /**
- * Sanity: every built-in under test really is one of the fourteen, and the
+ * Sanity: every built-in under test really is one of the fifteen, and the
  * registry is what production reads (`getHarness`, the same accessor
  * `subshell-manager` resolves launches through) — no copies.
  */
-test("argv parity: the matrix covers all fourteen built-ins through the production registry", () => {
+test("argv parity: the matrix covers all fifteen built-ins through the production registry", () => {
   const registryIds = BUILTIN_IDS.map((id) => getHarness(id)?.id);
   expect(new Set(registryIds)).toEqual(
     new Set([
@@ -288,6 +292,7 @@ test("argv parity: the matrix covers all fourteen built-ins through the producti
       "hermes",
       "oh-my-pi",
       "open-interpreter",
+      "openclaw",
       "openhands",
       "pi",
       "qwen-code",

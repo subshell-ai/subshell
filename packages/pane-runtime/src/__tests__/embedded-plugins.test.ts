@@ -26,6 +26,7 @@ const BUILT_INS = [
   "netbird",
   "oh-my-pi",
   "open-interpreter",
+  "openclaw",
   "opencode",
   "openhands",
   "pi",

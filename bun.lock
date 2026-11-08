@@ -497,6 +497,7 @@
         "@subshell-ai/plugin-netbird": "workspace:*",
         "@subshell-ai/plugin-oh-my-pi": "workspace:*",
         "@subshell-ai/plugin-open-interpreter": "workspace:*",
+        "@subshell-ai/plugin-openclaw": "workspace:*",
         "@subshell-ai/plugin-opencode": "workspace:*",
         "@subshell-ai/plugin-openhands": "workspace:*",
         "@subshell-ai/plugin-pi": "workspace:*",
@@ -647,6 +648,18 @@
     },
     "packages/plugins/open-interpreter": {
       "name": "@subshell-ai/plugin-open-interpreter",
+      "version": "1.0.0",
+      "devDependencies": {
+        "@internal/tsconfig": "workspace:*",
+        "@subshell-ai/plugin-api": "workspace:*",
+        "@types/bun": "1.3.14",
+        "hash-runner": "5.0.0",
+        "tsdown": "0.22.14",
+        "typescript": "7.0.2",
+      },
+    },
+    "packages/plugins/openclaw": {
+      "name": "@subshell-ai/plugin-openclaw",
       "version": "1.0.0",
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
@@ -1694,6 +1707,8 @@
     "@subshell-ai/plugin-oh-my-pi": ["@subshell-ai/plugin-oh-my-pi@workspace:packages/plugins/oh-my-pi"],
 
     "@subshell-ai/plugin-open-interpreter": ["@subshell-ai/plugin-open-interpreter@workspace:packages/plugins/open-interpreter"],
+
+    "@subshell-ai/plugin-openclaw": ["@subshell-ai/plugin-openclaw@workspace:packages/plugins/openclaw"],
 
     "@subshell-ai/plugin-opencode": ["@subshell-ai/plugin-opencode@workspace:packages/plugins/opencode"],
 

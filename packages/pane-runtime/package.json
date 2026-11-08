@@ -38,6 +38,7 @@
     "@subshell-ai/plugin-netbird": "workspace:*",
     "@subshell-ai/plugin-oh-my-pi": "workspace:*",
     "@subshell-ai/plugin-open-interpreter": "workspace:*",
+    "@subshell-ai/plugin-openclaw": "workspace:*",
     "@subshell-ai/plugin-opencode": "workspace:*",
     "@subshell-ai/plugin-openhands": "workspace:*",
     "@subshell-ai/plugin-pi": "workspace:*",
