@@ -1,4 +1,3 @@
-import { Button } from "@internal/node-admin";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { type JSX, useEffect, useState } from "react";
@@ -46,9 +45,10 @@ export function SubshellPicker({ workspaceId, existing, onAdd }: SubshellPickerP
       replace: true,
     });
   }, [requested, workspaceId, navigate]);
-  // The stacked (phone) header shares its top row with Save/Discard and the nav
-  // chrome, so this drops to a bare "+" icon (the aria-label still names it).
-  // Icon-only, like every other control in the pane bar (see `pane-focus-header`).
+  // The control is icon-only at every width, like the rest of the pane bar
+  // (see `pane-focus-header`). The stacked (phone) header shares its top row
+  // with Save/Discard and the nav chrome, so there it also loses the pill
+  // weight and sits as a plain icon button.
   const stacked = useIsStackedHeader();
 
   return (
@@ -58,14 +58,14 @@ export function SubshellPicker({ workspaceId, existing, onAdd }: SubshellPickerP
           <Plus className="h-3.5 w-3.5" />
         </TippedIconButton>
       ) : (
-        <Button
+        <TippedIconButton
+          tooltip="Add a subshell to this workspace"
           size="sm"
           className="shadow-lg"
-          aria-label="Add a subshell to this workspace"
           onClick={() => setOpen(true)}
         >
-          <Plus className="h-3.5 w-3.5" /> Add subshell
-        </Button>
+          <Plus className="h-3.5 w-3.5" />
+        </TippedIconButton>
       )}
       <AddSubshellDialog
         open={open}
