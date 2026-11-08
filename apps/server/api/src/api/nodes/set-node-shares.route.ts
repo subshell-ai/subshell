@@ -9,9 +9,10 @@ import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.j
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { audit } from "@/modules/audit.js";
+import { NodeSharesConflictError } from "@/modules/nodes/errors.js";
 import { loadNodeGate } from "@/modules/nodes/gate.js";
 import { getRelayBroker } from "@/modules/ssh/relay-broker.js";
-import { ForbiddenError } from "@/shared/errors.js";
+import { ForbiddenError, HttpError } from "@/shared/errors.js";
 
 /**
  * `PUT /api/nodes/:id/shares` `{shares:[{granteeUserId, permission}]}` —
@@ -19,11 +20,18 @@ import { ForbiddenError } from "@/shared/errors.js";
  * is the Everyone grant, unknown grantee → 400). Manager band: the node's
  * owner or a `manage` grantee, or ADMIN for `local` — where `manage` grants
  * themselves are refused (its band has no grantable half). The route accepts
- * any valid list the manager may set, Manage rows included; the dialog offers
- * Manage only on agent nodes, matching that refusal.
+ * any valid list a signed-in manager may set, Manage rows included; the
+ * dialog offers Manage only on agent nodes, matching that refusal. Machine
+ * actors (`nodes:share` keys) stop at View / View + edit: the rung `manage`
+ * delegates day-to-day ownership, while the grant's advertised meaning is
+ * launch-access control, so a leaked provisioning key must not mint itself a
+ * band the ruling reserves to people (security pass on #495).
  *
- * Access is resolved from these rows on each request. After replacement,
- * close relay sessions whose users no longer have launch access to both ends.
+ * Access is resolved from these rows on each request, and the replace CASes
+ * the row set the gate authorized against: a revoke that lands while a
+ * manager's PUT is in flight turns that PUT into a 409 instead of letting it
+ * commit over the revocation. After replacement, close relay sessions whose
+ * users no longer have launch access to both ends.
  */
 export const setNodeSharesRoute = new Elysia()
   .use(nodeManagementGuard)
@@ -53,6 +61,20 @@ export const setNodeSharesRoute = new Elysia()
           }),
         );
       }
+      // Security pass on #495: `manage` delegates the day-to-day ownership
+      // band, while the `nodes:share` grant advertises launch-access control.
+      // A machine actor therefore stops at View / View + edit — a leaked
+      // provisioning key must not mint the band for any account, and the
+      // band stays what the ruling says it is: a human owner's delegation.
+      if (actor !== "cookie" && entries.some((e) => e.permission === "manage")) {
+        return status(
+          400,
+          apiErrorBody({
+            code: BackendErrorCodes.BAD_REQUEST,
+            message: "A Manage grant must come from a signed-in manager; keys can share at View or View + edit",
+          }),
+        );
+      }
       const named = entries.map((e) => e.granteeUserId).filter((x): x is string => x !== null);
       if (named.length > 0) {
         const names = await new UsersRepository(db).displayNamesByIds(named);
@@ -64,7 +86,21 @@ export const setNodeSharesRoute = new Elysia()
           );
         }
       }
-      const rows = await new NodeSharesRepository(db).replaceForNode(gate.row.id, entries, user.id);
+      let rows: Awaited<ReturnType<NodeSharesRepository["replaceForNode"]>>;
+      try {
+        // The CAS compares against the rows THIS request's gate read resolved
+        // its canManage from: whoever revoked a manager mid-flight wins, and
+        // the stale writer is asked to refresh rather than overwrite blind.
+        rows = await new NodeSharesRepository(db).replaceForNode(
+          gate.row.id,
+          entries,
+          user.id,
+          gate.shares.map((s) => s.id),
+        );
+      } catch (err) {
+        if (err instanceof NodeSharesConflictError) throw new HttpError(409, err.message);
+        throw err;
+      }
       await getRelayBroker().closeUnauthorizedForNode(gate.row.id);
       await audit({
         actorUserId: user.id,
@@ -87,12 +123,14 @@ export const setNodeSharesRoute = new Elysia()
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
       },
       systemPermission: "nodes:share",
       detail: {
         operationId: "setNodeShares",
         tags: ["nodes"],
-        description: "Replace a node's sharing grants (manager band: owner, a manage grantee, or admin on local)",
+        description:
+          "Replace a node's sharing grants (manager band: owner, a manage grantee, or admin on local; Manage rows are human-managers only). 409 when the grant set changed underneath the caller; refresh and retry.",
       },
     },
   );

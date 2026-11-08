@@ -483,6 +483,155 @@ describe("POST /api/nodes/:id/transfer", () => {
     expect(await shares.listForNode(id)).toHaveLength(0);
   });
 
+  // Security pass on merged #495: the transaction must not COMMIT a state the
+  // route refused at READ time. The owner CAS cannot catch these — the racing
+  // act touches a different row — so the transaction re-asserts them inside.
+
+  it("a recipient disabled between the route's check and the commit refuses the handover", async () => {
+    const daveId = await new UsersRepository(db).createUser({
+      email: `t-rdis-${crypto.randomUUID()}@subshell.local`,
+      name: "t-rdis",
+      passwordHash: await hashPassword("t-1"),
+      role: "user",
+    });
+    // The REAL key id so the refusal can only come from the recipient
+    // re-assert, not from an incidental CAS miss (round-2 nit).
+    const { id, keyRowId } = await mkNode(aliceId, `t-rdis-${crypto.randomUUID().slice(0, 8)}`);
+    const meta = new UserMetaRepository(db);
+    await meta.setDisabled(daveId, true);
+    try {
+      const err = await transferNodeOwnership({
+        nodeId: id,
+        fromUserId: aliceId,
+        toUserId: daveId,
+        retainAccessAsManager: true,
+        apiKeyId: keyRowId,
+      }).then(
+        () => null,
+        (e: unknown) => e as { status?: number },
+      );
+      expect(err?.status).toBe(400);
+      expect((await nodes.findById(id))?.ownerUserId).toBe(aliceId);
+    } finally {
+      await meta.setDisabled(daveId, false);
+    }
+  });
+
+  it("a recipient awaiting approval is the same stranded machine, refused in the transaction too", async () => {
+    const daveId = await new UsersRepository(db).createUser({
+      email: `t-rpen-${crypto.randomUUID()}@subshell.local`,
+      name: "t-rpen",
+      passwordHash: await hashPassword("t-1"),
+      role: "user",
+    });
+    // The REAL key id: a 400 can only come from the recipient re-assert, not
+    // an incidental CAS miss (round-2 nit).
+    const { id, keyRowId } = await mkNode(aliceId, `t-rpen-${crypto.randomUUID().slice(0, 8)}`);
+    const meta = new UserMetaRepository(db);
+    await meta.setApproval(daveId, "pending");
+    try {
+      const err = await transferNodeOwnership({
+        nodeId: id,
+        fromUserId: aliceId,
+        toUserId: daveId,
+        retainAccessAsManager: true,
+        apiKeyId: keyRowId,
+      }).then(
+        () => null,
+        (e: unknown) => e as { status?: number },
+      );
+      expect(err?.status).toBe(400);
+      expect((await nodes.findById(id))?.ownerUserId).toBe(aliceId);
+    } finally {
+      await meta.setApproval(daveId, "approved");
+    }
+  });
+
+  it("a key rotated under the transfer loses the race: a stale apiKeyId cannot re-home a dead row", async () => {
+    // The transfer's CAS must cover the OTHER half of the link fact too.
+    // Rotate CASes apiKeyId but not the owner; the transfer CASed only the
+    // owner, so an interleaved rotate committed a node owned by bob whose
+    // LIVE key belonged to alice — the exact split the module docstring says
+    // the transaction exists to prevent.
+    const { id, keyRowId } = await mkNode(aliceId, `t-stale-${crypto.randomUUID().slice(0, 8)}`);
+    const second = (await getAuth().api.createApiKey({
+      body: { name: `node:${id}`, userId: aliceId, metadata: { kind: "node", nodeId: id } },
+    })) as unknown as { id: string };
+    createdKeyIds.push(second.id);
+    await nodes.setApiKeyId(id, second.id); // the rotate's committed write
+    const err = await transferNodeOwnership({
+      nodeId: id,
+      fromUserId: aliceId,
+      toUserId: bobId,
+      retainAccessAsManager: false,
+      apiKeyId: keyRowId, // the transfer's stale read
+    }).then(
+      () => null,
+      (e: unknown) => e as { status?: number },
+    );
+    expect(err?.status).toBe(409);
+    expect((await nodes.findById(id))?.ownerUserId).toBe(aliceId);
+    expect(apikeyRow(keyRowId)?.referenceId).toBe(aliceId); // the stale key was not re-homed
+  });
+
+  it("the route itself refuses an approval-pending recipient (same posture as disabled)", async () => {
+    const daveId = await new UsersRepository(db).createUser({
+      email: `t-rpenr-${crypto.randomUUID()}@subshell.local`,
+      name: "t-rpenr",
+      passwordHash: await hashPassword("t-1"),
+      role: "user",
+    });
+    const { id } = await mkNode(aliceId, `t-rpenr-${crypto.randomUUID().slice(0, 8)}`);
+    const meta = new UserMetaRepository(db);
+    await meta.setApproval(daveId, "pending");
+    try {
+      const res = await req("POST", `/${id}/transfer`, {
+        cookie: aliceCookie,
+        body: { toUserId: daveId, retainAccessAsManager: true },
+      });
+      expect(res.status).toBe(400);
+      expect((await nodes.findById(id))?.ownerUserId).toBe(aliceId);
+    } finally {
+      await meta.setApproval(daveId, "approved");
+    }
+  });
+
+  it("a rotation that races a committed transfer loses: no giver-owned key on the new owner's machine", async () => {
+    // Round-2 closure: the transfer CAS loses to a committed rotation; the
+    // mirror direction needs the rotate CAS to cover the OWNER too, because
+    // its slow better-auth mint is exactly where a transfer lands. Staged at
+    // that seam: the ownership write commits while rotate's mint is in
+    // flight (the fixture stages the owner flip only — none of the transfer's
+    // other writes bear on what rotate's CAS must reject). Without the owner
+    // guard this commits a bob-owned node bound to an alice-owned live key —
+    // a credential the giver kept over a machine she no longer owns.
+    const { id, keyRowId } = await mkNode(aliceId, `t-rrot-${crypto.randomUUID().slice(0, 8)}`);
+    const auth = getAuth();
+    const api = auth.api as unknown as { createApiKey: (input: unknown) => Promise<unknown> };
+    const original = api.createApiKey.bind(auth.api);
+    let mintedId = "";
+    api.createApiKey = async (input: unknown) => {
+      const created = (await original(input)) as { id: string };
+      mintedId = created.id;
+      createdKeyIds.push(created.id);
+      // The transfer commits inside the mint's await window.
+      await db.updateTable("nodes").set({ ownerUserId: bobId }).where("id", "=", id).execute();
+      return created;
+    };
+    try {
+      const res = await req("POST", `/${id}/rotate-key`, { cookie: aliceCookie });
+      expect(res.status).toBe(409);
+      expect((await nodes.findById(id))?.apiKeyId).toBe(keyRowId); // no flip
+      expect((await nodes.findById(id))?.ownerUserId).toBe(bobId); // the transfer stands
+      const orphan = authDatabase()
+        .query<{ enabled: number }, [string]>(`SELECT enabled FROM apikey WHERE id = ?`)
+        .get(mintedId);
+      expect(orphan?.enabled).toBe(0); // the catch disables the loser's mint
+    } finally {
+      api.createApiKey = original;
+    }
+  });
+
   // ── machine doors ────────────────────────────────────────────────────────
 
   it("a system key without the grant is refused; with nodes:transfer it assigns its own account's node", async () => {
@@ -564,6 +713,20 @@ describe("POST /api/nodes/:id/transfer", () => {
     // Derived pane credentials carry the creator's ceiling — an explicit
     // inheritance here, which is how a scoped automation key's child reaches
     // the same doors its parent can.
+    //
+    // NOTE (security pass on #495, cold round): production keeps the invariant
+    // "a pane whose token has a non-null ceiling is a SYSTEM row". Two mint
+    // sites must hold it: the create route passes systemKeyPermissions through
+    // to issueSubshellToken only under the creating credential's own user id,
+    // and the restart re-mint forwards the caller's grants ONLY when the
+    // caller is the row's owner (`subshells.service.ts`, pinned end to end by
+    // restart-ceiling-injection.route.test.ts; before that fix a stranger's
+    // scoped key could arm a shared human pane through restart). This test
+    // hand-inserts the human-owned pairing directly — the gate itself would
+    // NOT refuse such a credential, so if any future feature ever issues
+    // ceilings on human-owned rows (an admin-on-behalf-of flow), the human
+    // transfer door opens to a prompt-controlled pane. That mint-site
+    // invariant is the defense; keep it true, or gate here.
     const derivedPane = crypto.randomUUID();
     await db
       .insertInto("subshells")

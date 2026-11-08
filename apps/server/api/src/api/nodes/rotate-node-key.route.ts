@@ -68,11 +68,19 @@ export const rotateNodeKeyRoute = new Elysia()
       //    never-registered node. Never copy the old pin across a rotation.
       try {
         await db.transaction().execute(async (tx) => {
+          // The CAS guards the WHOLE link fact (security pass on #495, round
+          // 2): the mint above is slow better-auth work, and a transfer that
+          // committed during it changed the OWNER without touching apiKeyId.
+          // Key-column-only would then re-bind the new owner's machine to a
+          // key minted under the giver — a live credential the giver kept
+          // over a machine she handed over. The catch below disables this
+          // loser's mint on the 409, as on any tx failure.
           const updated = await tx
             .updateTable("nodes")
             .set({ apiKeyId: created.id, encryptPublicKey: null, updatedAt: new Date().toISOString() })
             .where("id", "=", gate.row.id)
             .where("apiKeyId", gate.row.apiKeyId === null ? "is" : "=", gate.row.apiKeyId)
+            .where("ownerUserId", "=", gate.row.ownerUserId)
             .returning("id")
             .executeTakeFirst();
           if (!updated) throw new HttpError(409, "Node credentials changed; refresh and retry");

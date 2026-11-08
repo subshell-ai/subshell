@@ -9,7 +9,7 @@ import { nodeCanTransfer } from "@/modules/nodes/access.js";
 import { isUniqueNameViolation } from "@/modules/nodes/errors.js";
 import { loadNodeGate } from "@/modules/nodes/gate.js";
 import { transferNodeOwnership } from "@/modules/nodes/transfer-ownership.js";
-import { accountDisabled } from "@/modules/users/account-status.js";
+import { accountDisabled, accountPending } from "@/modules/users/account-status.js";
 import { ForbiddenError, HttpError } from "@/shared/errors.js";
 
 const TransferBodySchema = t.Object({
@@ -105,6 +105,18 @@ export const transferNodeRoute = new Elysia()
           apiErrorBody({
             code: BackendErrorCodes.BAD_REQUEST,
             message: "That account is disabled; re-enable it before transferring a node to it",
+          }),
+        );
+      }
+      // Approval-pending is the same stranded machine (security pass on #495):
+      // the account cannot sign in until an admin admits it, so the handover
+      // would land on a door no one holds a key to yet.
+      if (await accountPending(db, body.toUserId)) {
+        return status(
+          400,
+          apiErrorBody({
+            code: BackendErrorCodes.BAD_REQUEST,
+            message: "That account is still awaiting approval; approve it before transferring a node to it",
           }),
         );
       }

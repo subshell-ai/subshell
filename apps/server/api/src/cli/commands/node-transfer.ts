@@ -41,6 +41,15 @@ export function parseNodeArgs(
   error: (line: string) => void,
 ): (NodeTransferOptions & { keyStdin: true }) | null {
   if (args[0] !== "transfer") {
+    // The subcommand slot takes no credential, so a key-shaped word here is a
+    // slipped flag, and the unknown-subcommand echo would print it (scrollback,
+    // CI logs). Same tripwire as the value slots: refuse, describe, never quote.
+    if (typeof args[0] === "string" && args[0].startsWith("subshell_")) {
+      error(
+        'node: the subcommand got what looks like an automation key, so it is not echoed; "transfer" is the only subcommand, and the key comes from --key-stdin',
+      );
+      return null;
+    }
     error(`node: unknown subcommand "${args[0] ?? ""}" (transfer is the only one)`);
     return null;
   }
@@ -69,6 +78,15 @@ export function parseNodeArgs(
           name === "--to"
             ? "node transfer: --to needs the receiving account's id (a flag is not an id)"
             : "node transfer: --base-url needs the server address (a flag is not an address)",
+        );
+        return null;
+      }
+      if (name === "--to" && value.startsWith("subshell_")) {
+        // A slipped bearer belongs to no slot of this command; the --base-url
+        // spelling already trips its own catch below, and this closes the
+        // last one that would have sent the key to the server as an id.
+        error(
+          "node transfer: --to got what looks like an automation key, so it is not echoed; --to takes the receiving account's id, and the key comes from --key-stdin",
         );
         return null;
       }
