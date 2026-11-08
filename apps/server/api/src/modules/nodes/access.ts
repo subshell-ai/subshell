@@ -121,10 +121,10 @@ export function nodeCanConfigure(access: NodeAccess): boolean {
 
 /**
  * True for the real owner or a `manage` grantee: the whole owner-manage band.
- * Its members are enumerated once in `apps/server/api/AGENTS.md` (Share axes
- * bullet), the band's single source, so this comment does not restate a subset
- * that drifts (the SSH switches and machine-pin trust repair ride this gate
- * too). (The routes layer on the local-node admin exception via `nodeCanManageFor`;
+ * Its members are enumerated in `apps/server/api/AGENTS.md` (Share axes
+ * bullet), the band's single internal enumeration, so this comment defers to
+ * it rather than restating a subset that drifts (the SSH switches and
+ * machine-pin trust repair ride this gate too). (The routes layer on the local-node admin exception via `nodeCanManageFor`;
  * a `manage` grant itself is refused on `local` at the shares route, so the
  * exception and the grant never describe the same decision). Ownership
  * transfer is NOT here either — it asks for the owner rank alone. DELETE and

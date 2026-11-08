@@ -6,8 +6,9 @@ import { SshTrustSection } from "@/components/ssh/trust-section";
 
 /**
  * The trust section of a node's page (spec 2026-10-08 §4.5-§4.6): the shared
- * machine trust card (owner/`edit` on an agent node, never `view`, never
- * `local`), the plane's honesty line (this rendering is for DISPLAY only,
+ * machine trust card (owner, `manage`, or `edit` on an agent node, never
+ * `view`, never `local` for a member), the plane's honesty line (this
+ * rendering is for DISPLAY only,
  * the §4.6 check happens on the two machines' own dashboards), and the
  * manage-band re-pair act on each pinned peer (Task 17 made the button LIVE,
  * and spec 2026-11-07 widened its gate to owner and `manage` grantees: it
@@ -15,7 +16,7 @@ import { SshTrustSection } from "@/components/ssh/trust-section";
  * itself).
  *
  * The gate pinned here is the server's `canManage` flag: the `edit`-grantee
- * case carries `canManage: false`, the shape a view/edit grantee or an admin
+ * case carries `canManage: false`, the shape an edit grantee or an admin
  * resolves to on a foreign agent, and sees the card with no act; a member
  * payload that wrongly claims `canManage` is still refused.
  */
