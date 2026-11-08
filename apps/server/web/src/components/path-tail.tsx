@@ -10,9 +10,14 @@ import { cn } from "@internal/node-admin";
  * line's overflow (and the ellipsis) to the left edge, `text-align: left`
  * keeps SHORT paths flush left as usual, and the `<bdi>` isolate makes the
  * path itself resolve to LTR from its own content, so the glyphs never
- * reorder. Because the browser does the clipping, one component fits the
- * rail, the card, the dock header, and the table column without a width
- * guess per surface.
+ * reorder. One honest limit inside that isolate: `bdi` picks a direction
+ * from the first STRONG character, so a path whose name itself opens in an
+ * RTL script lays out RTL and the clip eats its end instead. A leading slash
+ * is neutral and does not count as an opening; paths whose first segment
+ * begins with a Latin letter or a Windows drive letter are unaffected,
+ * whatever the leaf's script. Because
+ * the browser does the clipping, one component fits the rail, the card, the
+ * header, and the table column without a width guess per surface.
  *
  * Callers add the display and colour classes (`block`, `text-detail`, …)
  * through `className`; the truncation itself is not overridable. The full

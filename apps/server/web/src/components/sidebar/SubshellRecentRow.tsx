@@ -250,7 +250,7 @@ export function SubshellRecentRow({
                 // ONE signal (operator ruling 2026-10-17): the CURRENT pane
                 // wears the accent fill and the white ring; workspace
                 // membership marks nothing, and nothing here goes bold.
-                hasSubagents && !(subline ?? subshell.workingDir) && "min-h-12",
+                hasSubagents && !(subline || subshell.workingDir) && "min-h-12",
                 focused
                   ? "bg-accent text-accent-foreground ring-1 ring-foreground/70"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",

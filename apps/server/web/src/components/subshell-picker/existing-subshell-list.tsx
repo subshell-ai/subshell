@@ -2,6 +2,7 @@ import { cn, ExplainedButton, relativeElapsed } from "@internal/node-admin";
 import { Check } from "lucide-react";
 import type { JSX } from "react";
 import { ListLoadError } from "@/components/list-load-error";
+import { PathTail } from "@/components/path-tail";
 import { SubshellDot } from "@/components/subshell-dot";
 import { SubshellSearch } from "@/components/subshell-search";
 import { useClockTick } from "@/hooks/use-clock-tick";
@@ -146,9 +147,11 @@ export function ExistingSubshellList({
                       <SubshellDot subshell={subshell} className="mt-0" accessible />
                       <span className="truncate font-strong text-sm">{subshell.name}</span>
                     </span>
-                    <span className="block truncate font-mono text-detail text-muted-foreground">
-                      {subshell.workingDir}
-                    </span>
+                    <PathTail
+                      path={subshell.workingDir}
+                      title={subshell.workingDir}
+                      className="block font-mono text-detail text-muted-foreground"
+                    />
                   </span>
                   <span className="shrink-0 text-detail text-muted-foreground">{subshell.harnessId}</span>
                   <span className="shrink-0 text-detail text-muted-foreground">

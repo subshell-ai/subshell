@@ -8,9 +8,12 @@ import { PathTail } from "@/components/path-tail";
  * and the `<bdi>` isolate is what keeps the glyphs from reordering with it.
  * If either is dropped, long paths silently start clipping their leaf again
  * (or a path renders reversed), and no layout failure announces it under
- * happy-dom — so the DOM contract is the regression assertion, and the
- * visual behaviour was verified in a real browser (see the component's
- * JSDoc for the mechanism).
+ * happy-dom — so the DOM contract is the regression assertion. The visual
+ * behaviour was measured in Chromium (all wired surfaces, plus the
+ * bidi shapes: trailing and Windows slashes, spaces, parentheses, digits,
+ * an embedded RTL segment); Safari and the iOS PWA are reasoned from the
+ * same `text-overflow` spec, not measured, as no WebKit runner is
+ * provisioned here.
  */
 describe("PathTail", () => {
   afterEach(cleanup);
