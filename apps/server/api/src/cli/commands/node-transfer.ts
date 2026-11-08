@@ -1,15 +1,16 @@
 import { APP_BASE_URL, SERVER_PORT } from "@/constants.js";
 
 /**
- * `subshell-server node transfer` — the machine door to the ownership
+ * `subshell-server node transfer`: the machine door to the ownership
  * handover (spec 2026-11-07). A running server answers the act; this command
  * is a client of it, authenticating with an automation key that carries the
  * `nodes:transfer` grant. That is also the reason for the one hard rule of
  * this file: the key arrives on STDIN and nowhere else. An argv credential
- * is `ps`-visible to every local user and written to shell history — the
- * posture `docs/security.md` already refuses for bearer tokens generally —
+ * is `ps`-visible to every local user and written to shell history, the
+ * posture `docs/security.md` already refuses for bearer tokens generally,
  * so a `--key <value>` spelling is not a missing convenience but a door this
- * command deliberately does not open.
+ * command deliberately does not open (and its refusal quotes the flag's
+ * name, never the token, so even the `--key=value` form can't leak).
  */
 
 /** The parsed command; `null` from the parser means "refuse, usage printed". */
@@ -51,17 +52,37 @@ export function parseNodeArgs(
   let json = false;
   for (let i = 1; i < args.length; i++) {
     const arg = args[i] ?? "";
-    if (arg === "--to") toUserId = args[++i] ?? "";
-    else if (arg === "--base-url") baseUrl = args[++i] ?? "";
-    else if (arg === "--key-stdin") keyStdin = true;
+    if (arg === "--to" || arg === "--base-url") {
+      // A value that starts with `-` is the NEXT flag, not this flag's answer:
+      // `--to --key-stdin` must name `--to` as the hole, not later contradict
+      // the operator about a missing `--key-stdin` it just swallowed.
+      const value = args[i + 1];
+      if (value === undefined || value.startsWith("-")) {
+        error(
+          arg === "--to"
+            ? "node transfer: --to needs the receiving account's id (a flag is not an id)"
+            : "node transfer: --base-url needs the server address (a flag is not an address)",
+        );
+        return null;
+      }
+      i += 1;
+      if (arg === "--to") toUserId = value;
+      else baseUrl = value;
+    } else if (arg === "--key-stdin") keyStdin = true;
     else if (arg === "--keep-manage") retainAccessAsManager = true;
     else if (arg === "--no-keep-manage") retainAccessAsManager = false;
     else if (arg === "--json") json = true;
     else if (arg.startsWith("-")) {
-      // `--key <value>` lands here on purpose: there is no argv spelling of
-      // the credential, and the refusal must name the one that exists.
+      // `--key <value>` and `--key=<value>` both land here on purpose: there
+      // is no argv spelling of the credential, and the refusal must name the
+      // one that exists. The echo is the flag's NAME up to any `=`, never the
+      // token as typed: the equals form hides the whole bearer inside `arg`,
+      // and a refusal that printed it would persist the key in terminal
+      // scrollback and CI logs, the exact exposure this command exists to
+      // refuse.
+      const name = arg.split("=")[0] ?? arg;
       error(
-        `node transfer: unknown flag "${arg}"${arg === "--key" || arg === "--api-key" ? " (the key comes from --key-stdin, never the command line)" : ""}`,
+        `node transfer: unknown flag "${name}"${name === "--key" || name === "--api-key" ? " (the key comes from --key-stdin, never the command line)" : ""}`,
       );
       return null;
     } else if (!nodeId) nodeId = arg;

@@ -652,6 +652,10 @@ export async function transferNode(
   args: { node_id: string; to_user_id: string; retain_access_as_manager?: boolean },
 ): Promise<{ nodeId: string; ownerUserId: string; retainedAccessAsManager: boolean }> {
   const nodeId = await resolveNodeId(deps, args.node_id);
+  // Unreachable by construction: the schema demands a non-empty node_id, and
+  // resolveNodeId throws for unknown and ambiguous names, so its only
+  // `undefined` (absent argument) cannot occur here. The line is the type
+  // narrowing; the message matches what the optional-node tools answer.
   if (!nodeId) throw new Error("subshell: pass the node id or name (list_nodes lists the machines)");
   return deps.api.req(`/api/nodes/${encodeURIComponent(nodeId)}/transfer`, {
     method: "POST",

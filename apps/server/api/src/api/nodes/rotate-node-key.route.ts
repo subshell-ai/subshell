@@ -25,7 +25,7 @@ const RotateResponseSchema = t.Object({
 
 /**
  * `POST /api/nodes/:id/rotate-key` — mint a replacement node key (spec §9).
- * Manager-only cookie: owner, or ADMIN for `local`.
+ * Manager-band cookie: owner, a `manage` grantee, or ADMIN for `local`.
  *
  * Write order is the ANTI-FORGERY order (T7 carry): mint new → flip
  * `nodes.apiKeyId` → disable old. There is never a window where the node has

@@ -1,6 +1,7 @@
 import { db } from "@/db/index.js";
 import { audit } from "@/modules/audit.js";
 import { setApiKeyOwner } from "@/modules/auth/apikey-store.js";
+import { getRelayBroker } from "@/modules/ssh/relay-broker.js";
 import { HttpError } from "@/shared/errors.js";
 
 /**
@@ -62,11 +63,13 @@ export async function transferNodeOwnership(input: NodeTransferInput): Promise<v
       .executeTakeFirst();
     if (!moved) throw new HttpError(409, "Node ownership changed; refresh and retry");
 
+    // The giver's own rows leave the set whichever way the option went: a
+    // round-trip transfer or a shares edit naming the owner can plant a row,
+    // and `retainAccessAsManager: false` promised a clean break — a leftover
+    // manage row would survive an act the giver explicitly declined. Every
+    // OTHER grantee's row survives untouched, ids included.
+    await tx.deleteFrom("nodeShares").where("nodeId", "=", nodeId).where("granteeUserId", "=", fromUserId).execute();
     if (retainAccessAsManager) {
-      // Replace-shares in place: every other grantee row survives untouched
-      // (ids included); only the outgoing owner's own rows collapse into the
-      // single manage grant the option promised.
-      await tx.deleteFrom("nodeShares").where("nodeId", "=", nodeId).where("granteeUserId", "=", fromUserId).execute();
       await tx
         .insertInto("nodeShares")
         .values({
@@ -84,6 +87,13 @@ export async function transferNodeOwnership(input: NodeTransferInput): Promise<v
 
     await tx.deleteFrom("nodeSetupKeys").where("targetNodeId", "=", nodeId).where("usedAt", "is", null).execute();
   });
+
+  // The shares route's mandatory revocation cut, same posture: whoever lost
+  // launch access by this move (a clean-break giver, typically) must not keep
+  // streaming through a relay brokered under the old authority. The broker's
+  // read is authorization-only, so a retained manage grantee sails through it
+  // untouched, and the node's own link and running panes stay as they were.
+  await getRelayBroker().closeUnauthorizedForNode(nodeId);
 
   await audit({
     actorUserId: fromUserId,

@@ -555,8 +555,9 @@ is deliberate: a 403 would confirm the id exists.
 **Grants.** The owner may share (§5). Subshell and preset grants confer view
 or edit; they never confer delete or re-sharing. Node shares add the `manage`
 rung (spec 2026-11-07): it confers the whole owner-manage band, never the
-ownership itself, so a manage grantee cannot transfer the node (and, off
-`local`, neither can an admin).
+ownership itself. Transfer answers 403 to a manage grantee and to an admin
+alike on any agent node, and `local` answers 400 to every actor, admins
+included: the control-plane host is never transferable.
 
 **Admin.** Since the operator ruling of 2026-10-09
 (`docs/superpowers/specs/2026-10-09-admin-pane-visibility-removal-design.md`),

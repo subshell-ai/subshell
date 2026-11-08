@@ -44,11 +44,12 @@ const ServiceResponseSchema = t.Object({
  * carried the verb undoing them. They are one-way from a browser, and only
  * someone with a shell on that machine can reverse them.
  *
- * So they sit where repointing sits: with the owner. An `edit` grantee is
+ * So they sit where repointing sits: on the manage band (spec 2026-11-07,
+ * where the owner alone used to stand). An `edit` grantee is
  * trusted to interrupt a machine they were shared (restart comes back); making
  * it unreachable until somebody walks to it is a different act.
  */
-const OWNER_ONLY_VERBS: readonly NodeServiceVerb[] = ["stop", "uninstall"];
+const ONE_WAY_VERBS: readonly NodeServiceVerb[] = ["stop", "uninstall"];
 
 /** One refusal, as an API code and a sentence a person can act on. */
 interface Refusal {
@@ -122,7 +123,8 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
  * its manager respawns it.
  *
  * Gate: cookie only, owner or `edit` (`nodeCanConfigure`, the same gate
- * re-check carries) — except {@link OWNER_ONLY_VERBS}, which are the owner's.
+ * re-check carries) — except {@link ONE_WAY_VERBS}, which sit one rank up on
+ * the manage band (owner, or a `manage` grantee).
  * A `view` grantee may launch subshells here; driving the machine's daemon is
  * a configure act, and it interrupts everyone else's panes on that node rather
  * than only their own.
@@ -162,11 +164,11 @@ export const serviceNodeRoute = new Elysia()
         );
       }
       if (!nodeCanConfigure(gate.access)) throw new ForbiddenError();
-      // The one-way verbs sit on the management band — OWNER_ONLY_VERBS, the
+      // The one-way verbs sit on the management band — ONE_WAY_VERBS, the
       // owner and (since spec 2026-11-07) a `manage` grantee, which is exactly
       // `canManage` here: the `local` exception that would make an admin a
       // manager is irrelevant because `local` is refused outright above.
-      if (OWNER_ONLY_VERBS.includes(body.verb) && !gate.canManage) throw new ForbiddenError();
+      if (ONE_WAY_VERBS.includes(body.verb) && !gate.canManage) throw new ForbiddenError();
       // `force` means "act even though live panes will die", so it is
       // meaningless on the two verbs that cannot end one. Refused rather than
       // ignored: a flag silently accepted where it does nothing is how a

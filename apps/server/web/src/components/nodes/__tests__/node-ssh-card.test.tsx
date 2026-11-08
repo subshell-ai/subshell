@@ -90,7 +90,7 @@ it("hides the wide-forwards switch while SSH itself is off, and says who owns it
 it("shows configuration to edit viewers without offering changes", () => {
   mount(node({ access: "edit", canManage: false }));
   expect(screen.getByRole("switch").hasAttribute("data-disabled")).toBe(true);
-  expect(screen.getByText("Only this node’s owner can change this setting.")).toBeTruthy();
+  expect(screen.getByText("Only the node's owner or a Manage grantee can change this setting.")).toBeTruthy();
 });
 it("shows failed writes without changing the reported state", async () => {
   globalThis.fetch = (async () =>

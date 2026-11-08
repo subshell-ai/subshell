@@ -149,7 +149,10 @@ export const transferNodeRoute = new Elysia()
       },
       systemPermission: "nodes:transfer",
       detail: {
-        security: [{ sessionCookie: [] }],
+        // No hand-written `security`: this route genuinely serves bearer
+        // actors through the grant, and declaring cookie-only here would
+        // document the machine door out of the OpenAPI page (the
+        // systemPermission macro's own security list is the truth).
         operationId: "transferNode",
         tags: ["nodes"],
         description:

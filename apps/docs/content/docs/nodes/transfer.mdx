@@ -45,7 +45,7 @@ printf '%s' "$TRANSFER_KEY" | subshell-server node transfer \
 Or call the route directly:
 
 ```bash
-curl -sS -X POST https://your-server.example:3080/api/nodes/<nodeId>/transfer \
+curl -sS -X POST http://your-server.example:3080/api/nodes/<nodeId>/transfer \
   -H "authorization: Bearer $TRANSFER_KEY" \
   -H "content-type: application/json" \
   -d '{"toUserId": "<userId>", "retainAccessAsManager": true}'

@@ -144,7 +144,7 @@ export const NodeViewSchema = t.Object({
   ),
   canManage: t.Boolean({
     description:
-      "Whether the caller manages this node (shares/rename/maintenance/rotate/allowlist): real owner, or an admin on `local`; same rule as the route gate",
+      "Whether the caller manages this node (shares/rename/maintenance/rotate/allowlist/repoint/one-way service verbs): real owner, a `manage` grantee, or an admin on `local`; same rule as the route gate",
   }),
   canRetire: t.Boolean({
     description:

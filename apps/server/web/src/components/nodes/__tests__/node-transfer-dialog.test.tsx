@@ -80,6 +80,35 @@ it("transfers to the chosen account, keeping manage by default", async () => {
   await waitFor(() => expect(done).toBe(1));
 });
 
+it("a failed people roster says so and recovers on Retry, never 'no matching people'", async () => {
+  // An empty list and a failed read are different answers: showing the
+  // picker's empty text over a dead roster tells the owner the instance has
+  // nobody, when the truth is the read could not run (sharing-core idiom).
+  let failed = true;
+  let rosterReads = 0;
+  globalThis.fetch = (async (input: unknown) => {
+    const url = new URL(String(input), "http://localhost");
+    if (url.pathname === "/api/users") {
+      rosterReads++;
+      return failed
+        ? Response.json({ message: "Unavailable" }, { status: 503 })
+        : Response.json({
+            viewerIsAdmin: false,
+            users: [{ id: "u2", email: "bob@subshell.local", name: "Bob" }],
+          });
+    }
+    return Response.json({});
+  }) as typeof fetch;
+  renderDialog();
+  expect(await screen.findByText("Couldn't load the people list. Try again.")).toBeTruthy();
+  expect(screen.queryByText("No matching people to hand it to.") === null).toBe(true);
+  expect(screen.getByRole("button", { name: /^Transfer/ }).matches(":disabled, [aria-disabled=true]")).toBe(true);
+  failed = false;
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(rosterReads).toBeGreaterThan(1));
+  expect(await screen.findByRole("combobox", { name: "New owner" })).toBeTruthy();
+});
+
 it("unchecked share-back transfers clean", async () => {
   const { posts } = mockTransfer();
   renderDialog();

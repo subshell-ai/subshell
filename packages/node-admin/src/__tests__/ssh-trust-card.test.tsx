@@ -77,6 +77,16 @@ describe("SshTrustCard", () => {
     expect(screen.getByText(FP_OWN_SIGN)).toBeDefined();
   });
 
+  it("a manage grantee sees the card too: the band ranks above edit", () => {
+    // Spec 2026-11-07 widened the server's read gate (nodeCanConfigure is
+    // rank-based, so `manage` receives sshTrust). A card still keyed to the
+    // pre-feature two-value check would strand the trust section's prose over
+    // an empty slot and never show the re-pair act its canManage arm grants.
+    render(<NodeSshTrustCard node={node({ access: "manage", canManage: true, sshTrust: LIVE_TRUST })} />);
+    expect(screen.getByText(FP_OWN_SIGN)).toBeDefined();
+    expect(screen.getByText(FP_PEER_ENC)).toBeDefined();
+  });
+
   it("the stale mirror renders STALE-marked, distinguishable from live", () => {
     render(<NodeSshTrustCard node={node({ status: "offline", sshTrust: { ...LIVE_TRUST, stale: true } })} />);
     // The flag carries both a badge and its own sentence: the §4.6 compare is

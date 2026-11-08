@@ -52,7 +52,8 @@ export const Route = createFileRoute("/nodes_/$id")({
  * The harness card is read-only everywhere (spec 2026-09-10: plugins are
  * instance-level and managed under `/settings/plugins`); its one control,
  * Re-check, moved inside the card and gates itself on the view's server-
- * derived `access` (owner|edit — the rule the recheck route applies), not on
+ * derived `access` (edit rank or above, manage included — the rule the
+ * recheck route applies), not on
  * `canManage`.
  *
  * Gating is entirely server-derived: invisible nodes 404 (handled as a load
@@ -83,8 +84,8 @@ function NodeDetailPage() {
       id={id}
       errorContent={id === "local" ? <ServerIdentityRecovery /> : undefined}
       title={
-        // Rename is owner-gated: `canManage` is exactly that gate — a real
-        // owner on an agent node, or an admin on `local`, whose boost is
+        // Rename rides `canManage`: a real owner or a Manage grantee on an
+        // agent node, or an admin on `local`, whose boost is
         // `local`-only. So an admin names the control-plane host's row and
         // nobody else's (spec §9 stands for agents).
         node.data?.canManage ? (
@@ -333,7 +334,13 @@ function NodeDetailPage() {
               onDeleted={() => void navigate({ to: "/nodes" })}
             />
           )}
-          <NodeSharingDialog nodeId={n.id} open={shareOpen} onOpenChange={setShareOpen} canManage={n.canManage} />
+          <NodeSharingDialog
+            nodeId={n.id}
+            kind={n.kind}
+            open={shareOpen}
+            onOpenChange={setShareOpen}
+            canManage={n.canManage}
+          />
           {transferOpen && (
             <NodeTransferDialog
               nodeId={n.id}

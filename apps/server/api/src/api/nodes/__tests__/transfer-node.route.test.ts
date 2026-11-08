@@ -12,6 +12,8 @@ import { getAuth } from "@/modules/auth/auth.js";
 import { authDatabase } from "@/modules/auth/database.js";
 import { ensureSystemUser } from "@/modules/auth/system-user.js";
 import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { transferNodeOwnership } from "@/modules/nodes/transfer-ownership.js";
+import { type RelayBroker, setRelayBrokerForTests } from "@/modules/ssh/relay-broker.js";
 import { issueSubshellToken } from "@/modules/subshells/tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
@@ -392,12 +394,93 @@ describe("POST /api/nodes/:id/transfer", () => {
 
   it("retainAccessAsManager false leaves the old owner with no grant at all", async () => {
     const { id } = await mkNode(aliceId, `t-clean-${crypto.randomUUID().slice(0, 8)}`);
+    // A leftover self-grant is the realistic shape, not the empty case: a
+    // round-trip transfer (or a shares edit naming the owner) plants a row,
+    // and a declined share-back must clear it. Without the unconditional
+    // delete the giver silently keeps manage after saying no.
+    await db
+      .insertInto("nodeShares")
+      .values({
+        id: crypto.randomUUID(),
+        nodeId: id,
+        granteeUserId: aliceId,
+        permission: "manage",
+        createdBy: aliceId,
+        createdAt: new Date().toISOString(),
+      })
+      .execute();
     const res = await req("POST", `/${id}/transfer`, {
       cookie: aliceCookie,
       body: { toUserId: bobId, retainAccessAsManager: false },
     });
     expect(res.status).toBe(200);
     expect((await shares.listForNode(id)).filter((s) => s.granteeUserId === aliceId)).toHaveLength(0);
+  });
+
+  it("a handover closes brokered relays the new access no longer authorizes", async () => {
+    // The shares route's mandatory revocation cut, same posture (spec
+    // 2026-11-07 review): the giver who parts clean must not keep streaming
+    // through a relay opened under their old authority.
+    const { id } = await mkNode(aliceId, `t-relay-${crypto.randomUUID().slice(0, 8)}`);
+    const cuts: string[] = [];
+    const spy = {
+      openRelay: async () => {
+        throw new Error("unused");
+      },
+      routeRelayFrame: () => {},
+      closeRelay: async () => false,
+      closeUnauthorizedForNode: async (nodeId: string) => {
+        cuts.push(nodeId);
+        return 0;
+      },
+      closeForPane: async () => 0,
+      refuseOverCap: async () => false,
+      onNodeSocketClosed: async () => 0,
+      activeRelayCount: () => 0,
+      sessionInfo: () => null,
+      reset: () => {},
+    };
+    setRelayBrokerForTests(spy as unknown as RelayBroker);
+    try {
+      const res = await req("POST", `/${id}/transfer`, {
+        cookie: aliceCookie,
+        body: { toUserId: bobId, retainAccessAsManager: false },
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      setRelayBrokerForTests(null);
+    }
+    expect(cuts).toEqual([id]);
+  });
+
+  it("the success body names the move it performed", async () => {
+    const { id } = await mkNode(aliceId, `t-body-${crypto.randomUUID().slice(0, 8)}`);
+    const res = await req("POST", `/${id}/transfer`, {
+      cookie: aliceCookie,
+      body: { toUserId: bobId, retainAccessAsManager: true },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ nodeId: id, ownerUserId: bobId, retainedAccessAsManager: true });
+  });
+
+  it("a stale compare-and-swap answers 409 and rewrites nothing", async () => {
+    // The module's own guard rail: whoever races the row loses cleanly. Reaching
+    // it through the route needs a mid-request race; the module call states the
+    // arm directly.
+    const { id } = await mkNode(aliceId, `t-cas-${crypto.randomUUID().slice(0, 8)}`);
+    const err = await transferNodeOwnership({
+      nodeId: id,
+      fromUserId: "user-not-the-owner",
+      toUserId: bobId,
+      retainAccessAsManager: true,
+      apiKeyId: null,
+    }).then(
+      () => null,
+      (e: unknown) => e as { status?: number },
+    );
+    expect(err?.status).toBe(409);
+    expect((await nodes.findById(id))?.ownerUserId).toBe(aliceId);
+    expect(await shares.listForNode(id)).toHaveLength(0);
   });
 
   // ── machine doors ────────────────────────────────────────────────────────

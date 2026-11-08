@@ -55,6 +55,10 @@ export function NodeTransferDialog({
   const pickerId = useId();
   const busy = transfer.isPending;
   const loading = roster.isPending || me.isPending;
+  // A dead read is its own answer, never the picker's "no matching people":
+  // that text would tell the owner the instance holds nobody (sharing-core
+  // idiom: ErrorBanner + Retry over the failed read).
+  const loadFailed = roster.isError || me.isError;
   // Yourself is never the answer to "who takes it over"; a disabled account
   // is refused by the server, and the picker shows the account's own list.
   const options = (roster.data ?? [])
@@ -93,6 +97,21 @@ export function NodeTransferDialog({
 
         {loading ? (
           <p className="text-detail text-muted-foreground">Loading people…</p>
+        ) : loadFailed ? (
+          <ErrorBanner
+            message="Couldn't load the people list. Try again."
+            action={
+              <Button
+                variant="link"
+                onClick={() => {
+                  void roster.refetch();
+                  void me.refetch();
+                }}
+              >
+                Retry
+              </Button>
+            }
+          />
         ) : (
           <div className="grid grid-cols-[minmax(0,1fr)] items-center gap-1">
             <label htmlFor={pickerId} className="sr-only">
@@ -132,15 +151,17 @@ export function NodeTransferDialog({
           </Button>
           <Button
             onClick={() => void submit()}
-            disabled={busy || loading || !pickId}
+            disabled={busy || loading || loadFailed || !pickId}
             disabledReason={
               busy
                 ? "The transfer is in flight."
                 : loading
                   ? "Wait for the people list to load."
-                  : !pickId
-                    ? "Choose who takes it over first."
-                    : undefined
+                  : loadFailed
+                    ? "Reload the people list first."
+                    : !pickId
+                      ? "Choose who takes it over first."
+                      : undefined
             }
           >
             {busy ? "Transferring…" : "Transfer"}

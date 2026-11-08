@@ -16,8 +16,8 @@ Every grant picks one level, and the levels stack: each includes the one below i
 | Level | What it grants |
 | --- | --- |
 | **View** | See the node and its status, and launch your own subshells on it. |
-| **View + edit** | Viewing, plus terminal input into sessions you can see, and node configuration: logs, runtime details, the SSH settings. |
-| **Manage** | Everything an owner can change about the machine: sharing itself, renaming, maintenance, directory rules, key rotation, repointing, stop and uninstall. It never reaches three things: transferring ownership, deleting or re-registering the node, and file transfers. |
+| **View + edit** | Viewing, plus terminal input into sessions you can see, and node configuration: reading its logs and runtime details, flipping debug logging, restarting its daemon, and sending it an update. |
+| **Manage** | Everything an owner can change about the machine: sharing itself, renaming, maintenance, directory rules, key rotation, repointing, stop and uninstall, and the SSH switches. It never reaches three things: transferring ownership, deleting or re-registering the node, and file transfers. |
 
 Any level, even **View**, lets the grantee launch their own subshells there. Management controls stay out of **View** and **View + edit**; hand someone **Manage** only when you mean them to run the machine.
 

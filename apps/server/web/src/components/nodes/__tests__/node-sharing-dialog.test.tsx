@@ -42,7 +42,7 @@ function renderDialog(canManage = true) {
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={cache}>
-      <NodeSharingDialog nodeId="n" open onOpenChange={() => {}} canManage={canManage} />
+      <NodeSharingDialog nodeId="n" kind="agent" open onOpenChange={() => {}} canManage={canManage} />
     </QueryClientProvider>,
   );
 }
@@ -75,6 +75,24 @@ it("offers Manage and saves the Manage grantee in the PUT (spec 2026-11-07)", as
   });
 });
 
+it("offers no Manage rung on the server host: the server refuses those grants", async () => {
+  // `manage` on `local` is a 400 at the route (spec 2026-11-07: the
+  // control-plane host has exactly one manager, the admin seat), so the
+  // picker must not dangle a level the save would always reject.
+  const { calls } = mockNodeShares([]);
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={cache}>
+      <NodeSharingDialog nodeId="local" kind="local" open onOpenChange={() => {}} />
+    </QueryClientProvider>,
+  );
+  await screen.findByText("Not shared with anyone yet.");
+  fireEvent.click(screen.getByRole("combobox", { name: "Access level to grant" }));
+  expect(await screen.findByRole("option", { name: "View + edit" })).toBeTruthy();
+  expect(screen.queryByRole("option", { name: "Manage" }) === null).toBe(true);
+  expect(calls.some((c) => c.method === "PUT")).toBe(false);
+});
+
 it("names the Manage level to a read-only viewer", async () => {
   // The read-only rows render from the offered levels, so a manage grant
   // never degrades into a blank or "View" cell for someone who cannot edit.
@@ -103,7 +121,7 @@ it("refuses edits after a failed grant read and recovers the existing grants on 
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={cache}>
-      <NodeSharingDialog nodeId="n" open onOpenChange={() => {}} />
+      <NodeSharingDialog nodeId="n" kind="agent" open onOpenChange={() => {}} />
     </QueryClientProvider>,
   );
   await screen.findByText("Couldn't load sharing settings. Try again before making changes.");

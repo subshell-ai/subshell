@@ -5,7 +5,8 @@ import { useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useRepairSshMachinePin } from "@/hooks/use-ssh";
 
-/** Machine fingerprints and explicit peer-pin repair: agent owners may repair their own pins,
+/** Machine fingerprints and explicit peer-pin repair: the manage band (owner
+ * or Manage grantee) repairs an agent node's pins,
  * while only cookie admins may inspect or change the server's pin store.
  * The displayed copy still needs comparison with each machine through a trusted channel. */
 export function SshTrustSection({ node, embedded = false }: { node: NodeDetail; embedded?: boolean }) {

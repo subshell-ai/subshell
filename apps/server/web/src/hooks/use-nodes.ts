@@ -79,8 +79,9 @@ export function useRecheckNode(id: string) {
 }
 
 /**
- * Renames a node (`PATCH /api/nodes/:id` `{name}`) — OWNER-only server-side
- * (an admin's effective edit does not extend to renaming a foreign agent) and
+ * Renames a node (`PATCH /api/nodes/:id` `{name}`) — manager-band server-side
+ * (owner or a `manage` grantee, admin on `local`; an admin's effective edit
+ * does not extend to renaming a foreign agent) and
  * the `local` node's name is fixed for everyone (400). A per-owner name
  * collision answers 409 `NODE_NAME_TAKEN` with the server's own message.
  * The response is a plain NodeView; the detail cache is INVALIDATED rather
@@ -114,7 +115,8 @@ export interface NodeTransferResult {
  * `Node.canTransfer`. One transaction server-side: the machine's link, key,
  * running subshells, and every OTHER share survive untouched; unused recovery
  * keys die; and the share-back, when kept, is a fresh grant — so the shares
- * read invalidates too, not just the row and the badges.
+ * read AND the setup-key list invalidate too, not just the row and the
+ * badges (a card still listing a key the transfer voided offers a dead row).
  */
 export function useTransferNode(id: string) {
   const queryClient = useQueryClient();
@@ -125,6 +127,7 @@ export function useTransferNode(id: string) {
       void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
       void queryClient.invalidateQueries({ queryKey: [...NODE_SHARES_QUERY_KEY, id] });
+      void queryClient.invalidateQueries({ queryKey: SETUP_KEYS_QUERY_KEY });
     },
   });
 }
@@ -233,7 +236,7 @@ export function useDeleteSetupKey() {
 
 /**
  * Flip one machine's pane-preview allowance (pane-preview spec Task 3).
- * Owner-only at the route (the same gate as the SSH switch), and it answers
+ * Manager-band at the route (the same gate as the SSH switch), and it answers
  * on an offline node too: the flag is the plane's record, and the machine
  * learns the value at its next connect - which is why the card never dims
  * the control for a node that is merely dark.

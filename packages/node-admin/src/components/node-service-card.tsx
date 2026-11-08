@@ -87,7 +87,8 @@ const VERBS: VerbSpec[] = [
  * **`stop` and `uninstall` say what they cost, in the confirmation.** A command
  * reaches a node over the NODE'S OWN socket, so nothing in this app can start
  * a node that is not running: those two end the connection that would have
- * carried the verb undoing them. The server gates them on ownership; this
+ * carried the verb undoing them. The server gates them on the manage band
+ * (owner or Manage grantee, admin on the host); this
  * names the consequence, because it is invisible from a button that looks like
  * every other one.
  *

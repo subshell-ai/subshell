@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { type CliDeps, dispatchCli } from "../dispatch.js";
 
 /**
- * `subshell-server node transfer` — the machine door to the ownership
+ * `subshell-server node transfer`: the machine door to the ownership
  * handover (spec 2026-11-07). Dispatch-level coverage of the surface an
  * operator types: the flags, the exits, and the credential hygiene that made
  * `--key-stdin` mandatory (a key in argv is `ps`-visible and shell-history
@@ -84,6 +84,48 @@ describe("subshell-server node transfer", () => {
     expect(h.exits).toEqual([1]);
     expect(h.err.join("\n")).toContain("--key-stdin");
     expect(h.calls.length).toBe(0);
+  });
+
+  test("the equals form of the refused key flags never echoes the credential, and still names --key-stdin", async () => {
+    const h = harness();
+    await dispatchCli(["node", "transfer", "n1", "--to", "u9", "--key=subshell_leaky", ...BASE], h.deps);
+    expect(h.exits).toEqual([1]);
+    // The whole secret lives inside the one argv token, so the refusal must
+    // quote the flag's name, never what was typed after the equals sign.
+    expect(h.err.join("\n")).not.toContain("subshell_leaky");
+    expect(h.err.join("\n")).toContain("--key");
+    expect(h.err.join("\n")).toContain("--key-stdin");
+    expect(h.calls.length).toBe(0);
+  });
+
+  test("--to and --base-url refuse a following flag instead of eating it as their value", async () => {
+    // `--to --key-stdin` must not answer "you forgot --key-stdin".
+    const eaten = harness();
+    await dispatchCli(["node", "transfer", "n1", "--to", "--key-stdin", ...BASE], eaten.deps);
+    expect(eaten.exits).toEqual([1]);
+    expect(eaten.err.join("\n")).toContain("--to needs");
+    expect(eaten.calls.length).toBe(0);
+
+    const urlFlag = harness();
+    await dispatchCli(["node", "transfer", "n1", "--to", "u9", "--base-url", "--json"], urlFlag.deps);
+    expect(urlFlag.exits).toEqual([1]);
+    expect(urlFlag.err.join("\n")).toContain("--base-url needs");
+    expect(urlFlag.calls.length).toBe(0);
+  });
+
+  test("--json under SUBSHELL_VERBOSE is refused like every other JSON verb", async () => {
+    let reads = 0;
+    const h = harness({
+      env: { SUBSHELL_VERBOSE: "1" },
+      readKey: async () => {
+        reads += 1;
+        return "x";
+      },
+    });
+    await dispatchCli(["node", "transfer", "n1", "--to", "u9", "--key-stdin", "--json", ...BASE], h.deps);
+    expect(h.exits).toEqual([1]);
+    expect(h.calls.length).toBe(0);
+    expect(reads).toBe(0);
   });
 
   test("without --key-stdin the command refuses before any read or request", async () => {

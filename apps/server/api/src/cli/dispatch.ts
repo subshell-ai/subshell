@@ -619,7 +619,12 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
     case "node": {
       // Machine acts against a RUNNING server with an automation key
       // (spec 2026-11-07): the only current verb is the ownership handover.
-      // Async like `update`/`backup` — it reads stdin and speaks HTTP.
+      // Async like `update`/`backup`: it reads stdin and speaks HTTP.
+      if (envVerbose && argv.includes("--json")) {
+        error(verboseJsonConflict(false, true));
+        exit(1);
+        return true;
+      }
       const opts = parseNodeArgs(argv.slice(1), error);
       if (!opts) {
         error(USAGE);

@@ -94,6 +94,12 @@ test("GET /api/nodes/:id answers the local view — online, owner-managed, serve
   expect(v.status).toBe("online");
   expect(v.access).toBe("owner");
   expect(v.canManage).toBe(true);
+  // The wire type declares these, and consumers branch on `=== false`, not on
+  // truthiness: this dashboard has no transfer door and no retire door
+  // (handing over and retiring are the plane's acts), so the payload says so
+  // explicitly rather than leaving the fields off.
+  expect(v.canTransfer).toBe(false);
+  expect(v.canRetire).toBe(false);
   expect(v.canLaunch).toBe(true);
   expect(v.held).toBeNull();
   expect(v.harnesses).toEqual([]);

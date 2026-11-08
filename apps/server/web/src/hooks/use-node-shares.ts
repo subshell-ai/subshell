@@ -6,7 +6,8 @@ import { NODE_SHARES_QUERY_KEY } from "@/lib/query-keys";
 /**
  * Sharing reads/writes for one node (spec 2026-08-31 §9/§10) — the mirror of
  * `use-subshell-shares`: `granteeUserId` null is the "Everyone" grant, and the
- * PUT replaces the whole set. Both routes are MANAGER-only (owner, or admin on
+ * PUT replaces the whole set. Both routes are MANAGER-only (owner, a manage
+ * grantee, or admin on
  * `local`) — an `edit` grantee may configure the node but never reads or moves
  * the grant list, so callers gate both on `Node.canManage` (server-derived;
  * the frontend must not re-derive admin identity).

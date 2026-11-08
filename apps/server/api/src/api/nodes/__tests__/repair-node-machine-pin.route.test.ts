@@ -180,7 +180,7 @@ beforeEach(() => {
   });
 });
 
-describe("the door: EXACTLY the owner", () => {
+describe("the door: the manage band, not the retire gate", () => {
   it("the owner re-pairs: 200, the registered pair sent, one ids-only audit row", async () => {
     const res = await post(NODE_A, PEER_B, ownerCookie);
     expect(res.status).toBe(200);

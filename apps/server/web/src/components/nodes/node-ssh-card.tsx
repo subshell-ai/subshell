@@ -40,7 +40,7 @@ export function NodeSshCard({ node, children }: { node: NodeDetail; children?: R
           <p className="text-detail text-warning">
             {node.kind === "local"
               ? "An admin can change this setting."
-              : "Only this node’s owner can change this setting."}
+              : "Only the node's owner or a Manage grantee can change this setting."}
           </p>
         )}
         {update.isError && (
@@ -65,7 +65,9 @@ export function NodeSshCard({ node, children }: { node: NodeDetail; children?: R
                 : "Port forwards on this machine listen on 127.0.0.1 only. Turn this on to let a forward bind another address, such as 0.0.0.0 for every interface. Remote forwards bind on the destination under its own policy either way."}
             </p>
             {!node.canManage && (
-              <p className="text-detail text-warning">Only this node’s owner can change this setting.</p>
+              <p className="text-detail text-warning">
+                Only the node's owner or a Manage grantee can change this setting.
+              </p>
             )}
             {wide.isError && (
               <p role="alert" className="text-destructive text-detail">

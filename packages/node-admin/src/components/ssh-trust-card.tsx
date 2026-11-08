@@ -20,9 +20,11 @@ import { Fact } from "./fact-list";
  * key material, and nothing here proves anything until both machines have
  * been read.
  *
- * Agent trust requires owner/edit access. The control plane may opt its local
- * row in for an authenticated admin through `allowLocal`; its canManage check
- * remains a second gate. Node dashboards retain the agent-only default.
+ * Agent trust requires edit access or above, so `manage` (spec 2026-11-07)
+ * sees it too: the server's read gate is rank-based. The control plane may
+ * opt its local row in for an authenticated admin through `allowLocal`; its
+ * canManage check remains a second gate. Node dashboards retain the
+ * agent-only default.
  *
  * Staleness is not the gate: an OFFLINE agent renders the durable mirror, and
  * says so plainly, because comparing last-known fingerprints during an
@@ -48,7 +50,11 @@ export function NodeSshTrustCard({
   /** Render inside an existing SSH card without nesting another card. */
   embedded?: boolean;
 }): JSX.Element | null {
-  if (node.kind === "local" ? !allowLocal || !node.canManage : node.access !== "owner" && node.access !== "edit")
+  if (
+    node.kind === "local"
+      ? !allowLocal || !node.canManage
+      : node.access !== "owner" && node.access !== "edit" && node.access !== "manage"
+  )
     return null;
   const trust = node.sshTrust;
   if (!trust) return null;

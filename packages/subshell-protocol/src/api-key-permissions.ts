@@ -56,7 +56,7 @@ export const API_KEY_PERMISSION_GROUPS = [
         id: "nodes:transfer",
         label: "Transfer node ownership",
         description:
-          "Hand a node the key's own account holds to another account. The receiving account takes full ownership; nothing else about the machine changes.",
+          "Hand a node the key's own account holds to another account. The link, credentials, running sessions, and other shares carry over untouched; setup keys minted for the node but never used stop working.",
       },
     ],
   },
