@@ -45,7 +45,8 @@ export function subshellMcpEnv(apiKey: string, subshellId: string, subshellName:
  * `mcpRegistration` member (only claude-code, codex, opencode, pi and
  * oh-my-pi ship one). The manual-registration harnesses have one-time
  * mcpSetup steps the UI explains instead; openclaw, terminal, and ssh have
- * no MCP path at all.
+ * no MCP path at all. Pi's member is a subagent-bridge placeholder, so its
+ * MCP wiring is manual like the seven's.
  * Content holds no secrets, but the file stays 0600: least exposure is free.
  */
 export function registerSubshellMcp(
