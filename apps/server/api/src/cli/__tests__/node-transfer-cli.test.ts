@@ -205,6 +205,18 @@ describe("subshell-server node transfer", () => {
     expect(flagValue.calls.length).toBe(0);
   });
 
+  test("a key typed as the base-url value is refused without echoing it", async () => {
+    // "The key is never echoed anywhere" has to hold for the value echoes
+    // too, not just the positionals: --base-url=subshell_LEAKY reaches the
+    // address-validation message.
+    const h = harness();
+    await dispatchCli(["node", "transfer", "n1", "--to", "u9", "--key-stdin", "--base-url=subshell_LEAKY"], h.deps);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("\n")).not.toContain("subshell_LEAKY");
+    expect(h.err.join("\n")).toContain("--base-url");
+    expect(h.calls.length).toBe(0);
+  });
+
   test("a key left in a positional slot is refused without echoing it", async () => {
     // The flag-order slip the whole hygiene exists for: a flag slides, the
     // key lands bare, and the parse must not print it back (scrollback, CI

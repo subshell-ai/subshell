@@ -137,6 +137,13 @@ export function parseNodeArgs(
       if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("scheme");
       origin = url.origin;
     } catch {
+      if (baseUrl.startsWith("subshell_")) {
+        // The "never echoed anywhere" promise covers value echoes too.
+        error(
+          "node transfer: --base-url must be an http(s) address; that value looks like an automation key, so it is not echoed",
+        );
+        return null;
+      }
       error(`node transfer: --base-url must be an http(s) address, not "${baseUrl}"`);
       return null;
     }
