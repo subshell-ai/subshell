@@ -71,6 +71,7 @@ const SETTINGS_FIXTURES: Record<string, Record<string, unknown>> = {
   hermes: { model: "anthropic/claude-sonnet-4.6", provider: "openrouter", toolsets: "web,files" },
   "oh-my-pi": { model: "sonnet", provider: "anthropic", thinking: "high" },
   pi: { model: "sonnet:high", provider: "anthropic", thinking: "high" },
+  "qwen-code": { model: "qwen3-coder-plus", workflowMode: "on" },
   // Terminal has no settings keys its preset editor can store, so its
   // "settings set" row is the empty object on purpose — the parity claim is
   // that the matrix holds for inputs the plugin ignores, and a shell ignores
@@ -264,11 +265,11 @@ for (const id of BUILTIN_IDS) {
 }
 
 /**
- * Sanity: every built-in under test really is one of the ten, and the
+ * Sanity: every built-in under test really is one of the eleven, and the
  * registry is what production reads (`getHarness`, the same accessor
  * `subshell-manager` resolves launches through) — no copies.
  */
-test("argv parity: the matrix covers all ten built-ins through the production registry", () => {
+test("argv parity: the matrix covers all eleven built-ins through the production registry", () => {
   const registryIds = BUILTIN_IDS.map((id) => getHarness(id)?.id);
   expect(new Set(registryIds)).toEqual(
     new Set([
@@ -280,6 +281,7 @@ test("argv parity: the matrix covers all ten built-ins through the production re
       "hermes",
       "oh-my-pi",
       "pi",
+      "qwen-code",
       "ssh",
       "terminal",
     ]),

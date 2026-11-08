@@ -38,6 +38,7 @@
     "@subshell-ai/plugin-oh-my-pi": "workspace:*",
     "@subshell-ai/plugin-opencode": "workspace:*",
     "@subshell-ai/plugin-pi": "workspace:*",
+    "@subshell-ai/plugin-qwen-code": "workspace:*",
     "@subshell-ai/plugin-ssh": "workspace:*",
     "@subshell-ai/plugin-tailscale": "workspace:*",
     "@subshell-ai/plugin-terminal": "workspace:*",

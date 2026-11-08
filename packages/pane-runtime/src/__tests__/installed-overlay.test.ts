@@ -39,6 +39,7 @@ const BUILT_IN_IDS = [
   "oh-my-pi",
   "opencode",
   "pi",
+  "qwen-code",
   "ssh",
   "terminal",
 ];

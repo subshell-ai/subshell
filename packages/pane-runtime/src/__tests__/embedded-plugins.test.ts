@@ -26,6 +26,7 @@ const BUILT_INS = [
   "oh-my-pi",
   "opencode",
   "pi",
+  "qwen-code",
   "ssh",
   "tailscale",
   "terminal",

@@ -60,6 +60,7 @@ describe("the control-plane host's plugins", () => {
       "oh-my-pi",
       "opencode",
       "pi",
+      "qwen-code",
       "ssh",
       "tailscale",
       "terminal",

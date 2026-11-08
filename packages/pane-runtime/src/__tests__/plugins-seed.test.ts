@@ -36,11 +36,12 @@ describe("seedBuiltIns", () => {
       "oh-my-pi",
       "opencode",
       "pi",
+      "qwen-code",
       "ssh",
       "tailscale",
       "terminal",
     ]);
-    expect((await listInstalled(dir)).length).toBe(14);
+    expect((await listInstalled(dir)).length).toBe(15);
   });
 
   it("does NOTHING once a seed has COMPLETED, even with the directory emptied", async () => {
@@ -248,8 +249,8 @@ describe("prepareInstalledPlugins", () => {
     const dir = join(parent, "fresh-home");
     mkdirSync(dir);
     await expect(prepareInstalledPlugins(dir)).resolves.toBeUndefined();
-    // Ten harnesses + four network plugins (cloudflare-tunnel, headscale,
+    // Eleven harnesses + four network plugins (cloudflare-tunnel, headscale,
     // netbird, tailscale).
-    expect(await listInstalled(dir)).toHaveLength(14);
+    expect(await listInstalled(dir)).toHaveLength(15);
   });
 });
