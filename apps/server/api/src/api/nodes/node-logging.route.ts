@@ -37,8 +37,8 @@ const LoggingResponseSchema = t.Object({
  * Gate: browser edit rank or above (manage included), or an enabled system key on its own agent node (`nodeCanConfigure`, like the rest of the
  * service surface). NOT owner-only: this changes what a machine writes to its
  * own disk — a bounded, self-replacing 200 KB file — and reverses with the
- * same call. Nothing here can strand a node, which is what makes `stop` and
- * `uninstall` the owner's.
+ * same call. Nothing here can strand a node, which is what sits `stop` and
+ * `uninstall` one rank up, on the manage band.
  *
  * `local` → 400, for the reason every node route gives it: the control-plane
  * host has its own switch under Server Settings, with its own gate.

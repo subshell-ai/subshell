@@ -248,8 +248,9 @@ describe("the door: the manage band, not the retire gate", () => {
   });
 
   it("an admin cannot repair a foreign node but manages server pins", async () => {
-    // The exact-owner rule, not `canManage`: the admin boost (effective edit)
-    // and the seeded-local manage exception both stop at a trust act.
+    // The manage band simply does not contain an admin on a FOREIGN agent
+    // (owner or `manage` grantee, no boost); on `local` the seeded admin
+    // exception is precisely the authority the 200 below exercises.
     const before = (await repairRows()).length;
     expect((await post(NODE_A, PEER_B, adminCookie)).status).toBe(403);
     expect((await post(LOCAL_NODE_ID, PEER_B, adminCookie)).status).toBe(200);

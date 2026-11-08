@@ -234,7 +234,7 @@ it("enables an owned node only when starting the subshell", async () => {
     calls.findIndex((c) => c.path === "/api/ssh/launch"),
   );
 });
-it("shows owner guidance and blocks unauthorized configuration", async () => {
+it("shows holder guidance and blocks unauthorized configuration", async () => {
   const { calls } = await setup({
     initial: { node: "shared", destination: "target" },
     machines: [machine("shared", false, false)],
