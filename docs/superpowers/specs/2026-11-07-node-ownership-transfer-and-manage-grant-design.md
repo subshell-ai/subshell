@@ -27,6 +27,11 @@ band without touching the owner-exclusive floor.
 - **`manage` is refused on `local`.** The control-plane host has no human owner;
   the decision of who manages that machine has always belonged to admins alone.
   The shares route refuses the level on the local row with a 400.
+- **Everyone may carry `manage` on an agent node (operator ruling,
+  2026-11-07).** The Everyone row is an ordinary share, and one manage row on it
+  arms every signed-in account with the band on that machine. That is the
+  owner's explicit act, so the route allows it and the sharing procedure states
+  the consequence loudly; it is not an oversight to "fix" with a refusal.
 - **Share-back by default.** The transfer confirm dialog carries a checked
   "Keep managing it yourself" option; in the same transaction the old owner is
   upserted as a `manage` grantee. Losing your own machine mid-operation was the

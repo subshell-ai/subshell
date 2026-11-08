@@ -1081,7 +1081,11 @@ consequences are:
   the SSH switches) minus three things it never buys, transferring ownership,
   deleting or re-registering the node, and file transfers. For the built-in
   `local` node an admin stands where the owner would, and `manage` grants on
-  it are refused: its band has no grantable half.
+  it are refused: its band has no grantable half. On an agent node the
+  Everyone row may carry `manage` (operator ruling, 2026-11-07): one row
+  there gives the band to every signed-in account, including accounts created
+  later, which is a deliberate owner act rather than a guard gap, and the
+  sharing dialog says so at the decision point.
 - **Ownership transfer hands a RUNNING machine over** (spec 2026-11-07). One
   audited transaction moves `owner_user_id`, the api key that authenticates
   the link, and the machine's identity with it; the socket, the link

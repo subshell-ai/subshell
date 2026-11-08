@@ -101,6 +101,30 @@ it("names the Manage level to a read-only viewer", async () => {
   expect(await screen.findByText("Manage")).toBeTruthy();
   expect(screen.queryByRole("combobox") === null).toBe(true);
 });
+it("warns at the decision point that Manage on Everyone arms every account", async () => {
+  // Operator ruling 2026-11-07: the route ALLOWS a manage grant on the
+  // Everyone row of an agent node, so the dialog is the only place the
+  // consequence can be said. If the sentence is dropped, the widest grant
+  // on the ladder goes out undocumented.
+  mockNodeShares([]);
+  renderDialog();
+  expect(await screen.findByText(/Manage on Everyone gives it to every signed-in account/)).toBeTruthy();
+});
+
+it("says nothing about Everyone Manage on the server host", async () => {
+  // `local` refuses manage grants at the route, so the caution names a
+  // grant that can never be saved there.
+  mockNodeShares([]);
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={cache}>
+      <NodeSharingDialog nodeId="local" kind="local" open onOpenChange={() => {}} />
+    </QueryClientProvider>,
+  );
+  await screen.findByText("Not shared with anyone yet.");
+  expect(screen.queryByText(/Manage on Everyone/) === null).toBe(true);
+});
+
 it("refuses edits after a failed grant read and recovers the existing grants on retry", async () => {
   let failed = true;
   let writes = 0;
