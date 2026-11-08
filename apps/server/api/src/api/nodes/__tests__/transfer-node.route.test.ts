@@ -600,10 +600,11 @@ describe("POST /api/nodes/:id/transfer", () => {
     // Round-2 closure: the transfer CAS loses to a committed rotation; the
     // mirror direction needs the rotate CAS to cover the OWNER too, because
     // its slow better-auth mint is exactly where a transfer lands. Staged at
-    // that seam: ownership flips while rotate's mint is in flight, precisely
-    // as a committed transfer would. Without the owner guard this commits a
-    // bob-owned node bound to an alice-owned live key — a credential the
-    // giver kept over a machine she no longer owns.
+    // that seam: the ownership write commits while rotate's mint is in
+    // flight (the fixture stages the owner flip only — none of the transfer's
+    // other writes bear on what rotate's CAS must reject). Without the owner
+    // guard this commits a bob-owned node bound to an alice-owned live key —
+    // a credential the giver kept over a machine she no longer owns.
     const { id, keyRowId } = await mkNode(aliceId, `t-rrot-${crypto.randomUUID().slice(0, 8)}`);
     const auth = getAuth();
     const api = auth.api as unknown as { createApiKey: (input: unknown) => Promise<unknown> };

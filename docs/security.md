@@ -559,9 +559,9 @@ ownership itself. The rung is delegated by people, not machines: a `nodes:share`
 key may write view and edit rows but is refused (400) a manage row, because the
 grant advertises launch-access control while the rung hands over day-to-day
 ownership (security pass on #495). The shares PUT also CASes the row set the
-caller's gate was authorized against, so a revocation that commits before
-the stale write's transaction lands it as a 409 refresh-and-retry rather
-than letting it overwrite the revocation. Transfer answers 403 to a manage grantee and to an admin
+caller's gate was authorized against, so a revocation that commits between
+that read and the write's transaction turns the stale write into a 409
+refresh-and-retry rather than letting it overwrite the revocation. Transfer answers 403 to a manage grantee and to an admin
 alike on any agent node, and `local` answers 400 to every actor whose gate
 resolves on it: admins always, other accounts while a launch grant stands
 (an actor who cannot see `local`, and every machine credential, get the

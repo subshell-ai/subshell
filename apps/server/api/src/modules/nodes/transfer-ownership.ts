@@ -68,13 +68,13 @@ export async function transferNodeOwnership(input: NodeTransferInput): Promise<v
       throw new HttpError(400, "That account is still awaiting approval; approve it before transferring a node to it");
     }
 
-    // Compare-and-swap on the owner AND the live key row: a rotate that
-    // committed under us rewrote the other half of the link fact, and
-    // re-homing the key the caller saw (not the one now live) would commit a
-    // node owned by bob whose key still belongs to alice — the split this
-    // transaction exists to prevent (security pass on #495; rotate CASes the
-    // key column and never the owner, so each act guards the composite fact
-    // the other one reads).
+    // Compare-and-swap on the WHOLE link fact, `(owner, live key)`. The
+    // rotation CASes the same pair (rotate-node-key.route.ts), so the two
+    // acts are a matched pair and whichever commits second loses with a 409
+    // refresh-and-retry; no interleaving commits a node whose live key
+    // belongs to someone other than its owner (security pass on #495; round 2
+    // added the owner to the rotation's originally key-only CAS so the guard
+    // is symmetric, not crossed).
     const moved = await tx
       .updateTable("nodes")
       .set({ ownerUserId: toUserId, updatedAt: now })
