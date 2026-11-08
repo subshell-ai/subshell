@@ -335,6 +335,7 @@ export function SubshellRecentRow({
           harnessId={subshell.harnessId}
           branchWorkspaceId={branchWorkspaceId}
           id={subshell.id}
+          parentName={subshell.name}
           alive={subshell.status === "running" && subshell.alive === true}
         />
       </div>

@@ -78,7 +78,7 @@ test("a blocked child row explains itself with the task label and elapsed line",
   setFetchRouter(async () => Response.json(state));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(["harness-subagents"], state);
-  const rootRoute = createRootRoute({ component: () => <HarnessSubagentRows id="pane" alive /> });
+  const rootRoute = createRootRoute({ component: () => <HarnessSubagentRows id="pane" parentName="Build" alive /> });
   const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/" });
   const router = createRouter({
     routeTree: rootRoute.addChildren([indexRoute]),
@@ -129,7 +129,7 @@ test("Claude hides descriptions that don't match live progress and still explain
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(["harness-subagents"], state);
   const rootRoute = createRootRoute({
-    component: () => <HarnessSubagentRows id="pane" harnessId="claude-code" alive />,
+    component: () => <HarnessSubagentRows id="pane" parentName="Build" harnessId="claude-code" alive />,
   });
   const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/" });
   const router = createRouter({
@@ -143,6 +143,9 @@ test("Claude hides descriptions that don't match live progress and still explain
     </QueryClientProvider>,
   );
   const row = await screen.findByRole("button", { name: /general-purpose/ });
+  // The roster is a named section, like the sibling sections a mixed pane
+  // shows beside it: the visual rail parity has to exist in the a11y tree too.
+  expect(screen.getByRole("region", { name: "Subagents of Build" })).toBeTruthy();
   expect(screen.queryByText("Review the sidebar")).toBeNull();
   expect(screen.getByRole("img", { name: "running" })).toBeTruthy();
   expect(row.getAttribute("aria-description")).toContain("Subshell can't switch views");
@@ -185,7 +188,7 @@ test("a switch in flight blocks every surface of the pane, and a refusal says so
   const rootRoute = createRootRoute({
     component: () => (
       <>
-        <HarnessSubagentRows id="pane" alive />
+        <HarnessSubagentRows id="pane" parentName="Build" alive />
         <HarnessSubagentTitle id="pane" parentName="Build" alive />
       </>
     ),
@@ -254,7 +257,7 @@ test("a dead parent keeps no child to show, even from the cached snapshot", asyn
     component: () => (
       <>
         <HarnessSubagentTitle id="pane" parentName="Build" alive={false} />
-        <HarnessSubagentRows id="pane" alive={false} />
+        <HarnessSubagentRows id="pane" parentName="Build" alive={false} />
       </>
     ),
   });
