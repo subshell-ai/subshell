@@ -494,7 +494,9 @@ describe("POST /api/nodes/:id/transfer", () => {
       passwordHash: await hashPassword("t-1"),
       role: "user",
     });
-    const { id } = await mkNode(aliceId, `t-rdis-${crypto.randomUUID().slice(0, 8)}`);
+    // The REAL key id so the refusal can only come from the recipient
+    // re-assert, not from an incidental CAS miss (round-2 nit).
+    const { id, keyRowId } = await mkNode(aliceId, `t-rdis-${crypto.randomUUID().slice(0, 8)}`);
     const meta = new UserMetaRepository(db);
     await meta.setDisabled(daveId, true);
     try {
@@ -503,7 +505,7 @@ describe("POST /api/nodes/:id/transfer", () => {
         fromUserId: aliceId,
         toUserId: daveId,
         retainAccessAsManager: true,
-        apiKeyId: null,
+        apiKeyId: keyRowId,
       }).then(
         () => null,
         (e: unknown) => e as { status?: number },
@@ -522,7 +524,9 @@ describe("POST /api/nodes/:id/transfer", () => {
       passwordHash: await hashPassword("t-1"),
       role: "user",
     });
-    const { id } = await mkNode(aliceId, `t-rpen-${crypto.randomUUID().slice(0, 8)}`);
+    // The REAL key id: a 400 can only come from the recipient re-assert, not
+    // an incidental CAS miss (round-2 nit).
+    const { id, keyRowId } = await mkNode(aliceId, `t-rpen-${crypto.randomUUID().slice(0, 8)}`);
     const meta = new UserMetaRepository(db);
     await meta.setApproval(daveId, "pending");
     try {
@@ -531,7 +535,7 @@ describe("POST /api/nodes/:id/transfer", () => {
         fromUserId: aliceId,
         toUserId: daveId,
         retainAccessAsManager: true,
-        apiKeyId: null,
+        apiKeyId: keyRowId,
       }).then(
         () => null,
         (e: unknown) => e as { status?: number },
@@ -589,6 +593,41 @@ describe("POST /api/nodes/:id/transfer", () => {
       expect((await nodes.findById(id))?.ownerUserId).toBe(aliceId);
     } finally {
       await meta.setApproval(daveId, "approved");
+    }
+  });
+
+  it("a rotation that races a committed transfer loses: no giver-owned key on the new owner's machine", async () => {
+    // Round-2 closure: the transfer CAS loses to a committed rotation; the
+    // mirror direction needs the rotate CAS to cover the OWNER too, because
+    // its slow better-auth mint is exactly where a transfer lands. Staged at
+    // that seam: ownership flips while rotate's mint is in flight, precisely
+    // as a committed transfer would. Without the owner guard this commits a
+    // bob-owned node bound to an alice-owned live key — a credential the
+    // giver kept over a machine she no longer owns.
+    const { id, keyRowId } = await mkNode(aliceId, `t-rrot-${crypto.randomUUID().slice(0, 8)}`);
+    const auth = getAuth();
+    const api = auth.api as unknown as { createApiKey: (input: unknown) => Promise<unknown> };
+    const original = api.createApiKey.bind(auth.api);
+    let mintedId = "";
+    api.createApiKey = async (input: unknown) => {
+      const created = (await original(input)) as { id: string };
+      mintedId = created.id;
+      createdKeyIds.push(created.id);
+      // The transfer commits inside the mint's await window.
+      await db.updateTable("nodes").set({ ownerUserId: bobId }).where("id", "=", id).execute();
+      return created;
+    };
+    try {
+      const res = await req("POST", `/${id}/rotate-key`, { cookie: aliceCookie });
+      expect(res.status).toBe(409);
+      expect((await nodes.findById(id))?.apiKeyId).toBe(keyRowId); // no flip
+      expect((await nodes.findById(id))?.ownerUserId).toBe(bobId); // the transfer stands
+      const orphan = authDatabase()
+        .query<{ enabled: number }, [string]>(`SELECT enabled FROM apikey WHERE id = ?`)
+        .get(mintedId);
+      expect(orphan?.enabled).toBe(0); // the catch disables the loser's mint
+    } finally {
+      api.createApiKey = original;
     }
   });
 

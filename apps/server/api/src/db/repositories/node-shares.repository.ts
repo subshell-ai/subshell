@@ -1,4 +1,3 @@
-import { sql } from "kysely";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
 import type { NodeSharePermission, NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import { NodeSharesConflictError } from "@/modules/nodes/errors.js";
@@ -58,11 +57,18 @@ export class NodeSharesRepository extends BaseRepository {
    *
    * When `expectRowIds` is given, the replace becomes an optimistic-
    * concurrency write: the stored rows must still be exactly that set, or
-   * nothing changes and {@link NodeSharesConflictError} is thrown. The check
-   * runs AFTER a lock-taking touch of the node row, because SQLite has one
-   * writer at a time and a transaction's read snapshot must start once this
-   * write is the winner — a revoked manager's in-flight PUT then reads the
-   * revocation, mismatches, and lands a 409 instead of re-minting itself.
+   * nothing changes and {@link NodeSharesConflictError} is thrown (the route
+   * answers 409 refresh-and-retry). What this buys is the ORDERED case the
+   * rung `manage` created — a revocation committed between the caller's gate
+   * read and this transaction is visible to the comparison below, so the
+   * stale writer refuses instead of re-minting itself. What it does not buy,
+   * and does not pretend to: serialization of genuinely overlapping
+   * transactions. This app's Kysely handle is ONE shared bun:sqlite
+   * connection, where a second `BEGIN` inside an open transaction errors
+   * outright rather than queueing — a pre-existing property of every
+   * transactional route here (the plain replace always had it), not
+   * something a CAS can introduce or repair. The dialog's own busy-gating is
+   * what keeps a double-click from ever issuing two of these at once.
    */
   async replaceForNode(
     nodeId: string,
@@ -75,11 +81,6 @@ export class NodeSharesRepository extends BaseRepository {
     const now = new Date().toISOString();
     await this.db.transaction().execute(async (tx) => {
       if (expectRowIds) {
-        // No-op self-assignment: takes the single-writer lock without
-        // changing the row, so the comparison below sees every concurrently
-        // committed write (this transaction blocks until the prior writer
-        // lands, and later writers block behind us).
-        await tx.updateTable("nodes").set({ updatedAt: sql<string>`updated_at` }).where("id", "=", nodeId).execute();
         const current = (await tx.selectFrom("nodeShares").select("id").where("nodeId", "=", nodeId).execute()) as {
           id: string;
         }[];

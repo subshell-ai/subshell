@@ -222,12 +222,20 @@ describe("subshell-server node transfer", () => {
     // bearer. Without this tripwire, `--to=subshell_LEAKYTO` would send the
     // key to the server as a recipient id; it would be rejected, but the
     // promise is that the key never rides argv to any destination or echo.
-    const h = harness();
-    await dispatchCli(["node", "transfer", "n1", "--to=subshell_LEAKYTO", "--key-stdin", ...BASE], h.deps);
-    expect(h.exits).toEqual([1]);
-    expect(h.err.join("\n")).not.toContain("subshell_LEAKYTO");
-    expect(h.err.join("\n")).toContain("--to");
-    expect(h.calls.length).toBe(0);
+    for (const argv of [
+      ["node", "transfer", "n1", "--to=subshell_LEAKYTO", "--key-stdin", ...BASE],
+      // The space form is the realistic slip (a flag shifts and the key lands
+      // as the next word); the tripwire must fire before the value is consumed.
+      ["node", "transfer", "n1", "--to", "subshell_LEAKYSPACE", "--key-stdin", ...BASE],
+    ]) {
+      const h = harness();
+      expect(await dispatchCli(argv, h.deps)).toBe(true);
+      expect(h.exits).toEqual([1]);
+      expect(h.err.join("\n")).not.toContain("subshell_LEAKYTO");
+      expect(h.err.join("\n")).not.toContain("subshell_LEAKYSPACE");
+      expect(h.err.join("\n")).toContain("--to");
+      expect(h.calls.length).toBe(0);
+    }
   });
 
   test("a key left in a positional slot is refused without echoing it", async () => {

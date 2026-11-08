@@ -559,13 +559,14 @@ ownership itself. The rung is delegated by people, not machines: a `nodes:share`
 key may write view and edit rows but is refused (400) a manage row, because the
 grant advertises launch-access control while the rung hands over day-to-day
 ownership (security pass on #495). The shares PUT also CASes the row set the
-caller's gate was authorized against, so a revocation committed mid-flight
-turns the in-flight write into a 409 rather than letting it land over the
-revocation. Transfer answers 403 to a manage grantee and to an admin
-alike on any agent node, and `local` answers 400 to every signed-in actor,
-admins included (a machine credential never passes the node gate on `local`
-and gets the invisible 404 first): the control-plane host is never
-transferable.
+caller's gate was authorized against, so a revocation that commits before
+the stale write's transaction lands it as a 409 refresh-and-retry rather
+than letting it overwrite the revocation. Transfer answers 403 to a manage grantee and to an admin
+alike on any agent node, and `local` answers 400 to every actor whose gate
+resolves on it: admins always, other accounts while a launch grant stands
+(an actor who cannot see `local`, and every machine credential, get the
+invisible 404 the gate gives any unseen node): the control-plane host is
+never transferable.
 
 **Admin.** Since the operator ruling of 2026-10-09
 (`docs/superpowers/specs/2026-10-09-admin-pane-visibility-removal-design.md`),
@@ -1109,12 +1110,13 @@ consequences are:
   a name collision on the receiving account rolls the whole thing back. The
   transaction re-asserts the recipient's standing at commit time (a disable or
   a pending approval landing mid-request is a 400, not a machine stranded
-  under a signed-out account), and the owner swap is a compare-and-swap against
-  both the owner and the live key row, so a rotation committed underneath the
-  transfer asks the caller to refresh instead of re-homing a dead key
-  (security pass on #495). A
-  manage grantee and an admin alike get 403: deciding whose machine a machine
-  is never delegates to another human. Nothing announces it, following the
+  under a signed-out account), and the transfer and the rotation are a
+  matched pair of compare-and-swaps on `(owner, live key)`: whichever commits
+  second gets a 409 refresh-and-retry, so no interleaving leaves a node bound
+  to a key owned by someone other than its owner (the rotation's half, adding
+  the owner to its key-only CAS, is the #495 round-2 closure). A manage
+  grantee and an admin alike get 403: deciding whose machine a machine is
+  never delegates to another human. Nothing announces it, following the
   shares route: there is no `node.changed` feed in production, and the
   dashboard refetches from the act's own success.
 - **SSH uses the same machine launch access.** A terminal or harness runs as
