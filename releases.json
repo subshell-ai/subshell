@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-08T05:56:54.743Z",
+  "generatedAt": "2026-11-08T08:43:32.184Z",
   "components": {
     "cli-server": {
       "version": "3.2.0",
@@ -27,12 +27,7 @@
       "version": "1.5.6",
       "tag": "desktop-client-v1.5.6",
       "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-client-v1.5.6",
-      "installScript": "install-client.sh",
-      "desktopAssets": [
-        "Subshell-Client-Desktop-1.5.6-darwin-arm64.dmg",
-        "Subshell-Client-Desktop-1.5.6-darwin-x64.dmg",
-        "subshell-client-desktop_1.5.6_amd64.deb"
-      ]
+      "installScript": "install-client.sh"
     }
   }
 }
