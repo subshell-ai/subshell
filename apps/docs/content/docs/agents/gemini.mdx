@@ -1,0 +1,43 @@
+---
+title: "Gemini CLI"
+description: "Install and launch Gemini CLI with Subshell, including its MCP and session behavior."
+---
+
+Run Gemini CLI as a Subshell agent.
+
+## Before you start
+
+Install `gemini` using the [vendor instructions](https://github.com/google-gemini/gemini-cli) and authenticate it under the execution account. Ask an administrator to enable the harness under **Settings** → **Server Settings** → **Plugins** in the server dashboard's sidebar. Follow [Install an agent CLI](/agents/install-cli) to confirm detection on the target node.
+
+## Launch
+
+1. Open the new-subshell form using [Launch a subshell](/guides/launch), then choose **Gemini CLI** under **Agent or terminal**.
+2. Select a saved preset if you want a custom model or approval mode. Configure those settings under **Settings** → **Presets** before launching.
+3. Choose the target node and an existing project directory.
+4. Launch and confirm that the CLI opens normally.
+
+The plugin launches `gemini` bare, which opens its interactive TUI, and maps preset model and approval mode to the `--model` and `--approval-mode` flags. It detects `gemini` through PATH and its known locations. `GEMINI_PATH` can identify the binary explicitly in the execution environment. Before changing that override, see [Files and paths](/reference/paths) for configuration locations and service-environment guidance.
+
+## MCP and session behavior
+
+Register Subshell once under the OS account where Gemini runs. In the server dashboard's sidebar, choose **Settings** → **Presets** → **New preset** → **New agent preset**, select **Gemini CLI**, and use the commands under **Cross-subshell comms**. Those commands use the MCP executable configured for your installation.
+
+For a node with `subshell` on PATH, registration looks like this:
+
+```bash
+gemini mcp add --scope user subshell subshell mcp
+```
+
+Pass `--scope user`, because `gemini mcp add` defaults to project scope and would file the registration inside the checked-out workspace. Gemini's parser rejects a `--` separator there, so the server name and command follow the options directly.
+
+If your preset sets `GEMINI_CLI_HOME`, Gemini reads its settings from the `.gemini` directory inside that home. Run the registration command with that same value on the execution machine so the registration lands where launch will read it, and use the same override when signing in or removing the registration. See [Files and paths](/reference/paths) for environment configuration guidance.
+
+The registration stores the command, not Subshell credentials. Gemini's MCP child inherits them from the subshell where it runs, so one pane's identity stays inside that pane.
+
+Presets support model and approval mode. The approval modes are `default`, `auto_edit`, `yolo`, and `plan`, which pick how much Gemini may do without asking. The plugin doesn't provide automatic conversation resumption, attention hooks, or subagent tracking. You can continue the most recent conversation with Gemini's `--resume latest` flag, or start a chosen session with `--session-id`.
+
+Subshell runs the real CLI rather than proxying its provider API. Provider configuration, usage limits, and CLI-specific permissions remain the agent's own settings.
+
+## Next steps
+
+Read [MCP configuration](/mcp/configure), [Presets](/presets), and [Agent and launch errors](/troubleshooting/agents).

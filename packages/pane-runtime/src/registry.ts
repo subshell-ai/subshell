@@ -9,6 +9,7 @@ import {
 import claudeCodeFactory, { manifest as claudeCodeManifest } from "@subshell-ai/plugin-claude-code";
 import cloudflareTunnelFactory, { manifest as cloudflareTunnelManifest } from "@subshell-ai/plugin-cloudflare-tunnel";
 import codexFactory, { manifest as codexManifest } from "@subshell-ai/plugin-codex";
+import geminiFactory, { manifest as geminiManifest } from "@subshell-ai/plugin-gemini";
 import grokBuildFactory, { manifest as grokBuildManifest } from "@subshell-ai/plugin-grok-build";
 import headscaleFactory, { manifest as headscaleManifest } from "@subshell-ai/plugin-headscale";
 import hermesFactory, { manifest as hermesManifest } from "@subshell-ai/plugin-hermes";
@@ -63,6 +64,7 @@ const BUILT_INS: BuiltIn[] = [
   { manifest: piManifest, factory: piFactory },
   { manifest: ohMyPiManifest, factory: ohMyPiFactory },
   { manifest: codexManifest, factory: codexFactory },
+  { manifest: geminiManifest, factory: geminiFactory },
   { manifest: terminalManifest, factory: terminalFactory },
   // The ssh pane is the terminal launch pointed at ssh: same TYPE, same
   // `[binary, ...flags]` shape, the connection described entirely by the
