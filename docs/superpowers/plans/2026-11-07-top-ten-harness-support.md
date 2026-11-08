@@ -27,7 +27,7 @@
 
 | harness | bin | version | interactive launch | settings flags (verified in `--help`) | MCP add syntax (verified) | config home / env |
 |---|---|---|---|---|---|---|
-| Gemini CLI | `gemini` | 0.67.0 | bare `gemini` → TUI | `-m/--model`, `--approval-mode <default\|auto_edit\|yolo\|plan>` | `gemini mcp add -s user <name> <command> [args...]` (default scope is `project`, pass `-s user`) | `GEMINI_DIR` overrides `~/.gemini` (bundle grep; verify once in the pane) |
+| Gemini CLI | `gemini` | 0.67.0 | bare `gemini` → TUI | `-m/--model`, `--approval-mode <default\|auto_edit\|yolo\|plan>` | `gemini mcp add -s user <name> <command> [args...]` (default scope is `project`, pass `-s user`) | `GEMINI_CLI_HOME` names a HOME-style dir whose inner `.gemini` holds the config (default: the OS home, so `~/.gemini`); corrected by Task 1's live review (`GEMINI_DIR` is not the override) |
 | Qwen Code | `qwen` | 0.27.0 | bare `qwen` → TUI | `-m/--model`, `--workflow-mode <on\|off>`; chat recording is ON by default (bundle: `chatRecording ?? settings.general?.chatRecording ?? true`), so `--resume` works unless recording was explicitly disabled | `qwen mcp add [-s user] <name> <command> [args...]` (default scope `user`) | `~/.qwen` |
 | Cline | `cline` | 3.0.74 | `cline -i` → TUI | `-m <model-id>`, `-P <provider>`, `--thinking <none\|low\|medium\|high\|xhigh>` | `cline mcp add <name> [args...]` opens a prefilled wizard; check `cline mcp add --help` for a non-interactive form | `~/.cline` |
 | Open Interpreter | `interpreter` | 0.0.59 | bare `interpreter` → TUI | `-m/--model` | `interpreter mcp add` (check `interpreter mcp add --help` for argv form) | `INTERPRETER_HOME` (default `~/.openinterpreter`); alias `i` |
@@ -132,7 +132,7 @@ describe("Gemini CLI", () => {
   });
 
   it("rejects presets without a name", () => {
-    expect(plugin.validatePreset(preset({ name: "" })).ok).toBe(false);
+    expect(plugin.validatePreset(preset({ name: "" })).valid).toBe(false); // `.valid`, not `.ok` (corrected by Task 1's live review)
   });
 });
 ```
@@ -188,12 +188,7 @@ const SETTINGS: SettingsField[] = [
     label: "Approval mode",
     description: "How much it may do without asking",
     type: "select",
-    choices: [
-      { value: "default", label: "Ask for approval" },
-      { value: "auto_edit", label: "Auto-approve edits" },
-      { value: "yolo", label: "Auto-approve everything (dangerous)" },
-      { value: "plan", label: "Plan only, no edits" },
-    ],
+    choices: ["default", "auto_edit", "yolo", "plan"], // string[] (corrected by Task 1's live review)
   },
 ];
 
@@ -223,8 +218,8 @@ const createPlugin: HarnessPluginFactory = (host) => ({
       mode: "manual",
       steps: [
         {
-          label: "Register Subshell once for the account and GEMINI_DIR you launch Gemini with:",
-          command: `gemini mcp add --scope user ${MCP_SERVER_NAME} -- ${[launch.command, ...launch.args].map(host.shellQuote).join(" ")}`,
+          label: "Register Subshell once for the account and GEMINI_CLI_HOME you launch Gemini with:",
+          command: `gemini mcp add --scope user ${MCP_SERVER_NAME} ${[launch.command, ...launch.args].map(host.shellQuote).join(" ")}`, // no `--` separator; gemini's parser rejects it (corrected by Task 1's live review)
         },
         { label: "Remove later with:", command: `gemini mcp remove --scope user ${MCP_SERVER_NAME}` },
       ],
@@ -236,7 +231,7 @@ const createPlugin: HarnessPluginFactory = (host) => ({
   suggestedEnv: () => [
     { key: "GEMINI_API_KEY", description: "AI Studio key instead of browser sign-in" },
     { key: "GOOGLE_API_KEY", description: "Google API key when using the Google provider path" },
-    { key: "GEMINI_DIR", description: "Config directory (default: ~/.gemini); keep sign-in and MCP on the same one" },
+    { key: "GEMINI_CLI_HOME", description: "Home directory that holds the .gemini config (default: the OS home, so ~/.gemini); keep sign-in and MCP registration on the same one" },
   ],
   suggestedFlags: () => [
     { flag: "--skip-trust", description: "Trust this workspace for the session" },
@@ -250,7 +245,7 @@ export default createPlugin;
 export { manifest } from "./manifest.js";
 ```
 
-Check the `SettingsField` union in `packages/plugin-api/src/types.ts` for the exact select shape (`choices` item keys) and match it; adjust the test if the union names differ.
+Check the `SettingsField` union in `packages/plugin-api/src/types.ts` for the exact select shape and match it. Corrected by Task 1's live review: `choices` is `string[]`, so the select option items are plain strings with no item keys to match, `validatePreset` answers with `.valid` rather than `.ok`, and the `--` separator shown in the `mcp add` command is rejected by gemini's parser, so the server name and quoted argv follow the options directly.
 
 - [ ] **Step 6: Run tests, expect green.** Then `cd packages/plugins/gemini && bun run build && bun run verify-types`.
 
