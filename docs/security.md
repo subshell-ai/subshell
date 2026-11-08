@@ -149,8 +149,9 @@ existing ceiling with the caller's grants, and those grants count only when the
 caller is the row owner's own credential: a browser session or a grantee's key
 restarts the pane on its own ceiling, never grafting the operator's grants onto
 it (the security pass on #495 closed a restart path where a scoped key did
-exactly that to a shared human pane, arming a token the bearer gate reads as
-system-owned). Rotation never broadens the ceiling, and a missing token for a
+exactly that to a shared human pane, arming a token that then resolved as the
+human's own owner credentials, the pairing the invariant exists to forbid).
+Rotation never broadens the ceiling, and a missing token for a
 system-owned pane fails closed. Inherited grants supplement the pane's own
 permission map and actor restrictions; they do not turn a pane credential into
 a system key that can provision nodes.
@@ -1131,9 +1132,9 @@ consequences are:
   the node's OS user and can already use that account's credentials. SSH does
   not introduce a separate sharing or approval boundary. A relay requires
   launch access to both the connecting machine and the key source, plus each
-  machine's SSH, readiness and maintenance gates. Only the owner (or an admin
-  for the built-in node) may change its SSH configuration. Removing launch
-  access closes affected relays.
+  machine's SSH, readiness and maintenance gates. The machine's manage band
+  (its owner, a `manage` grantee, or an admin for the built-in node) may change
+  its SSH configuration. Removing launch access closes affected relays.
 - **Remote key selection scopes one relay session, not the OS account.** The
   encrypted agent relay exposes only selected public fingerprints and signing
   operations for those keys; private keys stay with the source agent. The

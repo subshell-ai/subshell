@@ -9,13 +9,15 @@ import { SshTrustSection } from "@/components/ssh/trust-section";
  * machine trust card (owner/`edit` on an agent node, never `view`, never
  * `local`), the plane's honesty line (this rendering is for DISPLAY only,
  * the §4.6 check happens on the two machines' own dashboards), and the
- * owner-only re-pair act on each pinned peer (Task 17: the route exists now,
- * so the button is LIVE - it POSTs the repair for exactly its own peer and
- * reports the outcome on itself).
+ * manage-band re-pair act on each pinned peer (Task 17 made the button LIVE,
+ * and spec 2026-11-07 widened its gate to owner and `manage` grantees: it
+ * POSTs the repair for exactly its own peer and reports the outcome on
+ * itself).
  *
- * The gate pinned here is the EXACT owner: the server resolves an admin (or
- * any grantee) on a foreign agent to `access: "edit"`, and the edit-grantee
- * case below is the same shape the admin sees - no act, only the card.
+ * The gate pinned here is the server's `canManage` flag: the `edit`-grantee
+ * case carries `canManage: false`, the shape a view/edit grantee or an admin
+ * resolves to on a foreign agent, and sees the card with no act; a member
+ * payload that wrongly claims `canManage` is still refused.
  */
 
 const FP_OWN_SIGN = `SHA256:${"A".repeat(43)}`;
