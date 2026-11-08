@@ -30,6 +30,8 @@ openhands mcp add subshell --transport stdio subshell -- mcp
 
 OpenHands takes `--transport stdio`, the command as the target, and the command's args after the `--` separator, and it stores the registration in `mcp.json` inside its config home, `~/.openhands`. Remove the registration later with `openhands mcp remove subshell`.
 
+If your preset sets `OPENHANDS_PERSISTENCE_DIR`, OpenHands keeps settings, `mcp.json`, and history under that directory instead. Run the registration command with that same value on the execution machine so the registration lands where launch will read it. See [Files and paths](/reference/paths) for environment configuration guidance.
+
 The registration stores the command, not Subshell credentials. OpenHands's MCP child inherits them from the subshell where it runs, so one pane's identity stays inside that pane.
 
 Nothing resumes automatically. `--last`, which its help pairs with `--resume`, continues the most recent conversation, and `--always-approve` (also spelled `--yolo`) runs actions without asking. `--headless` drops the UI and needs `--task` or `--file` to say what to do, and `--json` streams JSONL events but only alongside `--headless`, so neither suits an interactive pane. OpenHands prints an SDK banner to standard error on every start; `OPENHANDS_SUPPRESS_BANNER=1` hides it. The plugin doesn't provide preset settings, automatic conversation resumption, attention hooks, or subagent tracking.

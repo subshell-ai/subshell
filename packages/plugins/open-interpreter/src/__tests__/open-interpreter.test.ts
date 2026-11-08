@@ -72,8 +72,9 @@ describe("Open Interpreter", () => {
     // 0.0.59 has NO `--auto-approve` switch and no top-level `--resume` flag:
     // approval is `--ask-for-approval <on-request|never>` plus
     // `--approve-for-me` (which reviews instead of asking), resuming is the
-    // `resume` SUBCOMMAND (row editors store only `-`-prefixed flags, so it
-    // is not a suggestion the form can keep), and `-c/--config` takes dotted
+    // `resume` SUBCOMMAND (a token that doesn't start with `-` can't survive
+    // the flag rows' pairing on re-edit, so it is not a suggestion the form
+    // can keep), and `-c/--config` takes dotted
     // TOML overrides. Suggestions must not invent a flag.
     if (!plugin.suggestedFlags) throw new Error("Missing suggested flags");
     const flags = plugin.suggestedFlags();

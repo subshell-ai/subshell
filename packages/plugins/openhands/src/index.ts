@@ -31,7 +31,7 @@ const createPlugin: HarnessPluginFactory = (host) => ({
       mode: "manual",
       steps: [
         {
-          label: "Register Subshell once for the OS account OpenHands runs under:",
+          label: "Register Subshell once for the account and OPENHANDS_PERSISTENCE_DIR you launch OpenHands with:",
           command: `openhands mcp add ${MCP_SERVER_NAME} --transport stdio ${host.shellQuote(launch.command)} -- ${launch.args.map((arg) => host.shellQuote(arg)).join(" ")}`,
         },
         { label: "Remove later with:", command: `openhands mcp remove ${MCP_SERVER_NAME}` },
@@ -53,6 +53,11 @@ const createPlugin: HarnessPluginFactory = (host) => ({
     {
       key: "LLM_BASE_URL",
       description: "Provider base URL; applies only when the launch carries --override-with-envs, ignored by default",
+    },
+    {
+      key: "OPENHANDS_PERSISTENCE_DIR",
+      description:
+        "Config and persistence directory holding mcp.json (default: ~/.openhands); keep MCP registration and launch on the same one",
     },
   ],
   suggestedFlags: () => [

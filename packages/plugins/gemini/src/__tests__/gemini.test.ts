@@ -54,4 +54,23 @@ describe("Gemini CLI", () => {
   it("rejects presets without a name", () => {
     expect(plugin.validatePreset(preset({ name: "" })).valid).toBe(false);
   });
+
+  it("states only what 0.67.0's own help verifies", () => {
+    // The approval-mode domain comes from the binary's choices list, and
+    // 0.67.0 spells the second value auto_edit with an underscore while the
+    // adjacent qwen binary uses a hyphenated set. buildCommand forwards the
+    // setting as typed, so a "harmonizing" edit here refuses at every launch.
+    if (!plugin.presetSettings) throw new Error("Missing preset settings");
+    const approval = plugin.presetSettings().find((s) => s.key === "approvalMode");
+    expect(approval?.choices).toEqual(["default", "auto_edit", "yolo", "plan"]);
+    if (!plugin.suggestedFlags) throw new Error("Missing suggested flags");
+    expect(plugin.suggestedFlags().map((f) => f.flag)).toEqual([
+      "--skip-trust",
+      "--resume latest",
+      "--session-id <uuid>",
+      "-o json",
+    ]);
+    if (!plugin.suggestedEnv) throw new Error("Missing suggested env");
+    expect(plugin.suggestedEnv().find((e) => e.key === "GEMINI_CLI_HOME")?.description).toContain(".gemini");
+  });
 });

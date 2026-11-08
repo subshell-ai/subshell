@@ -57,6 +57,11 @@ describe("OpenHands", () => {
     expect(setup.steps[0]?.command).toContain(" -- ");
     expect(setup.steps[0]?.command).toBe("openhands mcp add subshell --transport stdio '/usr/bin/subshell' -- 'mcp'");
     expect(setup.steps[1]?.command).toBe("openhands mcp remove subshell");
+    // The label must name the config-dir override, not just the account:
+    // OPENHANDS_PERSISTENCE_DIR relocates mcp.json itself (a sandboxed `mcp
+    // add` filed into the override dir), so registering per the account alone
+    // can leave a launch reading an empty config.
+    expect(setup.steps[0]?.label).toContain("OPENHANDS_PERSISTENCE_DIR");
   });
 
   it("rejects presets without a name", () => {
@@ -80,5 +85,6 @@ describe("OpenHands", () => {
     expect(env.some((e) => e.key === "OPENHANDS_SUPPRESS_BANNER")).toBe(true);
     expect(env.find((e) => e.key === "LLM_MODEL")?.description).toContain("--override-with-envs");
     expect(env.find((e) => e.key === "LLM_API_KEY")?.description).toContain("--override-with-envs");
+    expect(env.find((e) => e.key === "OPENHANDS_PERSISTENCE_DIR")?.description).toContain("mcp.json");
   });
 });

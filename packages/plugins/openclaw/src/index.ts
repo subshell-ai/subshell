@@ -19,8 +19,9 @@ import { type HarnessPluginFactory, type PluginCapability, validateGenericPreset
  * is the moment this list grows.
  *
  * `tui` and `resume` are top-level SUBCOMMANDS in 2026.11.1, not options of
- * `chat`: the flag editor stores only `-`-prefixed tokens and buildCommand
- * appends them after `chat`, so neither could ever be applied from the pane.
+ * `chat`: a token that doesn't start with `-` can't survive the flag rows'
+ * pairing on re-edit, and buildCommand appends the tokens after `chat`, so
+ * neither could ever be applied from the pane.
  * The copy-contract test pins their absence from the suggestions.
  *
  * `host` carries what this module cannot import. See `@subshell-ai/plugin-api`.
