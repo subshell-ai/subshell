@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, LayoutDashboard, Minus, Plus } from "lucide-
 import { type ReactNode, useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { HarnessSubagentRows } from "@/components/harness-subagents";
+import { PathTail } from "@/components/path-tail";
 import { TooltipLabelledLines } from "@/components/sidebar/TooltipLabelledLines";
 import { useWorkspaceSidebarDrag } from "@/components/sidebar/workspace-sidebar-drag";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
@@ -249,7 +250,7 @@ export function SubshellRecentRow({
                 // ONE signal (operator ruling 2026-10-17): the CURRENT pane
                 // wears the accent fill and the white ring; workspace
                 // membership marks nothing, and nothing here goes bold.
-                hasSubagents && !(subline ?? subshell.workingDir) && "min-h-12",
+                hasSubagents && !(subline || subshell.workingDir) && "min-h-12",
                 focused
                   ? "bg-accent text-accent-foreground ring-1 ring-foreground/70"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
@@ -271,8 +272,15 @@ export function SubshellRecentRow({
                 </span>
               )}
             </span>
-            {(subline ?? subshell.workingDir) ? (
-              <span className="block truncate text-detail opacity-70">{subline ?? subshell.workingDir}</span>
+            {/* A path line clips from the FRONT: the leaf directory is what
+                tells two panes apart, and the shared prefix is the part worth
+                losing (operator report 2026-11-08). The `subline` override is
+                not a path but a composite label, so it keeps ordinary
+                end-clipping. The full path stays readable in the tooltip. */}
+            {subline ? (
+              <span className="block truncate text-detail opacity-70">{subline}</span>
+            ) : subshell.workingDir ? (
+              <PathTail path={subshell.workingDir} className="block text-detail opacity-70" />
             ) : null}
           </span>
         </TooltipTrigger>
