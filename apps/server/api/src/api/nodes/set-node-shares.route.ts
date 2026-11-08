@@ -16,9 +16,11 @@ import { ForbiddenError } from "@/shared/errors.js";
 /**
  * `PUT /api/nodes/:id/shares` `{shares:[{granteeUserId, permission}]}` —
  * replace the whole grant set (same contract as subshell-shares; null grantee
- * is the Everyone grant, unknown grantee → 400). Manager-only: owner,
- * or ADMIN for `local` — where the route accepts any valid list (the UI only
- * ever toggles Everyone/edit, but the API stays the honest superset).
+ * is the Everyone grant, unknown grantee → 400). Manager band: the node's
+ * owner or a `manage` grantee, or ADMIN for `local` — where `manage` grants
+ * themselves are refused (its band has no grantable half). The route accepts
+ * any valid list the manager may set, Manage rows included; the dialog offers
+ * Manage only on agent nodes, matching that refusal.
  *
  * Access is resolved from these rows on each request. After replacement,
  * close relay sessions whose users no longer have launch access to both ends.

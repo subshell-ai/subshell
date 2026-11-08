@@ -40,7 +40,7 @@ function localView(): NodeDetail {
     // and the human at this machine outranks any web grant (view.ts).
     access: "owner",
     canManage: true,
-    canRetire: true,
+    canRetire: false,
     canTransfer: false,
     canLaunch: true,
     allowedDirs: [],

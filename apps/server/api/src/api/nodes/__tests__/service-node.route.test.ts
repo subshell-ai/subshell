@@ -268,9 +268,9 @@ describe("/api/nodes service + runtime", () => {
    * `stop` and `uninstall` end the connection that would carry the verb
    * undoing them. An `edit` grantee is trusted to interrupt a machine they
    * were shared (a restart comes back); making it unreachable until somebody
-   * walks to it is a different act, so those two are the owner's.
+   * walks to it is a different act, so those two sit on the manage band.
    */
-  it("stop and uninstall are owner-only, even for an edit grantee", async () => {
+  it("stop and uninstall ride the manage band, not the edit rank", async () => {
     const id = await mkNode();
     await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "edit" }], aliceId);
     for (const verb of ["stop", "uninstall"] as const) {

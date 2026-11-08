@@ -46,7 +46,7 @@ export const Route = createFileRoute("/nodes_/$id")({
 /**
  * One node's config page (spec 2026-08-31 §9/§10): machine facts, the
  * node's harness detection card, the Rotate-key action, and the Share/Delete
- * actions. The title renames itself (owner-only PATCH; `local`'s name is
+ * actions. The title renames itself (manage-band PATCH; `local`'s name is
  * fixed for everyone).
  *
  * The harness card is read-only everywhere (spec 2026-09-10: plugins are
@@ -57,8 +57,9 @@ export const Route = createFileRoute("/nodes_/$id")({
  * `canManage`.
  *
  * Gating is entirely server-derived: invisible nodes 404 (handled as a load
- * error, never a leak); Share enables on `Node.canManage` (owner, or admin on
- * `local`) while Delete and Re-register enable on the wider `Node.canRetire`
+ * error, never a leak); Share enables on `Node.canManage` (owner or a Manage
+ * grantee, admin on `local`) while Delete and Re-register enable on the wider
+ * `Node.canRetire`
  * (owner or any admin, ruling 2026-10-09) — the frontend must not re-derive
  * admin identity for either.
  */
@@ -74,7 +75,7 @@ function NodeDetailPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
 
-  /** Owner-only rename; a 409 NODE_NAME_TAKEN (or the `local` 400) surfaces inline in the field. */
+  /** Manage-band rename; a 409 NODE_NAME_TAKEN (or the `local` 400) surfaces inline in the field. */
   async function saveName(name: string): Promise<void> {
     await renameNode.mutateAsync(name);
   }
@@ -135,7 +136,7 @@ function NodeDetailPage() {
             disabled={!n.canRetire || n.kind === "local"}
             disabledReason={
               n.kind === "local"
-                ? "The server’s own node cannot be deleted."
+                ? "The server's own node cannot be deleted."
                 : "Only the node owner or a server admin can delete this node."
             }
           >
@@ -261,7 +262,7 @@ function NodeDetailPage() {
               the same owner-only posture, the same remedy lines. */}
           <NodePreviewCard key={`preview-${n.id}`} node={n} />
 
-          {/* The same owner-or-edit-on-an-agent rule as the daemon sections and the route's gate.
+          {/* The same rank-or-edit-on-an-agent rule (owner/manage/edit) as the daemon sections and the route's gate.
               `local` updates with the server, which the page already cannot ask here. */}
           {managesNodeSections(n) && <NodeUpdateCard node={n} />}
 
@@ -274,13 +275,13 @@ function NodeDetailPage() {
           {/* The §4.6 machine trust block (spec 2026-10-08): own and pinned
               peers' key fingerprints, for the out-of-band compare each side
               can verify against its own machine. The server serializes the
-              field only for owner/edit on agent nodes, so a `view` grantee
+              field from the edit rank up on agent nodes, so a `view` grantee
               never receives it and the card renders nothing; the card's own
               kind/access check is the belt. Live report while the machine is
               connected, durable mirror marked stale when it is not. The
               section adds the plane-only halves: the "display only" honesty
               line (§4.6: this rendering proves nothing, the two dashboards
-              do) and the owner-only re-pair act on each peer (§4.5). */}
+              do) and the manage-band re-pair act on each peer (§4.5). */}
           {n.kind === "local" && <ServerIdentityRecovery />}
 
           {/* The node's RULES live on its page, not in a tab of one card:

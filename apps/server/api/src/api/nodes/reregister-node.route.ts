@@ -17,8 +17,9 @@ import { ForbiddenError } from "@/shared/errors.js";
  * being allowed to replace its credentials instead. Redemption is the real
  * power: it re-homes the node row onto whatever machine presents the new key. An
  * admin who can already delete the machine outright is not newly widened by that
- * credential-replacement mint, even though the rotate-key ROUTE stays owner-only
- * (the weaker half of the same power, not a limit on the admin); delete
+ * credential-replacement mint, even though the rotate-key ROUTE sits on the
+ * narrower manage band (the weaker half of the same power, not a limit on the
+ * admin); delete
  * dominates both, and the posture does not constrain an admin
  * (`docs/security.md` §11, no separation of duties). `local` is refused by kind.
  */

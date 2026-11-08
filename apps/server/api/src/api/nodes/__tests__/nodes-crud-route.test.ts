@@ -579,7 +579,8 @@ describe("/api/nodes registry CRUD", () => {
 
     await nodeShares.replaceForNode(a.id, [{ granteeUserId: bobId, permission: "view" }], aliceId);
     expect((await req("PATCH", `/${a.id}`, { cookie: bobCookie, body: { name: "hijack" } })).status).toBe(403);
-    // Admins hold effective edit — rename on an AGENT node is still owner-only.
+    // Admins hold effective edit — rename on an AGENT node stays on its
+    // manage band (owner or a manage grantee), where an admin's boost is not.
     expect((await req("PATCH", `/${a.id}`, { cookie: adminCookie, body: { name: "admin-hijack" } })).status).toBe(403);
   });
 

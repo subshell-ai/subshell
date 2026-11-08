@@ -235,7 +235,8 @@ backup flags:        --output <path>          new archive destination (existing 
 
 node transfer flags: --to <user-id>          the receiving account (required)
                      --key-stdin             the automation key, read from stdin (required;
-                                             there is no argv spelling, on purpose)
+                                             there is no argv spelling, on purpose;
+                                             pipe the key in, the command never prompts)
                      --base-url <url>        server address (default: the configured base URL)
                      --keep-manage           stay a Manage grantee on the machine given away (default)
                      --no-keep-manage        transfer clean, no grant left behind

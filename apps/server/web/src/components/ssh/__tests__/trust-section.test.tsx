@@ -168,7 +168,7 @@ describe("SshTrustSection", () => {
   it("explains that re-pairing replaces the saved identity after verification", () => {
     renderSection(node());
     expect(screen.getByText(/replaces the saved identity/)).toBeDefined();
-    expect(screen.getByText(/Verify both machines’ fingerprints/)).toBeDefined();
+    expect(screen.getByText(/Verify both machines' fingerprints/)).toBeDefined();
   });
 
   it("explains how to verify reported fingerprints independently", () => {

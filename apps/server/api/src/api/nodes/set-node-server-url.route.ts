@@ -178,7 +178,7 @@ export const setNodeServerUrlRoute = new Elysia()
         operationId: "setNodeServerUrl",
         tags: ["nodes"],
         description:
-          "Repoint an enrolled node at another control plane (owner only; never the local node; the node applies it on its next heartbeat beat, without a restart)",
+          "Repoint an enrolled node at another control plane (the node's owner or a Manage grantee; never the local node; the node applies it on its next heartbeat beat, without a restart)",
       },
     },
   );

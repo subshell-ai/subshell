@@ -15,8 +15,10 @@ type ShareRow = { id: string; granteeUserId: string | null; granteeName: string;
 
 /**
  * `GET/PUT /api/nodes/:id/shares` — the node mirror of subshell sharing (spec
- * 2026-08-31 §2/§9). Owner-only cookie; `local` is the seeded exception whose
- * shares admins manage. A view/edit grantee never touches the grant set.
+ * 2026-08-31 §2/§9). Manager-band cookie (owner or a `manage` grantee, spec
+ * 2026-11-07); `local` is the seeded exception whose shares admins manage and
+ * where `manage` grants are refused. A view/edit grantee never touches the
+ * grant set.
  */
 describe("/api/nodes/:id/shares", () => {
   const pw = "node-shares-1";

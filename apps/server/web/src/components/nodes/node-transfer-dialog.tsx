@@ -59,6 +59,19 @@ export function NodeTransferDialog({
   // that text would tell the owner the instance holds nobody (sharing-core
   // idiom: ErrorBanner + Retry over the failed read).
   const loadFailed = roster.isError || me.isError;
+  // ONE expression names why the button is dead and the handler holds the
+  // line, so the two can never disagree (form-substrate discipline).
+  const submitBlocker = busy
+    ? "The transfer is in flight."
+    : loading
+      ? "Wait for the people list to load."
+      : roster.isError
+        ? "Reload the people list first."
+        : me.isError
+          ? "Reload the page to confirm your session first."
+          : !pickId
+            ? "Choose who takes it over first."
+            : undefined;
   // Yourself is never the answer to "who takes it over"; a disabled account
   // is refused by the server, and the picker shows the account's own list.
   const options = (roster.data ?? [])
@@ -72,7 +85,7 @@ export function NodeTransferDialog({
   }
 
   async function submit() {
-    if (!pickId || busy) return;
+    if (submitBlocker) return;
     setError(null);
     try {
       await transfer.mutateAsync({ toUserId: pickId, retainAccessAsManager: retain });
@@ -99,7 +112,9 @@ export function NodeTransferDialog({
           <p className="text-detail text-muted-foreground">Loading people…</p>
         ) : loadFailed ? (
           <ErrorBanner
-            message="Couldn't load the people list. Try again."
+            message={
+              roster.isError ? "Couldn't load the people list. Try again." : "Couldn't confirm your session. Try again."
+            }
             action={
               <Button
                 variant="link"
@@ -125,6 +140,10 @@ export function NodeTransferDialog({
               options={options}
               emptyText="No matching people to hand it to."
             />
+            {/* A required picker with no caret-leave moment wears the gold
+                sentence at rest once its options settle (ruling 2026-09-30):
+                the disabled button's tooltip is unreachable for touch. */}
+            {!busy && !pickId && <p className="text-detail text-warning">Choose who takes it over first.</p>}
           </div>
         )}
 
@@ -134,7 +153,7 @@ export function NodeTransferDialog({
         </Field>
         <p className="text-detail text-muted-foreground">
           {retain
-            ? "You stay a Manage grantee: its settings, shares, and service stay yours to drive, except transferring or deleting it."
+            ? "You stay a Manage grantee: its settings, shares, and service stay yours to drive, except handing it to someone else, retiring it, or moving files through it."
             : "You'll keep nothing: the moment it lands, this node is out of your hands."}
         </p>
 
@@ -149,21 +168,7 @@ export function NodeTransferDialog({
           >
             Cancel
           </Button>
-          <Button
-            onClick={() => void submit()}
-            disabled={busy || loading || loadFailed || !pickId}
-            disabledReason={
-              busy
-                ? "The transfer is in flight."
-                : loading
-                  ? "Wait for the people list to load."
-                  : loadFailed
-                    ? "Reload the people list first."
-                    : !pickId
-                      ? "Choose who takes it over first."
-                      : undefined
-            }
-          >
+          <Button onClick={() => void submit()} disabled={submitBlocker !== undefined} disabledReason={submitBlocker}>
             {busy ? "Transferring…" : "Transfer"}
           </Button>
         </DialogFooter>

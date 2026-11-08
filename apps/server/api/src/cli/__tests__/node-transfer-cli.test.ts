@@ -174,6 +174,34 @@ describe("subshell-server node transfer", () => {
     expect(h.err.join("")).toContain("http://127.0.0.1:3199");
   });
 
+  test("a key left in a positional slot is refused without echoing it", async () => {
+    // The flag-order slip the whole hygiene exists for: a flag slides, the
+    // key lands bare, and the parse must not print it back (scrollback, CI
+    // logs) or send it in a URL path (server logs carry paths).
+    for (const argv of [
+      ["node", "transfer", "n1", "--to", "u9", "--key-stdin", "subshell_leakypos", ...BASE],
+      ["node", "transfer", "subshell_leakyfirst", "--to", "u9", "--key-stdin", ...BASE],
+    ]) {
+      const h = harness();
+      expect(await dispatchCli(argv, h.deps)).toBe(true);
+      expect(h.exits).toEqual([1]);
+      const stderr = h.err.join("\n");
+      expect(stderr).not.toContain("subshell_leakypos");
+      expect(stderr).not.toContain("subshell_leakyfirst");
+      expect(stderr.toLowerCase()).toContain("key");
+      expect(stderr).toContain("--key-stdin");
+      expect(h.calls.length).toBe(0);
+    }
+  });
+
+  test("an ordinary stray argument still echoes as typed", async () => {
+    const h = harness();
+    await dispatchCli(["node", "transfer", "n1", "typoed", "--to", "u9", "--key-stdin", ...BASE], h.deps);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("\n")).toContain('unexpected argument "typoed"');
+    expect(h.calls.length).toBe(0);
+  });
+
   test("missing parts are refused with the shape of the command", async () => {
     for (const argv of [
       ["node", "transfer", "--key-stdin", ...BASE], // no node

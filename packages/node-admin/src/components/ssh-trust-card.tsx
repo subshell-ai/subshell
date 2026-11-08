@@ -32,7 +32,7 @@ import { Fact } from "./fact-list";
  * stale value as current would mislead.
  *
  * `renderPeerAction` is the plane's slot (Task 15): the re-pair act belongs
- * to the control plane's owner gate, not to the card, so the CARD stays a
+ * to the control plane's manage-band gate, not to the card, so the CARD stays a
  * pure display and the node's own dashboard renders no action by never
  * passing the prop. It renders inside the peer's row, so the act sits on the
  * facts it acts on.

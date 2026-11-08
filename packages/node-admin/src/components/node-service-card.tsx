@@ -22,7 +22,7 @@ interface VerbSpec {
    * and on the dashboard "stop the node" is also "stop this page".
    */
   describe: (nodeName: string, kills: boolean, here: "remote" | "local") => string;
-  /** Owner-only, because it cannot be undone from here. */
+  /** Manage-band, because it cannot be undone from here. */
   oneWay?: boolean;
   /** Can end live panes, so it carries `force`. */
   destructive?: boolean;

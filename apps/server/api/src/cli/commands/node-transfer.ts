@@ -85,8 +85,26 @@ export function parseNodeArgs(
         `node transfer: unknown flag "${name}"${name === "--key" || name === "--api-key" ? " (the key comes from --key-stdin, never the command line)" : ""}`,
       );
       return null;
+    } else if (!nodeId && arg.startsWith("subshell_")) {
+      // A flag-order slip can park the bearer in the node-id slot, and
+      // encodeURIComponent does not make a path segment private: the server
+      // log carries paths. Node ids are UUIDs, so nothing legitimate starts
+      // this way and the refusal costs nothing.
+      error(
+        "node transfer: that looks like an automation key, not a node id; the key comes from --key-stdin and the id is the machine's (list it at Settings → Nodes)",
+      );
+      return null;
     } else if (!nodeId) nodeId = arg;
     else {
+      // Echo the stray token as typed UNLESS it looks like a credential:
+      // printing a slipped key back persists it in scrollback and CI logs,
+      // the exact exposure this command exists to refuse.
+      if (arg.startsWith("subshell_")) {
+        error(
+          "node transfer: an extra argument looks like an automation key, so it is not echoed; the key comes from --key-stdin",
+        );
+        return null;
+      }
       error(`node transfer: unexpected argument "${arg}"`);
       return null;
     }

@@ -120,8 +120,8 @@ without a declared grant. Public endpoints remain public, and cookie-only and
 resource-ownership checks still apply after the permission check.
 
 Node enrollment, ordinary configuration, directory rules, sharing, SSH access,
-wide forwarding, maintenance, logging, and ownership transfer have separate
-grants. `nodes:transfer` (spec 2026-11-07) is the one node grant that changes
+wide forwarding, maintenance, apps and screens access, logging, and ownership
+transfer have separate grants. `nodes:transfer` (spec 2026-11-07) is the one node grant that changes
 whose machine a machine is, and it honors the same owner-equality boundary as
 every other node grant: a machine token hands over only nodes its own account
 owns, which is the provisioning story of server-minted setup keys producing

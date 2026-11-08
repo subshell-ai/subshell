@@ -672,11 +672,11 @@ export const TransferNodeToolSchema = z.object({
     .string()
     .min(1)
     .max(64)
-    .describe("The receiving account's user id (from the dashboard's user list; ids, not emails)"),
+    .describe("The receiving account's user id (from the dashboard's user list; ids, not e-mails)"),
   retain_access_as_manager: z
     .boolean()
     .optional()
     .describe(
-      "Default true: this pane's account stays a Manage grantee on the machine it gave away (everything but transferring or deleting it). False leaves no grant",
+      "Default true: this pane's account stays a Manage grantee on the machine it gave away (everything except handing it over, retiring it, and moving files through it). False leaves no grant",
     ),
 });

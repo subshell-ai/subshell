@@ -30,7 +30,7 @@ Each API operation available to scoped keys declares its required permission in 
 | Category | Available grants |
 | --- | --- |
 | Node provisioning | `nodes:read`, `nodes:enroll`, `nodes:configure`, `nodes:diagnostics` |
-| Node access and operations | `nodes:directories`, `nodes:share`, `nodes:ssh`, `nodes:ssh-wide-forwards`, `nodes:maintenance`, `nodes:transfer` |
+| Node access and operations | `nodes:directories`, `nodes:share`, `nodes:ssh`, `nodes:ssh-wide-forwards`, `nodes:maintenance`, `nodes:preview`, `nodes:transfer` |
 | Subshells | `subshells:read`, `subshells:execute`, `subshells:update`, `subshells:stop` |
 | Presets and prompts | `presets:read`, `prompts:read`, `prompts:write` |
 | Communication | `channels:read`, `channels:write` |
@@ -46,11 +46,11 @@ Keys created before permission selection retain their existing non-node access a
 
 ## Node setup and configuration
 
-For enrollment, select **Enroll nodes** (`nodes:enroll`). Add **Read nodes** (`nodes:read`) to inspect the fleet and **Configure nodes** (`nodes:configure`) to change names and calling-agent guidance or recheck installed harnesses. Directory access, sharing, SSH access, wide SSH forwarding, maintenance, ownership transfer, and diagnostics each have separate permissions.
+For enrollment, select **Enroll nodes** (`nodes:enroll`). Add **Read nodes** (`nodes:read`) to inspect the fleet and **Configure nodes** (`nodes:configure`) to change names and calling-agent guidance or recheck installed harnesses. Directory access, sharing, SSH access, wide SSH forwarding, maintenance, apps and screens access, ownership transfer, and diagnostics each have separate permissions.
 
 These nodes belong to the shared `system` account. Keys with the relevant permissions can manage that account's fleet, regardless of which key enrolled a node. They don't gain access to another user's nodes or configuration of the server host. The instance's **Allow node enrollment** setting still applies to setup-key creation.
 
-**Transfer node ownership** (`nodes:transfer`) is the grant for assignment automation: it hands a node the key's own account holds to another account, which is how a provisioned system-owned machine gets its human owner. Like every node grant it respects account boundaries, so a key can only move nodes its own account owns. The procedure is in [Transfer a node](/nodes/transfer).
+**Transfer node ownership** (`nodes:transfer`) is the grant for assignment automation: it hands a node the key's own account holds to another account, which is how a provisioned system-owned machine gets its human owner. Like every node grant it respects account boundaries, so a key can only move nodes its own account owns. If a pane driven by the key uses the MCP `transfer_node` tool, add **Read nodes** (`nodes:read`) too: the tool resolves the machine through the node list before the handover, while the REST route and the CLI verb take the id directly. The procedure is in [Transfer a node](/nodes/transfer).
 
 Enrollment permission allows creating, listing, and revoking new-node setup keys. It doesn't expose recovery keys for existing nodes. Node deletion, re-registration, credential rotation, server address changes, and machine trust repair require a browser session.
 

@@ -109,6 +109,19 @@ it("a failed people roster says so and recovers on Retry, never 'no matching peo
   expect(await screen.findByRole("combobox", { name: "New owner" })).toBeTruthy();
 });
 
+it("an untouched dialog says at rest what it is waiting for", async () => {
+  // Design-system ruling 2026-09-30: a picker whose nothing-picked state
+  // disables the submit wears the gold sentence at rest once its options
+  // settle, because a disabled button whose only explanation is a tooltip
+  // strands touch users.
+  mockTransfer();
+  renderDialog();
+  await screen.findByRole("combobox", { name: "New owner" });
+  const caption = await screen.findByText("Choose who takes it over first.");
+  expect(caption.classList.contains("text-warning")).toBe(true);
+  expect(screen.getByRole("button", { name: /^Transfer/ }).matches(":disabled, [aria-disabled=true]")).toBe(true);
+});
+
 it("unchecked share-back transfers clean", async () => {
   const { posts } = mockTransfer();
   renderDialog();

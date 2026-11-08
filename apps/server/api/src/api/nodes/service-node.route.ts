@@ -226,7 +226,7 @@ export const serviceNodeRoute = new Elysia()
         operationId: "nodeService",
         tags: ["nodes"],
         description:
-          "Drive an enrolled node's service manager: start, stop, restart, install or uninstall (409 when offline, not supervised, nothing installed, too old, or pane-unsafe without force; stop and uninstall are owner-only)",
+          "Drive an enrolled node's service manager: start, stop, restart, install or uninstall (409 when offline, not supervised, nothing installed, too old, or pane-unsafe without force; stop and uninstall ride the manage band)",
       },
     },
   );

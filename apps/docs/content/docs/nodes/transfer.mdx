@@ -13,7 +13,7 @@ The machine never notices. Its link to the server, its credentials, its running 
 
 Two things do change:
 
-- **Unused re-registration keys die.** Any recovery key minted before the transfer and never redeemed stops working, so a key you handed to the old owner can't re-home the machine back.
+- **Unused re-registration keys die.** Any recovery key minted before the transfer and never redeemed stops working, so no stale key can bring the machine back later.
 - **Your own access is what you choose it to be.** By default you keep a **Manage** share on the machine you gave away, so you can still run it day to day. Turn that off and you part with it completely.
 
 The recipient needs an account on the same server, and it can't be the account you're signed in as. If they already have a node with the same name, the transfer is refused; rename one of them first.
@@ -29,7 +29,7 @@ The recipient needs an account on the same server, and it can't be the account y
 
 Automation reaches the same act through an API key with the **nodes:transfer** permission (mint one at **Settings** → **Server Settings** → **API keys**). A machine credential may only hand over nodes its own account owns, which is the provisioning pattern: the server mints setup keys, the first enrollment produces a system-owned node, and your automation assigns it.
 
-Get the recipient's id once from `GET /api/users` (any signed-in caller can read the roster), and the node's id from the last path segment of its dashboard page. Then either drive the CLI on the server host:
+Get the recipient's id once from `GET /api/users` in a signed-in browser session (the roster read serves humans; your scoped API key gets a 403 on it, like on endpoints that haven't opened to keys), and the node's id from the last path segment of its dashboard page. Then either drive the CLI on the server host:
 
 ```bash
 subshell-server node transfer <nodeId> --to <userId> --key-stdin
@@ -42,7 +42,7 @@ printf '%s' "$TRANSFER_KEY" | subshell-server node transfer \
   "<nodeId>" --to "<userId>" --key-stdin --no-keep-manage
 ```
 
-Or call the route directly:
+Or call the route directly. This shape expands the key into process arguments, visible to `ps` and saved in shell history: fine in a throwaway shell on your own machine, so prefer a stdin-fed form where that's not true:
 
 ```bash
 curl -sS -X POST http://your-server.example:3080/api/nodes/<nodeId>/transfer \
@@ -53,7 +53,7 @@ curl -sS -X POST http://your-server.example:3080/api/nodes/<nodeId>/transfer \
 
 `retainAccessAsManager` is required on the wire: there's no hidden default when a script forgets the field. Add `--json` to the CLI for a machine-readable result.
 
-An agent pane can do the same through the Subshell MCP's **transfer_node** tool, but only when it was launched from a key that carries the grant; an ordinary pane's token gets a refusal that names the door.
+An agent pane can do the same through the Subshell MCP's **transfer_node** tool, but only when it was launched from a key that carries **nodes:transfer** plus **nodes:read** (the tool looks the machine up in the node list before handing it over); an ordinary pane's token gets a refusal that names the door.
 
 ## Next steps
 

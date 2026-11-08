@@ -29,8 +29,9 @@ const NODE_SHARE_LEVELS_PLAIN: ShareLevels<NodeShare["permission"]> = [
 /**
  * Node sharing control (spec 2026-08-31 §9/§10) — the node-flavoured wrapper
  * around {@link SharingDialogCore}. The contract mirrors subshell-shares
- * (Everyone + named users at view|edit, whole-set PUT), but both routes are
- * MANAGER-only (owner, or admin on `local`), so `canManage` comes from the
+ * (Everyone + named users at one of the offered levels, whole-set PUT), but
+ * both routes are manager-band (owner or a Manage grantee, admin on `local`),
+ * so `canManage` comes from the
  * caller's already-loaded `Node.canManage` (server-derived — never re-derived
  * here) and gates the controls inside the core.
  */

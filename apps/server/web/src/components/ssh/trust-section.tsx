@@ -44,11 +44,11 @@ export function SshTrustSection({ node, embedded = false }: { node: NodeDetail; 
       />
       <p className="text-detail text-muted-foreground">
         This server displays the fingerprints reported by each machine. To verify them independently, open each
-        machine’s own dashboard and compare its fingerprints with the saved copy on the other machine.
+        machine's own dashboard and compare its fingerprints with the saved copy on the other machine.
       </p>
       {canRepair && node.sshTrust.peers.length > 0 && (
         <p className="text-detail text-muted-foreground">
-          Re-pairing replaces the saved identity for one peer machine. Verify both machines’ fingerprints before you
+          Re-pairing replaces the saved identity for one peer machine. Verify both machines' fingerprints before you
           re-pair them.
         </p>
       )}
