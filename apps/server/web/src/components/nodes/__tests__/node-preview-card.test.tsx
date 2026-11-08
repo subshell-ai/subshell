@@ -28,6 +28,7 @@ function node(over: Partial<NodeDetail> = {}): NodeDetail {
     access: "owner",
     canManage: true,
     canRetire: true,
+    canTransfer: false,
     canLaunch: true,
     capabilities: [],
     allowedDirs: [],
@@ -109,13 +110,13 @@ describe("the Preview switch", () => {
     }
   });
 
-  it("a non-owner sees it disabled with the owner remedy", () => {
+  it("an edit grantee sees it disabled with the manage-band remedy", () => {
     const h = mount(node({ canManage: false, access: "edit" }));
     try {
       expect(
         screen.getByRole("switch", { name: /allow web previews/i }).matches(":disabled, [aria-disabled=true]"),
       ).toBe(true);
-      expect(screen.getAllByText(/only this node/i)[0]).toBeTruthy();
+      expect(screen.getAllByText(/owner or a manage grantee/i)[0]).toBeTruthy();
     } finally {
       h.restore();
     }

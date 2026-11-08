@@ -83,7 +83,7 @@ LAN hints are re-verified on every use. Read `docs/repointing.md` before changin
 `src/route-selection.ts` or the daemon's dialing path.
 
 The plane-driven half of a repoint is the signed `set_server_url` command:
-repointing is owner-only and a real widening, because the machine then dials
+repointing is manage-band (owner or a `manage` grantee) and a real widening, because the machine then dials
 the named host with the node key, a key valid on THIS plane. Loopback is
 refused outright; addresses are validated by component and stored
 canonicalized; the audit names the NEW value only. The running daemon

@@ -127,6 +127,11 @@ export async function buildLocalNodeView(cfg: NodeConfig) {
     protocolVersion: NODE_PROTOCOL_VERSION,
     access: "owner" as const,
     canManage: true,
+    // Handing the machine over and retiring it are the plane's acts: this
+    // page renders neither door, and the wire fields exist, so they answer
+    // false rather than riding out undefined.
+    canTransfer: false,
+    canRetire: false,
     // The local mirror decides launches fail-closed, same as the gate does:
     // unreadable maintenance state means this machine launches nothing.
     canLaunch: !m.maintenance,

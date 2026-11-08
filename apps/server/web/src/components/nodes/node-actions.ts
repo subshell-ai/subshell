@@ -46,8 +46,10 @@ export function nodeActions(
       destructive: true,
       onSelect: handlers.onDelete,
       // The retire gate, NOT `canManage`: delete is owner-or-admin (ruling
-      // 2026-10-09), while the Share/maintenance items above stay owner-only.
-      // The two flags look like they should agree; they deliberately do not.
+      // 2026-10-09), while the Share/maintenance items above stay on the
+      // manage band (owner, or a `manage` grantee since spec 2026-11-07;
+      // admin only on `local`, where manage grants are refused). The two
+      // flags look like they should agree; they deliberately do not.
       disabled: !node.canRetire || node.kind === "local",
     },
   ];

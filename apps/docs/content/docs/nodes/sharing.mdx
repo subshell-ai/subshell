@@ -1,22 +1,36 @@
 ---
 title: "Share a node"
-description: "Allow other users to launch agents on a machine you own."
+description: "Let other users launch agents on a machine you own, at one of three access levels."
 ---
 
-Allow other users to launch their subshells on your node.
+Let other users run subshells on your node, and decide how much of the machine's management they take on.
 
 ## Before you start
 
-You must own the node to manage its sharing. Recipients need accounts on the same server.
+You manage sharing as the node's owner, or as someone the owner gave **Manage** to. Recipients need accounts on the same server.
+
+## Access levels
+
+Every grant picks one level, and the levels stack: each includes the one below it.
+
+| Level | What it grants |
+| --- | --- |
+| **View** | See the node and its status, and launch your own subshells on it. |
+| **View + edit** | Viewing, plus node configuration: reading its logs and runtime details, flipping debug logging, restarting its daemon, and sending it an update. |
+| **Manage** | Everything an owner can change about the machine: sharing itself, renaming, maintenance, directory rules, key rotation, repointing, stop and uninstall, and the SSH switches. It never reaches three things: transferring ownership, deleting or re-registering the node, and file transfers. |
+
+Any level, even **View**, lets the grantee launch their own subshells there. Management controls stay out of **View** and **View + edit**; hand someone **Manage** only when you mean them to run the machine.
+
+Choosing **Everyone** with **Manage** is the widest grant the ladder offers: it puts this machine's management in the hands of every signed-in account, including ones created later, until you change it. That's a deliberate option rather than a guard gap, but most owners mean named people.
 
 ## Grant access
 
 1. In the server dashboard's sidebar, choose **Settings** → **Nodes**, open the machine’s **⋯** menu, and choose **Share**. You can also select the machine and choose **Share** at the top of its **Overview** page.
 2. Choose named users or the available instance-wide grant.
-3. Save the permissions.
+3. Pick each grantee's level and save the permissions.
 4. Ask the recipient to confirm the node is available in their launch picker.
 
-Sharing execution capacity doesn't transfer node ownership. Management controls such as widening directory restrictions remain with the owner.
+Sharing never moves ownership. The owner keeps the right to hand the machine over, and it's the only account that can (see [Transfer a node](/nodes/transfer)).
 
 ## Execution consequences
 
@@ -29,8 +43,8 @@ The session created by another user belongs to that user. Node sharing and subsh
 
 ## Revocation
 
-Remove the grant to stop future access through the node share. Use maintenance if you need to stop running sessions before working on the machine.
+Remove the grant to stop future access through the node share. Use maintenance if you need to stop running sessions before working on the machine. A Manage grantee keeps managing the machine until you revoke them, so a departure is a shares edit, not a password reset.
 
 ## Next steps
 
-See [Directory restrictions](/nodes/directories), [Node maintenance](/nodes/maintenance), and [Access model](/concepts/access).
+See [Transfer a node](/nodes/transfer), [Directory restrictions](/nodes/directories), [Node maintenance](/nodes/maintenance), and [Access model](/concepts/access).

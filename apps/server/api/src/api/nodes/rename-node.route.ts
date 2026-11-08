@@ -31,8 +31,9 @@ const RenameBodySchema = t.Object({
 });
 
 /**
- * `PATCH /api/nodes/:id` `{name}` — rename, OWNER-only (an admin's effective
- * edit does not extend to renaming a foreign agent; spec §9).
+ * `PATCH /api/nodes/:id` `{name}` — rename, on the manage band (owner or a
+ * `manage` grantee; an admin's effective edit does not extend to renaming a
+ * foreign agent; spec §9).
  *
  * The control-plane host's `local` row IS renameable here (spec 2026-09-08):
  * its `canManage` already resolves to admin, so the gate below is the whole
@@ -109,7 +110,7 @@ export const renameNodeRoute = new Elysia()
         operationId: "renameNode",
         tags: ["nodes"],
         description:
-          "Rename a node. Owner-only for an enrolled machine node; the control-plane host's own row is managed by an admin",
+          "Rename a node. The node's owner or a Manage grantee for an enrolled machine node; the control-plane host's own row is managed by an admin",
       },
     },
   );

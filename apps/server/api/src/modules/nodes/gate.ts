@@ -36,10 +36,11 @@ export interface NodeGate {
   /** The node's grant rows, loaded once for the whole request. */
   shares: NodeShareTable[];
   /**
-   * True for the real owner; additionally true for admins on `local` (whose
-   * shares/rename-adjacent config admins manage). Shares/rename/maintenance/
-   * rotate use this as-is; delete layers its own `local → 400` rule on the
-   * retire gate below.
+   * True for the real owner and for a `manage` grantee (spec 2026-11-07);
+   * additionally true for admins on `local` (whose shares/rename-adjacent
+   * config admins manage). Shares/rename/maintenance/rotate use this as-is;
+   * delete layers its own `local → 400` rule on the retire gate below, and
+   * transfer sits below even this, on strict ownership.
    */
   canManage: boolean;
   /**

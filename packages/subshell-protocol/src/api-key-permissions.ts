@@ -52,6 +52,12 @@ export const API_KEY_PERMISSION_GROUPS = [
         label: "Change maintenance state",
         description: "Stop every running subshell on a node or return it to service.",
       },
+      {
+        id: "nodes:transfer",
+        label: "Transfer node ownership",
+        description:
+          "Hand a node the key's own account holds to another account. The link, credentials, running sessions, and other shares carry over untouched; setup keys minted for the node but never used stop working.",
+      },
     ],
   },
   {

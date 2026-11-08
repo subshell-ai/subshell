@@ -120,16 +120,25 @@ without a declared grant. Public endpoints remain public, and cookie-only and
 resource-ownership checks still apply after the permission check.
 
 Node enrollment, ordinary configuration, directory rules, sharing, SSH access,
-wide forwarding, maintenance, and logging have separate grants. Subshell reads,
+wide forwarding, maintenance, apps and screens access, logging, and ownership
+transfer have separate grants. `nodes:transfer` (spec 2026-11-07) is the one node grant that changes
+whose machine a machine is, and it honors the same owner-equality boundary as
+every other node grant: a machine token hands over only nodes its own account
+owns, which is the provisioning story of server-minted setup keys producing
+system-owned rows that automation then assigns. Handing a node to another
+account is never delegable between humans either: the route answers 403 for a
+manage grantee and for an admin alike. Subshell reads,
 command execution, detail edits, and stopping/deleting are separate too. Library,
-channel, transfer, and instance-information grants cover the remaining supported
-surfaces. The [API-key guide](../apps/docs/content/docs/automation/api-keys.mdx)
+channel, file-transfer, and instance-information grants cover the remaining
+supported surfaces. The [API-key guide](../apps/docs/content/docs/automation/api-keys.mdx)
 lists the categories and selection guidance.
 
 These grants limit API operations, not the authority of code running on a host.
 `subshells:execute` permits commands with the execution account's OS privileges,
 and terminal attachment can expose output even without `subshells:read`.
-`transfers:write` can read source files and write destination files. Directory,
+`transfers:write` can read source files and write destination files, and
+`nodes:transfer` re-homes a machine: its link credential moves with it, while
+its unused re-registration keys die in the same transaction. Directory,
 sharing, and SSH grants can widen access; maintenance and stop grants can
 interrupt running work. A read-only API grant is not equivalent to granting
 command execution and asking the caller to behave as a reader.
@@ -543,8 +552,12 @@ approval, and newly imported presets are private.
 absent from list, detail, log, terminal and workspace-pane paths alike. The 404
 is deliberate: a 403 would confirm the id exists.
 
-**Grants.** The owner may share (§5). Grants confer view or edit; they never
-confer delete or re-sharing.
+**Grants.** The owner may share (§5). Subshell and preset grants confer view
+or edit; they never confer delete or re-sharing. Node shares add the `manage`
+rung (spec 2026-11-07): it confers the whole owner-manage band, never the
+ownership itself. Transfer answers 403 to a manage grantee and to an admin
+alike on any agent node, and `local` answers 400 to every actor, admins
+included: the control-plane host is never transferable.
 
 **Admin.** Since the operator ruling of 2026-10-09
 (`docs/superpowers/specs/2026-10-09-admin-pane-visibility-removal-design.md`),
@@ -641,20 +654,23 @@ section's posture depends on):
   operable at all). Non-admin cookie lists are UNCHANGED: a private foreign
   node stays absent, so ids still cannot be probed from the list by anyone
   who is not admin (the rows themselves were already enumerated to admins by
-  the Updates page). Shares, maintenance, rename and the allowlist stay
-  owner-only (admin only on `local`): the boost buys the boosted-`edit`
-  surfaces, exactly as on the detail route. **Delete and re-register are the
+  the Updates page). Shares, maintenance, rename and the allowlist sit on the
+  manage gate: the node's owner, anyone it granted `manage` to (the rung spec
+  2026-11-07 added precisely for this band), and an admin only on `local`;
+  the cookie boost still buys just the boosted-`edit` surfaces, exactly as on
+  the detail route. **Delete and re-register are the
   one widening (same-day follow-up ruling 2026-10-09): owner OR any admin, a
   gate `nodeCanRetire` names and `canRetire` renders.** The list puts every
   machine on the operator's screen; a page that shows a machine it cannot
   retire reads as broken. Retirement replaces a machine's standing rather than
-  deciding who else may USE it, which is why shares stay owner-only. A
+  deciding who else may USE it, which is why shares never ride that gate, and
+  why a manage grantee, who holds the shares half, does not hold delete. A
   re-registration mint is genuinely a credential-replacement act (redemption
   re-homes the row onto whatever machine presents the new key, keeping the
   owner), and an admin who could already DELETE the machine outright is not
   being newly widened by being able to rotate it in place instead; the rotate
-  KEY route stays owner-only because it is the weaker half of the same power,
-  not because the admin lacks the stronger one. A recovery key an admin mints
+  KEY route stays on the narrower manage gate because it is the weaker half of
+  the same power, not because the admin lacks the stronger one. A recovery key an admin mints
   is stored under the NODE's owner (redemption requires
   `key.ownerUserId === node.ownerUserId`), so the admin is the audited ACTOR and
   the node owner the key's owner, and the recovery-preserves-ownership contract
@@ -1059,8 +1075,32 @@ consequences are:
 
 - **Any node share, even `view`, lets the grantee launch their own subshells
   on it.** Those subshells stay invisible to the node's owner unless separately
-  shared. `edit` additionally configures the node; only the owner manages it
-  (shares, rename), or an admin for the built-in `local` node.
+  shared. `edit` additionally configures the node. `manage` (spec 2026-11-07)
+  is the rung an owner grants above it: the whole owner-manage band (shares,
+  rename, maintenance, the allowlist, key rotation, repointing, stop/uninstall,
+  the SSH switches) minus three things it never buys, transferring ownership,
+  deleting or re-registering the node, and file transfers. For the built-in
+  `local` node an admin stands where the owner would, and `manage` grants on
+  it are refused: its band has no grantable half. On an agent node the
+  Everyone row may carry `manage` (operator ruling, 2026-11-07): one row
+  there gives the band to every signed-in account, including accounts created
+  later, which is a deliberate owner act rather than a guard gap, and the
+  sharing dialog says so at the decision point.
+- **Ownership transfer hands a RUNNING machine over** (spec 2026-11-07). One
+  audited transaction moves `owner_user_id`, the api key that authenticates
+  the link, and the machine's identity with it; the socket, the link
+  credentials' VALUES, other shares, and every running pane are untouched,
+  because the machine's relationship is with the key row, not the person
+  beside it. Unused re-registration keys die in the same transaction (they
+  are addressed to the old owner's id and would redeem into the wrong hands);
+  used ones' history stands. The giver can stay as a `manage` grantee, and
+  the wire field is explicit rather than defaulted. `local` is not
+  transferable; neither self-transfer nor a disabled recipient is a handover;
+  a name collision on the receiving account rolls the whole thing back. A
+  manage grantee and an admin alike get 403: deciding whose machine a machine
+  is never delegates to another human. Nothing announces it, following the
+  shares route: there is no `node.changed` feed in production, and the
+  dashboard refetches from the act's own success.
 - **SSH uses the same machine launch access.** A terminal or harness runs as
   the node's OS user and can already use that account's credentials. SSH does
   not introduce a separate sharing or approval boundary. A relay requires
@@ -1242,14 +1282,15 @@ consequences are:
   which briefly takes every subshell running there offline, including the
   owner's and including those of other people the node is shared with. The
   pane-safety refusal is what keeps "briefly offline" from being "closed".
-- **`stop` and `uninstall` are owner-only, and that is structural rather than a
-  permission nicety** (2026-09-12). Every command reaches a node over the
+- **`stop` and `uninstall` sit on the manage gate, and that is structural
+  rather than a permission nicety** (2026-09-12; the gate became owner-or-
+  `manage` with spec 2026-11-07). Every command reaches a node over the
   AGENT'S OWN socket, so the plane can never start an agent that is not
   running: those two end the connection that would have carried the verb
   undoing them. They are one-way from a browser and reversible only by someone
-  with a shell on that machine, so they sit with the owner rather than with an
-  `edit` grantee, who is trusted to interrupt a machine and not to make it
-  unreachable. `force` is refused outright on `start` and `install`, which
+  with a shell on that machine, so they sit with the owner and the manage
+  grantees the owner chose rather than with an `edit` grantee, who is trusted
+  to interrupt a machine and not to make it unreachable. `force` is refused outright on `start` and `install`, which
   cannot end a pane: a flag accepted where it does nothing teaches a caller
   that it is noise.
 - **An enrolled node's daemon log is readable over HTTP** (2026-09-12). `GET
@@ -1269,7 +1310,8 @@ consequences are:
   grants nothing (see below); doing it REMOTELY is a different act. The machine
   then dials whatever host was named carrying `Authorization: Bearer
   <nodeKey>, a credential valid on THIS plane, and it leaves this instance
-  until someone points it back. So it is **owner-only**, not `edit`; the
+  until someone points it back. So it is **manage-gated** (spec 2026-11-07),
+  not `edit`; the
   address is validated by component and stored canonicalized; loopback is
   refused outright, because nobody is sitting at a headless machine to notice
   it dialing itself; and it is audited as `node.config.update`. The audit names
@@ -1280,7 +1322,7 @@ consequences are:
   hot-reloads the written config and re-dials the new address on its next
   heartbeat beat, within about fifteen seconds. The disclosure above therefore
   lands on the click, not on some later boot, which is the point of the
-  owner-only gate, and why the command is logged on the machine itself.
+  manage gate, and why the command is logged on the machine itself.
 - **Applying a rotated key grants nothing new** (2026-09-22). `subshell
   configure --key <node key>`, the verb the node's Rotate-key card tells you
   to run, rewrites ONLY `nodeKey` in the same 0600 `config.json`. It grants
@@ -1456,7 +1498,7 @@ to affect it. The over-cap path acquired this check in the 2026-10-21 audit.
 
 The form can enable SSH as part of **Start SSH subshell**, with a notice before
 submission, only when the viewer may configure that node and the disabled flag
-is its sole readiness blocker. It uses the same owner-only API as the node
+is its sole readiness blocker. It uses the same manage-gated API as the node
 settings switch. Enabling is a separate mutation: a later failed launch does not
 undo it. For another owner's disabled node the form waits and polls; polling
 neither enables SSH nor grants access. Disabling blocks new connections and
@@ -1498,8 +1540,9 @@ which is disclosure-only like the pane output that already shows the login. A lo
 connecting node's loopback address by default, which that node's other OS users
 can reach: §0's accepted posture verbatim, the same class the node's loopback
 dashboard already carries. Binding anything wider requires the node's
-**Allow wide port forwards** switch (owner-only, admin on the built-in node,
-default off, audited `node.ssh_wide_forwards.update`), and a launch asking for
+**Allow wide port forwards** switch (manage-gated: owner or `manage` grantee,
+admin on the built-in node; default off, audited
+`node.ssh_wide_forwards.update`), and a launch asking for
 a wide bind on a node without it is refused; enforcement sits plane-side
 because the node already gates the whole SSH subsystem, and a plane lying
 about the flag is the control-plane-compromise case §0 accepts. A remote
@@ -1667,9 +1710,11 @@ subshell may only be launched in one of them or beneath it.
 - **Empty means unrestricted**, not "deny everything"; every node predating
   the feature is unaffected, and clearing the rules returns a node to that
   state.
-- **Owner-only to edit** (`canManage`), deliberately not `edit`: any node
-  share lets the grantee launch there, so an `edit` grantee able to widen the
-  list to `/` would face no restriction at all. (Plugin installs used to sit
+- **Manage-gated to edit** (`canManage`: owner or `manage` grantee),
+  deliberately not `edit`: any node share lets the grantee launch there, so
+  an `edit` grantee able to widen the list to `/` would face no restriction
+  at all. A `manage` grantee can, because widening the rules is one of the
+  owner decisions that rung is granted (spec 2026-11-07). (Plugin installs used to sit
   behind this same gate; since the 2026-09-10 inversion they are instance-level
   admin acts, and this bullet stands alone.) The rules are **read-visible to everyone who can see the node**,
   grantees included: a refusal is unexplainable without them, and they name
@@ -1997,9 +2042,10 @@ origin beside it) that every node has, `local` included. It says the machine
 stays enrolled and answers every other command (service control, logs,
 detection, restart, config), but takes no new subshells. Turning it on
 **terminates every subshell running there**, whoever owns them, and the two
-ends that can set it are `PUT /api/nodes/:id/maintenance` (owner only; admin on
-`local`; the `canManage` gate, same as re-share, and NOT the wider `canRetire`
-gate delete sits on) and the machine's own `subshell maintenance on|off`.
+ends that can set it are `PUT /api/nodes/:id/maintenance` (the `canManage`
+gate, owner or `manage` grantee, admin on `local`, same as re-share, and NOT
+the wider `canRetire` gate delete sits on) and the machine's own
+`subshell maintenance on|off`.
 
 Three properties of that pair are worth stating rather than inferring:
 
@@ -2875,6 +2921,10 @@ Audit events are written, grouped by family:
   (foreign node, `local`, maintenance, offline) writes neither - the trail
   records acts, and a pre-gate 403 is not one.
 - **Nodes**: `node.enroll`, `node.delete`, `node.rename`, `node.key_rotate`, `node.reregister_key`, `node.reregister`,
+  `node.owner_transfer` (spec 2026-11-07: metadata `{ fromUserId, toUserId,
+  retainAccessAsManager }`, ids only, the giving account as the audited actor
+  even when a machine credential performed the act; no key material and no
+  node name in the row, and a collision-refused transfer writes nothing),
   `node.allowed_dirs.update`, `node.config.update`,
   `node.maintenance.update`, `node.ssh_enabled.update`,
   `node.ssh_wide_forwards.update` (the boolean itself; which node, who flipped it),

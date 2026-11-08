@@ -38,6 +38,7 @@ function agent(overrides: Partial<Node> = {}): Node {
     access: "owner",
     canManage: true,
     canRetire: true,
+    canTransfer: false,
     canLaunch: true,
     allowedDirs: [],
     capabilities: [],

@@ -41,6 +41,8 @@ import {
   restartSubshell,
   sendToSubshell,
   terminateSubshell,
+  transferNode,
+  TransferNodeToolSchema,
 } from "./subshell-tools.js";
 import {
   getNode,
@@ -496,6 +498,20 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
       inputSchema: DeletePromptToolSchema,
     },
     guard(({ id }: { id: string }) => deletePrompt(deps, { id })),
+  );
+
+  // --- node ownership (spec 2026-11-07) ---
+  server.registerTool(
+    "transfer_node",
+    {
+      title: "Transfer node ownership",
+      description:
+        "Hand a node this pane's account owns to another account, in one audited transaction. Needs a credential carrying the nodes:transfer grant (a scoped automation key, or a pane derived from one), plus nodes:read: the machine is looked up by id or name through the node list before the handover; an ordinary pane token is refused. The machine's connection, running subshells, and other shares are unaffected; setup keys minted for it but never used stop working. By default the giving account stays a Manage grantee; pass retain_access_as_manager false to leave nothing behind.",
+      inputSchema: TransferNodeToolSchema,
+    },
+    guard((args: { node_id: string; to_user_id: string; retain_access_as_manager?: boolean }) =>
+      transferNode(deps, args),
+    ),
   );
 }
 

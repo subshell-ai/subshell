@@ -191,7 +191,7 @@ export function VirtualDisplayField({
         <p className="text-detail text-warning">
           {node.kind === "local"
             ? "An admin can enable virtual displays."
-            : "Only this node’s owner can enable virtual displays."}
+            : "Only the node's owner or a Manage grantee can enable virtual displays."}
         </p>
       )}
     </div>

@@ -16,9 +16,11 @@ import { ForbiddenError } from "@/shared/errors.js";
 /**
  * `PUT /api/nodes/:id/shares` `{shares:[{granteeUserId, permission}]}` —
  * replace the whole grant set (same contract as subshell-shares; null grantee
- * is the Everyone grant, unknown grantee → 400). Manager-only: owner,
- * or ADMIN for `local` — where the route accepts any valid list (the UI only
- * ever toggles Everyone/edit, but the API stays the honest superset).
+ * is the Everyone grant, unknown grantee → 400). Manager band: the node's
+ * owner or a `manage` grantee, or ADMIN for `local` — where `manage` grants
+ * themselves are refused (its band has no grantable half). The route accepts
+ * any valid list the manager may set, Manage rows included; the dialog offers
+ * Manage only on agent nodes, matching that refusal.
  *
  * Access is resolved from these rows on each request. After replacement,
  * close relay sessions whose users no longer have launch access to both ends.
@@ -36,6 +38,21 @@ export const setNodeSharesRoute = new Elysia()
       if (!gate.canManage) throw new ForbiddenError();
 
       const entries = body.shares.map((s) => ({ granteeUserId: s.granteeUserId ?? null, permission: s.permission }));
+      // A `manage` grant on the control-plane host is refused outright (spec
+      // 2026-11-07). `local` has no human owner: who manages that machine has
+      // always been the admins' decision, taken as a class — one share row
+      // would hand the control plane itself to a single non-admin. The
+      // refusal lands before any write, so a rejected PUT leaves the grant
+      // set byte-identical, like every other refusal here.
+      if (gate.row.kind === "local" && entries.some((e) => e.permission === "manage")) {
+        return status(
+          400,
+          apiErrorBody({
+            code: BackendErrorCodes.BAD_REQUEST,
+            message: "The server's own node is managed by instance admins; a Manage share is not offered there",
+          }),
+        );
+      }
       const named = entries.map((e) => e.granteeUserId).filter((x): x is string => x !== null);
       if (named.length > 0) {
         const names = await new UsersRepository(db).displayNamesByIds(named);
@@ -75,7 +92,7 @@ export const setNodeSharesRoute = new Elysia()
       detail: {
         operationId: "setNodeShares",
         tags: ["nodes"],
-        description: "Replace a node's sharing grants (manager only: owner, or admin on local)",
+        description: "Replace a node's sharing grants (manager band: owner, a manage grantee, or admin on local)",
       },
     },
   );
