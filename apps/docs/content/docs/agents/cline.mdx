@@ -1,0 +1,43 @@
+---
+title: "Cline"
+description: "Install and launch Cline with Subshell, including its MCP and session behavior."
+---
+
+Run Cline as a Subshell agent.
+
+## Before you start
+
+Install `cline` using the [vendor instructions](https://docs.cline.bot/cli/cli-reference) and authenticate it under the execution account. Ask an administrator to enable the harness under **Settings** → **Server Settings** → **Plugins** in the server dashboard's sidebar. Follow [Install an agent CLI](/agents/install-cli) to confirm detection on the target node.
+
+## Launch
+
+1. Open the new-subshell form using [Launch a subshell](/guides/launch), then choose **Cline** under **Agent or terminal**.
+2. Select a saved preset if you want a custom model, provider, or reasoning effort. Configure those settings under **Settings** → **Presets** before launching.
+3. Choose the target node and an existing project directory.
+4. Launch and confirm that the CLI opens normally.
+
+The plugin launches `cline -i`, which opens its interactive TUI. A bare `cline` run instead takes a prompt and works headless, so the switch is what makes the pane usable. Preset model, provider, and reasoning effort map to the `--model`, `--provider`, and `--thinking` flags. It detects `cline` through PATH and its known locations. `CLINE_PATH` can identify the binary explicitly in the execution environment. Before changing that override, see [Files and paths](/reference/paths) for configuration locations and service-environment guidance.
+
+## MCP and session behavior
+
+Register Subshell once under the OS account where Cline runs. In the server dashboard's sidebar, choose **Settings** → **Presets** → **New preset** → **New agent preset**, select **Cline**, and use the commands under **Cross-subshell comms**. Those commands use the MCP executable configured for your installation.
+
+For a node with `subshell` on PATH, registration looks like this:
+
+```bash
+cline mcp add --yes subshell -- subshell mcp
+```
+
+A plain `cline mcp add` opens the registration wizard with the server fields prefilled, so the `--yes` flag is what saves it without a wizard, and Cline takes the stdio command and its args after the `--` separator. Remove the registration later with `cline mcp remove subshell`.
+
+If your preset sets `CLINE_DIR`, Cline reads its settings, including MCP registrations, from that directory instead of `~/.cline`. Run the registration command with that same value on the execution machine so the registration lands where launch will read it, and use the same override when signing in or removing the registration. See [Files and paths](/reference/paths) for environment configuration guidance.
+
+The registration stores the command, not Subshell credentials. Cline's MCP child inherits them from the subshell where it runs, so one pane's identity stays inside that pane.
+
+Presets support model, provider, and reasoning effort. Cline starts in act mode with auto-approve on by default, so add `--auto-approve false` to a preset's flags to have it ask before each tool. To continue a previous conversation, add `--id <session-id>` with a saved session id, and `--retries <n>` caps the consecutive mistakes before the run exits. The plugin doesn't provide automatic conversation resumption, attention hooks, or subagent tracking.
+
+Subshell runs the real CLI rather than proxying its provider API. Provider configuration, usage limits, and CLI-specific permissions remain the agent's own settings.
+
+## Next steps
+
+Read [MCP configuration](/mcp/configure), [Presets](/presets), and [Agent and launch errors](/troubleshooting/agents).

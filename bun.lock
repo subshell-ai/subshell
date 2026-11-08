@@ -487,6 +487,7 @@
         "@internal/subshell-protocol": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
         "@subshell-ai/plugin-claude-code": "workspace:*",
+        "@subshell-ai/plugin-cline": "workspace:*",
         "@subshell-ai/plugin-cloudflare-tunnel": "workspace:*",
         "@subshell-ai/plugin-codex": "workspace:*",
         "@subshell-ai/plugin-gemini": "workspace:*",
@@ -525,6 +526,18 @@
     "packages/plugins/claude-code": {
       "name": "@subshell-ai/plugin-claude-code",
       "version": "3.1.1",
+      "devDependencies": {
+        "@internal/tsconfig": "workspace:*",
+        "@subshell-ai/plugin-api": "workspace:*",
+        "@types/bun": "1.3.14",
+        "hash-runner": "5.0.0",
+        "tsdown": "0.22.14",
+        "typescript": "7.0.2",
+      },
+    },
+    "packages/plugins/cline": {
+      "name": "@subshell-ai/plugin-cline",
+      "version": "1.0.0",
       "devDependencies": {
         "@internal/tsconfig": "workspace:*",
         "@subshell-ai/plugin-api": "workspace:*",
@@ -1635,6 +1648,8 @@
     "@subshell-ai/plugin-api": ["@subshell-ai/plugin-api@workspace:packages/plugin-api"],
 
     "@subshell-ai/plugin-claude-code": ["@subshell-ai/plugin-claude-code@workspace:packages/plugins/claude-code"],
+
+    "@subshell-ai/plugin-cline": ["@subshell-ai/plugin-cline@workspace:packages/plugins/cline"],
 
     "@subshell-ai/plugin-cloudflare-tunnel": ["@subshell-ai/plugin-cloudflare-tunnel@workspace:packages/plugins/cloudflare-tunnel"],
 

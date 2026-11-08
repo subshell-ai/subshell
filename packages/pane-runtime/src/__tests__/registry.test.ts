@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { capabilityMismatches } from "@subshell-ai/plugin-api";
 import claudeCode from "@subshell-ai/plugin-claude-code";
+import cline from "@subshell-ai/plugin-cline";
 import codex from "@subshell-ai/plugin-codex";
 import gemini from "@subshell-ai/plugin-gemini";
 import grokBuild from "@subshell-ai/plugin-grok-build";
@@ -27,6 +28,7 @@ describe("the built-in registry", () => {
         .sort(),
     ).toEqual([
       "claude-code",
+      "cline",
       "codex",
       "gemini",
       "grok-build",
@@ -100,6 +102,7 @@ describe("the built-in registry", () => {
       grokBuild,
       gemini,
       qwenCode,
+      cline,
     })) {
       expect([id, capabilityMismatches(factory(host), "agent-harness")]).toEqual([id, []]);
     }

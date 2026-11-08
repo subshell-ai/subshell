@@ -16,6 +16,7 @@ import { EMBEDDED_PLUGINS } from "../generated/embedded-plugins.js";
  */
 const BUILT_INS = [
   "claude-code",
+  "cline",
   "cloudflare-tunnel",
   "codex",
   "gemini",

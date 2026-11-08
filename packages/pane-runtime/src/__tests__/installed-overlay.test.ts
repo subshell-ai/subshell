@@ -32,6 +32,7 @@ import type { PresetDefinition } from "../types.js";
 
 const BUILT_IN_IDS = [
   "claude-code",
+  "cline",
   "codex",
   "gemini",
   "grok-build",

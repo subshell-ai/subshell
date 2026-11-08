@@ -7,6 +7,7 @@ import {
   type SubshellPlugin,
 } from "@subshell-ai/plugin-api";
 import claudeCodeFactory, { manifest as claudeCodeManifest } from "@subshell-ai/plugin-claude-code";
+import clineFactory, { manifest as clineManifest } from "@subshell-ai/plugin-cline";
 import cloudflareTunnelFactory, { manifest as cloudflareTunnelManifest } from "@subshell-ai/plugin-cloudflare-tunnel";
 import codexFactory, { manifest as codexManifest } from "@subshell-ai/plugin-codex";
 import geminiFactory, { manifest as geminiManifest } from "@subshell-ai/plugin-gemini";
@@ -67,6 +68,7 @@ const BUILT_INS: BuiltIn[] = [
   { manifest: codexManifest, factory: codexFactory },
   { manifest: geminiManifest, factory: geminiFactory },
   { manifest: qwenCodeManifest, factory: qwenCodeFactory },
+  { manifest: clineManifest, factory: clineFactory },
   { manifest: terminalManifest, factory: terminalFactory },
   // The ssh pane is the terminal launch pointed at ssh: same TYPE, same
   // `[binary, ...flags]` shape, the connection described entirely by the

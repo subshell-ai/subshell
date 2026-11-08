@@ -64,6 +64,7 @@ const SUBSHELL_ID = "a1000000-0000-4000-8000-000000000001";
 /** Each built-in's own settings keys — what its preset editor can store. */
 const SETTINGS_FIXTURES: Record<string, Record<string, unknown>> = {
   "claude-code": { permissionMode: "acceptEdits", model: "sonnet", maxTokens: 8192 },
+  cline: { model: "claude-sonnet-4-5", provider: "anthropic", thinking: "high" },
   codex: { model: "gpt-5-codex", sandbox: "workspace-write", askForApproval: "on-request" },
   opencode: { model: "anthropic/claude-sonnet-4-5", agent: "plan", auto: true },
   "grok-build": { model: "grok-4.6", reasoningEffort: "high", agent: "reviewer", alwaysApprove: true },
@@ -265,15 +266,16 @@ for (const id of BUILTIN_IDS) {
 }
 
 /**
- * Sanity: every built-in under test really is one of the eleven, and the
+ * Sanity: every built-in under test really is one of the twelve, and the
  * registry is what production reads (`getHarness`, the same accessor
  * `subshell-manager` resolves launches through) — no copies.
  */
-test("argv parity: the matrix covers all eleven built-ins through the production registry", () => {
+test("argv parity: the matrix covers all twelve built-ins through the production registry", () => {
   const registryIds = BUILTIN_IDS.map((id) => getHarness(id)?.id);
   expect(new Set(registryIds)).toEqual(
     new Set([
       "claude-code",
+      "cline",
       "codex",
       "gemini",
       "grok-build",
