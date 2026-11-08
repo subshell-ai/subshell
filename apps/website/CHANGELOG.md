@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.26
+
+### Patch Changes
+
+- [`07daf6f`](https://github.com/subshell-ai/subshell/commit/07daf6f350de613caa8785469bf4a7932ecce52b) Thanks [@theogravity](https://github.com/theogravity)! - Republish with the current release list: the install and download pages now point at cli-server v3.3.0, cli-node v3.4.0, Subshell Server 1.7.8 and Subshell Client 1.5.7, and the agents roster gains the six new harness plugins.
+
 ## 0.2.25
 
 ### Patch Changes
