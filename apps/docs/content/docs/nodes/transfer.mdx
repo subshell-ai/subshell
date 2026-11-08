@@ -27,7 +27,7 @@ The recipient needs an account on the same server, and it can't be the account y
 
 ## Transfer from a script
 
-Automation reaches the same act through an API key with the **nodes:transfer** permission (mint one at **Settings** → **Server Settings** → **API keys**). A machine credential may only hand over nodes its own account owns, which is the provisioning pattern: the server mints setup keys, the first enrollment produces a system-owned node, and your automation assigns it.
+Automation reaches the same act through an API key with the **nodes:transfer** permission (an administrator mints one under **Settings** → **Server Settings** → **API keys**). A machine credential may only hand over nodes its own account owns, which is the provisioning pattern: the server mints setup keys, the first enrollment produces a system-owned node, and your automation assigns it.
 
 Get the recipient's id once from `GET /api/users` in a signed-in browser session (the roster read serves humans; your scoped API key gets a 403 on it, like on endpoints that haven't opened to keys), and the node's id from the last path segment of its dashboard page. Then either drive the CLI on the server host:
 

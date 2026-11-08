@@ -217,6 +217,19 @@ describe("subshell-server node transfer", () => {
     expect(h.calls.length).toBe(0);
   });
 
+  test("a key typed as the subcommand word is refused without echoing it", async () => {
+    // Security pass on #495: `subshell-server node "$KEY" transfer ...` (a
+    // flag-order slip) lands the bearer in args[0], the one slot whose
+    // refusal still quoted the value back. "Never echoed anywhere" covers the
+    // subcommand echo too.
+    const h = harness();
+    await dispatchCli(["node", "subshell_LEAKYSUB", "transfer", "n1", "--to", "u9", "--key-stdin", ...BASE], h.deps);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("\n")).not.toContain("subshell_LEAKYSUB");
+    expect(h.err.join("\n")).toContain("subcommand");
+    expect(h.calls.length).toBe(0);
+  });
+
   test("a key typed as the --to value is refused without echoing it", async () => {
     // Security pass on #495: --to was the last slot that could carry the
     // bearer. Without this tripwire, `--to=subshell_LEAKYTO` would send the

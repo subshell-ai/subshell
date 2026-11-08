@@ -1571,8 +1571,25 @@ export class SubshellsService extends BaseService {
         doNotLog: true,
       });
     }
+    // A ceiling may flow into the re-mint ONLY from a credential the row's
+    // OWNER holds. This wrapper used to forward the caller key's grants
+    // unconditionally, and the manager's `source.userId !== userId` check is
+    // vacuous here (the service passes `row.userId`), so a system key that
+    // reached the pane through a share — the Everyone `edit` row is the
+    // mainstream act — baked ITS grants (incl. `nodes:transfer`) into the
+    // human's fresh token, arming a human-owned row the bearer gate is supposed
+    // to keep system-only. A stranger's restart now re-mints with null: the
+    // pane keeps or loses its own ceiling, never gains the caller's
+    // (security pass on #495; pinned by `restart-ceiling-injection.route.test.ts`).
     const revived = await this.#manager
-      .restartSubshell(row.userId, id, swapPresetTo, viewerId, systemKeyPermissions, refuseJoin)
+      .restartSubshell(
+        row.userId,
+        id,
+        swapPresetTo,
+        viewerId,
+        viewerId === row.userId ? systemKeyPermissions : null,
+        refuseJoin,
+      )
       .catch((err) => {
         // A swap that arrived mid-restart is REFUSED, not joined: the running
         // revival composes someone else's preset, and a 200 for this swap

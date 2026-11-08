@@ -126,8 +126,9 @@ whose machine a machine is, and it honors the same owner-equality boundary as
 every other node grant: a machine token hands over only nodes its own account
 owns, which is the provisioning story of server-minted setup keys producing
 system-owned rows that automation then assigns. Handing a node to another
-account is never delegable between humans either: the route answers 403 for a
-manage grantee and for an admin alike. Subshell reads,
+account is never delegable between humans either: on an agent node the route
+answers 403 for a manage grantee and for an admin alike, and on `local` the
+shape refusal (400) lands before anyone is asked. Subshell reads,
 command execution, detail edits, and stopping/deleting are separate too. Library,
 channel, file-transfer, and instance-information grants cover the remaining
 supported surfaces. The [API-key guide](../apps/docs/content/docs/automation/api-keys.mdx)
@@ -143,12 +144,16 @@ sharing, and SSH grants can widen access; maintenance and stop grants can
 interrupt running work. A read-only API grant is not equivalent to granting
 command execution and asking the caller to behave as a reader.
 
-Pane credentials inherit a scoped creator's ceiling. Restart intersects the
-existing ceiling with the caller's grants, including when a browser initiates
-the restart, so rotation does not broaden it. A missing token for a system-owned
-pane fails closed. Inherited grants supplement the pane's own permission map
-and actor restrictions; they do not turn a pane credential into a system key
-that can provision nodes.
+Pane credentials inherit a scoped creator's ceiling. A restart intersects the
+existing ceiling with the caller's grants, and those grants count only when the
+caller is the row owner's own credential: a browser session or a grantee's key
+restarts the pane on its own ceiling, never grafting the operator's grants onto
+it (the security pass on #495 closed a restart path where a scoped key did
+exactly that to a shared human pane, arming a token the bearer gate reads as
+system-owned). Rotation never broadens the ceiling, and a missing token for a
+system-owned pane fails closed. Inherited grants supplement the pane's own
+permission map and actor restrictions; they do not turn a pane credential into
+a system key that can provision nodes.
 
 Disabling or deleting a system key blocks subsequent authentication with that
 key. It does not stop running commands, revoke separately minted pane or setup
@@ -1087,11 +1092,14 @@ consequences are:
   shared. `edit` additionally configures the node. `manage` (spec 2026-11-07)
   is the rung an owner grants above it: the whole owner-manage band (shares,
   rename, maintenance, the allowlist, key rotation, repointing, stop/uninstall,
-  the SSH switches, the web-previews and virtual-display switch, and the
-  cross-agent guidance) minus three things it never buys, transferring
-  ownership, deleting or re-registering the node, and file transfers. For the built-in
-  `local` node an admin stands where the owner would, and `manage` grants on
-  it are refused: its band has no grantable half. On an agent node the
+  the SSH switches and machine-pin trust repair, the web-previews and
+  virtual-display switch, and the cross-agent guidance) minus three things it
+  never buys, transferring ownership, deleting or re-registering the node, and
+  file transfers. For the built-in `local` node an admin stands where the owner
+  would on everything that applies to this host, and `manage` grants on it are
+  refused: its band has no grantable half. (Surfaces that never apply to the
+  control-plane host, like one-way service control, answer their own 400
+  before the band is asked.) On an agent node the
   Everyone row may carry `manage` (operator ruling, 2026-11-07): one row
   there gives the band to every signed-in account, including accounts created
   later, which is a deliberate owner act rather than a guard gap, and the

@@ -41,6 +41,15 @@ export function parseNodeArgs(
   error: (line: string) => void,
 ): (NodeTransferOptions & { keyStdin: true }) | null {
   if (args[0] !== "transfer") {
+    // The subcommand slot takes no credential, so a key-shaped word here is a
+    // slipped flag, and the unknown-subcommand echo would print it (scrollback,
+    // CI logs). Same tripwire as the value slots: refuse, describe, never quote.
+    if (typeof args[0] === "string" && args[0].startsWith("subshell_")) {
+      error(
+        'node: the subcommand got what looks like an automation key, so it is not echoed; "transfer" is the only subcommand, and the key comes from --key-stdin',
+      );
+      return null;
+    }
     error(`node: unknown subcommand "${args[0] ?? ""}" (transfer is the only one)`);
     return null;
   }

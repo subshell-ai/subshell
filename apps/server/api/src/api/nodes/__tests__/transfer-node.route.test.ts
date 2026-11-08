@@ -714,16 +714,19 @@ describe("POST /api/nodes/:id/transfer", () => {
     // inheritance here, which is how a scoped automation key's child reaches
     // the same doors its parent can.
     //
-    // NOTE (security pass on #495): production keeps the invariant "a pane
-    // whose token has a non-null ceiling is a SYSTEM row", because the ceiling
-    // only arrives from the creating key and that key resolves as the system
-    // account (create route passes systemKeyPermissions through to
-    // issueSubshellToken with the SYSTEM user id; the re-mint path re-asserts
-    // owner equality). This test hand-inserts the human-owned pairing directly
-    // — the gate itself would NOT refuse such a credential, so if any future
-    // feature ever issues ceilings on human-owned rows (an admin-on-behalf-of
-    // flow), the human transfer door opens to a prompt-controlled pane. That
-    // mint-site invariant is the defense; keep it true, or gate here.
+    // NOTE (security pass on #495, cold round): production keeps the invariant
+    // "a pane whose token has a non-null ceiling is a SYSTEM row". Two mint
+    // sites must hold it: the create route passes systemKeyPermissions through
+    // to issueSubshellToken only under the creating credential's own user id,
+    // and the restart re-mint forwards the caller's grants ONLY when the
+    // caller is the row's owner (`subshells.service.ts`, pinned end to end by
+    // restart-ceiling-injection.route.test.ts; before that fix a stranger's
+    // scoped key could arm a shared human pane through restart). This test
+    // hand-inserts the human-owned pairing directly — the gate itself would
+    // NOT refuse such a credential, so if any future feature ever issues
+    // ceilings on human-owned rows (an admin-on-behalf-of flow), the human
+    // transfer door opens to a prompt-controlled pane. That mint-site
+    // invariant is the defense; keep it true, or gate here.
     const derivedPane = crypto.randomUUID();
     await db
       .insertInto("subshells")
