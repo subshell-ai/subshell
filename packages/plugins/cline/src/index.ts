@@ -19,7 +19,8 @@ const SETTINGS: SettingsField[] = [
 
 /**
  * Launch Cline's interactive TUI, which 3.0.74 opens with `-i, --tui` rather
- * than on a bare run (a bare run takes a prompt and works headless). Flags
+ * than by default (a run with a prompt argument works headless in act mode;
+ * a run with none opens the provider sign-in flow). Flags
  * mapped here were verified against `cline --help`: -m/--model,
  * -P/--provider, --thinking <none|low|medium|high|xhigh>. `cline mcp add`
  * opens the registration wizard with the server fields prefilled; `--yes`
