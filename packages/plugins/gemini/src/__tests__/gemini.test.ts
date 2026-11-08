@@ -44,6 +44,10 @@ describe("Gemini CLI", () => {
     if (setup.mode !== "manual") throw new Error("Expected manual MCP setup");
     expect(setup.steps[0]?.command).toContain("gemini mcp add");
     expect(setup.steps[0]?.command).toContain("--scope user");
+    // Gemini's parser rejects a `--` separator, so the server name and the
+    // shell-quoted argv follow the options directly.
+    expect(setup.steps[0]?.command).not.toContain(" -- ");
+    expect(setup.steps[0]?.command).toBe("gemini mcp add --scope user subshell '/usr/bin/subshell' 'mcp'");
     expect(setup.steps[1]?.command).toBe("gemini mcp remove --scope user subshell");
   });
 

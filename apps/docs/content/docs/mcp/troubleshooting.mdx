@@ -7,7 +7,7 @@ Diagnose problems with Subshell MCP integration and communication.
 
 ## No Subshell tools
 
-Confirm the agent is running inside a Subshell-launched pane. Check [MCP configuration](/mcp/configure), including the one-time setup required by Grok Build, Gemini CLI, Hermes, Qwen Code, Cline, Open Interpreter, OpenHands, and pi. OpenClaw panes carry no Subshell tools by design for now: its MCP registration is Gateway-scoped rather than per-session, so cross-subshell comms are not wired. See [OpenClaw](/agents/openclaw).
+Confirm the agent is running inside a Subshell-launched pane. Check [MCP configuration](/mcp/configure), including the one-time setup required by Gemini CLI, Qwen Code, Cline, Open Interpreter, OpenHands, Grok Build, Hermes, and pi. OpenClaw panes carry no Subshell tools by design for now: its MCP registration is Gateway-scoped rather than per-session, so cross-subshell comms are not wired. See [OpenClaw](/agents/openclaw).
 
 Run `subshell-server status` on the server host to see which MCP executable it uses. If you've configured MCP manually, check that the executable exists on the machine where the agent runs.
 
