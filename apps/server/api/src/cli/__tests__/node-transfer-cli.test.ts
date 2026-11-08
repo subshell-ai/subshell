@@ -1,0 +1,146 @@
+import { describe, expect, test } from "bun:test";
+import { type CliDeps, dispatchCli } from "../dispatch.js";
+
+/**
+ * `subshell-server node transfer` — the machine door to the ownership
+ * handover (spec 2026-11-07). Dispatch-level coverage of the surface an
+ * operator types: the flags, the exits, and the credential hygiene that made
+ * `--key-stdin` mandatory (a key in argv is `ps`-visible and shell-history
+ * forever, the same accounting `docs/security.md` §11 keeps for the node's
+ * own link). The HTTP shape itself is pinned by the route suite.
+ */
+
+interface FetchCall {
+  url: string;
+  init: RequestInit;
+}
+
+function harness(overrides: Partial<CliDeps> = {}) {
+  const out: string[] = [];
+  const err: string[] = [];
+  const exits: number[] = [];
+  const calls: FetchCall[] = [];
+  // The fake answers the way the route does: it echoes the transfer it was
+  // asked to perform, so the human line reflects a real server decision.
+  const fetchImpl =
+    overrides.fetch ??
+    (async (input: string, init: RequestInit) => {
+      calls.push({ url: input, init });
+      const sent = JSON.parse(String(init.body)) as { toUserId: string; retainAccessAsManager: boolean };
+      return Response.json({
+        nodeId: "n1",
+        ownerUserId: sent.toUserId,
+        retainedAccessAsManager: sent.retainAccessAsManager,
+      });
+    });
+  const deps: CliDeps = {
+    log: (line) => void out.push(line),
+    error: (line) => void err.push(line),
+    exit: (code) => void exits.push(code),
+    env: {},
+    fetch: fetchImpl,
+    readKey: async () => " subshell_secret_key\n",
+    ...overrides,
+  };
+  return { deps, out, err, exits, calls };
+}
+
+const BASE = ["--base-url", "http://127.0.0.1:3199"];
+
+describe("subshell-server node transfer", () => {
+  test("hands the machine over: POST with the stdin key, result printed, key never echoed", async () => {
+    const h = harness();
+    expect(await dispatchCli(["node", "transfer", "n1", "--to", "u9", "--key-stdin", ...BASE], h.deps)).toBe(true);
+    expect(h.exits).toEqual([0]);
+    expect(h.calls.length).toBe(1);
+    expect(h.calls[0]?.url).toBe("http://127.0.0.1:3199/api/nodes/n1/transfer");
+    expect(h.calls[0]?.init.method).toBe("POST");
+    expect(new Headers(h.calls[0]?.init.headers).get("authorization")).toBe("Bearer subshell_secret_key");
+    expect(JSON.parse(String(h.calls[0]?.init.body))).toEqual({ toUserId: "u9", retainAccessAsManager: true });
+    const stdout = h.out.join("\n");
+    expect(stdout).toContain("n1");
+    expect(stdout).toContain("u9");
+    expect(stdout).not.toContain("subshell_secret_key");
+  });
+
+  test("--no-keep-manage transfers clean", async () => {
+    const h = harness();
+    await dispatchCli(["node", "transfer", "n1", "--to", "u9", "--key-stdin", "--no-keep-manage", ...BASE], h.deps);
+    expect(JSON.parse(String(h.calls[0]?.init.body))).toEqual({ toUserId: "u9", retainAccessAsManager: false });
+    expect(h.out.join("\n")).toContain("no access retained");
+  });
+
+  test("--json answers the machine document", async () => {
+    const h = harness();
+    await dispatchCli(["node", "transfer", "n1", "--to", "u9", "--key-stdin", "--json", ...BASE], h.deps);
+    expect(JSON.parse(h.out.join(""))).toEqual({ nodeId: "n1", ownerUserId: "u9", retainedAccessAsManager: true });
+  });
+
+  test("there is no argv spelling of the key: --key is refused and nothing is sent", async () => {
+    const h = harness();
+    expect(await dispatchCli(["node", "transfer", "n1", "--to", "u9", "--key", "subshell_x", ...BASE], h.deps)).toBe(
+      true,
+    );
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("\n")).toContain("--key-stdin");
+    expect(h.calls.length).toBe(0);
+  });
+
+  test("without --key-stdin the command refuses before any read or request", async () => {
+    let keyReads = 0;
+    const h = harness({
+      readKey: async () => {
+        keyReads += 1;
+        return "x";
+      },
+    });
+    await dispatchCli(["node", "transfer", "n1", "--to", "u9", ...BASE], h.deps);
+    expect(h.exits).toEqual([1]);
+    expect(h.calls.length).toBe(0);
+    expect(keyReads).toBe(0);
+  });
+
+  test("an empty stdin is named as the problem", async () => {
+    const h = harness({ readKey: async () => "   \n" });
+    await dispatchCli(["node", "transfer", "n1", "--to", "u9", "--key-stdin", ...BASE], h.deps);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("\n").toLowerCase()).toContain("key");
+    expect(h.calls.length).toBe(0);
+  });
+
+  test("a server refusal echoes the server's own sentence", async () => {
+    const h = harness({
+      fetch: async () =>
+        Response.json(
+          { message: "That account is disabled; re-enable it before transferring a node to it" },
+          { status: 400 },
+        ),
+    });
+    await dispatchCli(["node", "transfer", "n1", "--to", "u9", "--key-stdin", ...BASE], h.deps);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("")).toContain("That account is disabled; re-enable it before transferring a node to it");
+  });
+
+  test("an unreachable server names the address", async () => {
+    const h = harness({
+      fetch: async () => {
+        throw new TypeError("Unable to connect. Is the computer able to access the url?");
+      },
+    });
+    await dispatchCli(["node", "transfer", "n1", "--to", "u9", "--key-stdin", ...BASE], h.deps);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("")).toContain("http://127.0.0.1:3199");
+  });
+
+  test("missing parts are refused with the shape of the command", async () => {
+    for (const argv of [
+      ["node", "transfer", "--key-stdin", ...BASE], // no node
+      ["node", "transfer", "n1", "--key-stdin", ...BASE], // no --to
+      ["node", "frobnicate", "x"], // no such subcommand
+    ]) {
+      const h = harness();
+      expect(await dispatchCli(argv, h.deps)).toBe(true);
+      expect(h.exits).toEqual([1]);
+    }
+  });
+});

@@ -86,8 +86,25 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
         // Node-to-node archive transfer (spec 2026-10-01 §6): one tool, copy
         // and diff-sync, the mode a flag not a second verb.
         "transfer_files",
+        // The ownership handover (spec 2026-11-07): machine assignment for a
+        // credential carrying the nodes:transfer grant.
+        "transfer_node",
       ]),
     );
+  });
+
+  it("transfer_node addresses a machine and a recipient, and names its credential door", async () => {
+    const byName = Object.fromEntries((await listTools()).map((t) => [t.name, t]));
+    const schema = byName.transfer_node.inputSchema;
+    expect(Object.keys(schema.properties as Record<string, unknown>).sort()).toEqual([
+      "node_id",
+      "retain_access_as_manager",
+      "to_user_id",
+    ]);
+    expect([...(schema.required as string[])].sort()).toEqual(["node_id", "to_user_id"]);
+    // An agent deciding whether to call this needs to know the grant decides
+    // it, in the tool's own words, before the refusal arrives.
+    expect(byName.transfer_node.description).toContain("nodes:transfer");
   });
 
   it("the schemas and descriptions carry the new addressing and steering surface", async () => {

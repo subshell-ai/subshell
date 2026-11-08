@@ -690,7 +690,7 @@ view, never boots); `init` (first run, THE headless entry point; the
 desktop app passes `--no-service`); `configure`; `service install |
 uninstall | enable | disable | status | start | stop | restart`;
 `update` (the reversible transaction, see "Updating the server" below);
-`backup`; `restore` (offline instance replacement); `mcp` (the one long-running verb, spawned by harnesses);
+`backup`; `node transfer <nodeId> --to <userId> --key-stdin` (spec 2026-11-07: the machine door to ownership handover, driving `POST /api/nodes/:id/transfer` with an automation key that carries `nodes:transfer`; the key comes from stdin and never from argv); `restore` (offline instance replacement); `mcp` (the one long-running verb, spawned by harnesses);
 `report attention …` / `report session` (generated harness-hook lines,
 never typed; ALWAYS exits 0).
 
@@ -698,11 +698,13 @@ An unknown word exits 1 with usage. **Sync-exit design** (house style for
 the quick commands, no longer the safety mechanism): a handled command
 should run to completion and `process.exit` SYNCHRONOUSLY inside
 `dispatchCli` (sync fs, `Bun.spawnSync` for the service manager). There are
-now SIX exceptions rather than one: `mcp`, long-running by design and
+now SEVEN exceptions rather than one: `mcp`, long-running by design and
 suspended in its stdio loop; `init` and `configure`, which became async
 when their prompts moved to `@clack/prompts` (spec 2026-09-15), since a promise-based
 library cannot be driven by `readSync(0, …)`; `update` and `backup` (spec
 2026-09-15 §4.1/§4.4), which download, prompt and `VACUUM INTO` a database;
+`node transfer` (spec 2026-11-07), which awaits a `fetch` round trip against a
+running server and reads its key off stdin;
 and `restore`, which stages and validates an archive, performs offline
 replacement, and awaits boot confirmation. `update` and `restore` can wait
 for the restarted server to finish or revert their transaction; restore's

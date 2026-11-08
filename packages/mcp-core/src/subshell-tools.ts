@@ -6,6 +6,7 @@ import {
   parseStoredVirtualDisplayRequest,
   type VirtualDisplayRequest,
 } from "@internal/subshell-protocol";
+import { z } from "zod";
 import type { ToolDeps } from "./tools.js";
 
 /**
@@ -635,3 +636,43 @@ export const sendToSubshell = (deps: ToolDeps, args: { id: string; text: string;
     method: "POST",
     body: { text: args.text, submit: args.submit ?? true },
   });
+
+/**
+ * `transfer_node`: hand one of this pane's account's own machines to another
+ * account (spec 2026-11-07). Node addressing is the shared grammar (exact id
+ * first, then the human name); the recipient is an id, because a credential
+ * that CAN transfer is one the roster read does not answer to (the
+ * instance-wide user list serves ordinary sessions, and a scoped child is
+ * denied it). The REST route decides everything else: the owner rank, the
+ * `nodes:transfer` grant on this credential, and a recipient that exists and
+ * is not disabled. The machine notices nothing; unused recovery keys die.
+ */
+export async function transferNode(
+  deps: ToolDeps,
+  args: { node_id: string; to_user_id: string; retain_access_as_manager?: boolean },
+): Promise<{ nodeId: string; ownerUserId: string; retainedAccessAsManager: boolean }> {
+  const nodeId = await resolveNodeId(deps, args.node_id);
+  if (!nodeId) throw new Error("subshell: pass the node id or name (list_nodes lists the machines)");
+  return deps.api.req(`/api/nodes/${encodeURIComponent(nodeId)}/transfer`, {
+    method: "POST",
+    // The wire demands the share-back decision explicitly; the tool defaults
+    // it the way the dashboard dialog does, but always sends a boolean.
+    body: { toUserId: args.to_user_id, retainAccessAsManager: args.retain_access_as_manager ?? true },
+  });
+}
+
+/** `transfer_node`: one machine, one receiving account, one share-back flag. */
+export const TransferNodeToolSchema = z.object({
+  node_id: z.string().min(1).describe("Node id or exact name from list_nodes; must be owned by this pane's account"),
+  to_user_id: z
+    .string()
+    .min(1)
+    .max(64)
+    .describe("The receiving account's user id (from the dashboard's user list; ids, not emails)"),
+  retain_access_as_manager: z
+    .boolean()
+    .optional()
+    .describe(
+      "Default true: this pane's account stays a Manage grantee on the machine it gave away (everything but transferring or deleting it). False leaves no grant",
+    ),
+});

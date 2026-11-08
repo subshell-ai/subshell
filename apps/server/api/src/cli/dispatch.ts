@@ -8,6 +8,7 @@ import { parseBackupFlags, parseRestoreFlags } from "@/cli/commands/backup-optio
 import { type ConfigureOpts, runConfigure } from "@/cli/commands/configure.js";
 import { runContainerSupervisor } from "@/cli/commands/container-supervisor.js";
 import { type InitDeps, runInit, setupHandoffLines } from "@/cli/commands/init.js";
+import { parseNodeArgs, runNodeTransfer } from "@/cli/commands/node-transfer.js";
 import { runReset } from "@/cli/commands/reset.js";
 import { runRestore } from "@/cli/commands/restore.js";
 import { runStatus, serviceStateLines } from "@/cli/commands/status.js";
@@ -163,6 +164,10 @@ export interface CliDeps {
    * offer→CONTINUES wiring without invoking a real installer.
    */
   spawnInstall?: (argv: readonly string[]) => number;
+  /** HTTP client for `node transfer` (default: `globalThis.fetch`, resolved per call). */
+  fetch?: (input: string, init: RequestInit) => Promise<Response>;
+  /** Reads the `--key-stdin` API key for `node transfer` (default: all of stdin). */
+  readKey?: () => Promise<string> | string;
 }
 
 const USAGE = `subshell-server: the Subshell server
@@ -177,6 +182,10 @@ usage:
   subshell-server configure      (re)write config.env; interactive unless --yes
   subshell-server update         update the server (--check only checks for updates)
   subshell-server backup         capture a full instance archive (optional password encryption)
+  subshell-server node transfer <nodeId> --to <userId> --key-stdin
+                                 hand a node the key's own account owns to another
+                                 account (the key needs the nodes:transfer grant;
+                                 the key is read from stdin, never the command line)
   subshell-server restore        inspect or restore a full archive or database-only snapshot
   subshell-server reset          stop the server and delete its data and settings, keeping the binary;
                                  the machine's name must be typed (--confirm <name> when headless)
@@ -223,6 +232,14 @@ backup flags:        --output <path>          new archive destination (existing 
                       --encrypt                encrypt; hidden password prompt on a terminal
                       --password-file <path|-> protected 0600 file or one stdin line; implies encryption
                       --json                   machine output, never interactive
+
+node transfer flags: --to <user-id>          the receiving account (required)
+                     --key-stdin             the automation key, read from stdin (required;
+                                             there is no argv spelling, on purpose)
+                     --base-url <url>        server address (default: the configured base URL)
+                     --keep-manage           stay a Manage grantee on the machine given away (default)
+                     --no-keep-manage        transfer clean, no grant left behind
+                     --json                  machine output
 
 restore forms:       restore <archive> | restore --staged <UUID>
                       restore --list-staged [--json]  list prepared, unexpired local uploads
@@ -595,6 +612,26 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         error,
         isTTY: deps.isTTY ?? process.stdin.isTTY === true,
         confirm: deps.confirm ?? promptConfirm,
+      });
+      exit(code);
+      return true;
+    }
+    case "node": {
+      // Machine acts against a RUNNING server with an automation key
+      // (spec 2026-11-07): the only current verb is the ownership handover.
+      // Async like `update`/`backup` — it reads stdin and speaks HTTP.
+      const opts = parseNodeArgs(argv.slice(1), error);
+      if (!opts) {
+        error(USAGE);
+        exit(1);
+        return true;
+      }
+      const { keyStdin: _keyStdin, ...transfer } = opts;
+      const code = await runNodeTransfer(transfer, {
+        log,
+        error,
+        fetch: deps.fetch ?? ((input, init) => globalThis.fetch(input, init)),
+        readKey: deps.readKey ?? (() => Bun.stdin.text()),
       });
       exit(code);
       return true;
