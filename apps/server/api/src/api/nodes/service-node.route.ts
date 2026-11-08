@@ -122,8 +122,9 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
  * refusals. `restart` is the verb this route used to BE: the node exits 0 and
  * its manager respawns it.
  *
- * Gate: cookie only, owner or `edit` (`nodeCanConfigure`, the same gate
- * re-check carries) — except {@link ONE_WAY_VERBS}, which sit one rank up on
+ * Gate: cookie only, edit rank or above (`nodeCanConfigure`, manage
+ * included, the same gate re-check carries) — except {@link ONE_WAY_VERBS},
+ * which sit one rank up on
  * the manage band (owner, or a `manage` grantee).
  * A `view` grantee may launch subshells here; driving the machine's daemon is
  * a configure act, and it interrupts everyone else's panes on that node rather

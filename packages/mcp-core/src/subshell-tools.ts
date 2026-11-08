@@ -677,6 +677,6 @@ export const TransferNodeToolSchema = z.object({
     .boolean()
     .optional()
     .describe(
-      "Default true: this pane's account stays a Manage grantee on the machine it gave away (everything except handing it over, retiring it, and moving files through it). False leaves no grant",
+      "Default true: this pane's account stays a Manage grantee on the machine it gave away (everything except handing it over, deleting or re-registering it, and moving files through it). False leaves no grant",
     ),
 });

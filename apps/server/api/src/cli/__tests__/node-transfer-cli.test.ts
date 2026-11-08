@@ -174,6 +174,37 @@ describe("subshell-server node transfer", () => {
     expect(h.err.join("")).toContain("http://127.0.0.1:3199");
   });
 
+  test("the equals form of the string flags works like every other verb's", async () => {
+    // `subshell-server backup --output=file.tar` has worked for months, so
+    // `--to=u9` must not answer "unknown flag" about a flag the usage line
+    // just printed.
+    const h = harness();
+    expect(
+      await dispatchCli(
+        ["node", "transfer", "n1", "--to=u9", "--key-stdin", "--base-url=http://127.0.0.1:3199"],
+        h.deps,
+      ),
+    ).toBe(true);
+    expect(h.exits).toEqual([0]);
+    expect(h.calls.length).toBe(1);
+    expect(h.calls[0]?.url).toBe("http://127.0.0.1:3199/api/nodes/n1/transfer");
+    expect(JSON.parse(String(h.calls[0]?.init.body))).toEqual({ toUserId: "u9", retainAccessAsManager: true });
+  });
+
+  test("the equals form still refuses an empty or flag-shaped value", async () => {
+    const empty = harness();
+    await dispatchCli(["node", "transfer", "n1", "--to=", "--key-stdin", ...BASE], empty.deps);
+    expect(empty.exits).toEqual([1]);
+    expect(empty.err.join("\n")).toContain("--to needs");
+    expect(empty.calls.length).toBe(0);
+
+    const flagValue = harness();
+    await dispatchCli(["node", "transfer", "n1", "--to=--json", "--key-stdin", ...BASE], flagValue.deps);
+    expect(flagValue.exits).toEqual([1]);
+    expect(flagValue.err.join("\n")).toContain("--to needs");
+    expect(flagValue.calls.length).toBe(0);
+  });
+
   test("a key left in a positional slot is refused without echoing it", async () => {
     // The flag-order slip the whole hygiene exists for: a flag slides, the
     // key lands bare, and the parse must not print it back (scrollback, CI

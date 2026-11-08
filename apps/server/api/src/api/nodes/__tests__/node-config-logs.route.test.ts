@@ -147,7 +147,7 @@ describe("/api/nodes logs + config gates", () => {
    * takes the machine out of this instance — an `edit` grantee is trusted to
    * interrupt a machine, not to make it someone else's.
    */
-  it("config: owner only — an edit grantee is refused", async () => {
+  it("config: an edit grantee sits below the manage band and is refused", async () => {
     const id = await mkNode();
     await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "edit" }], aliceId);
     const res = await req("PATCH", `/api/nodes/${id}/config`, {

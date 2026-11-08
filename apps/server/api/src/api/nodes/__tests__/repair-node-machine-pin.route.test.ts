@@ -25,13 +25,14 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing
  * §4.5, Task 17) - the §4.5 machine trust re-pair's HTTP door. The
  * posture this file pins is the ONE the design makes load-bearing:
  *
- * - EXACT owner only, on BOTH machines' facts: `gate.row.ownerUserId ===
- *   user.id`. An `edit` grantee is 403 (re-authorizing a peer's key on
- *   someone else's machine is not a share level confers); the ADMIN is 403
- *   on a foreign agent (the instance-wide boost stops at a trust act, and
- *   the `canManage` local exception must not leak here); `local` never
- *   repairs (its owner is the system service user, so every human hits the
- *   owner door); a stranger is 404 (an invisible node stays invisible);
+ * - The MANAGE band on BOTH machines' facts (route `gate.canManage` and the
+ *   service's mirror, spec 2026-11-07): the owner or a `manage` grantee. An
+ *   `edit` grantee is 403 (re-authorizing a peer's key on someone else's
+ *   machine is not a share level confers); the ADMIN is 403 on a foreign
+ *   agent (the instance-wide boost stops at a trust act, and the `canManage`
+ *   local exception must not leak here); `local` repairs only for an admin
+ *   (its owner is the system service user, so every other human hits the
+ *   band door); a stranger is 404 (an invisible node stays invisible);
  *   a bearer is refused (cookie-only like every node write).
  * - The success path names the acting human in exactly one
  *   `node.ssh_machine_pin.repair` row carrying `{nodeIdOfA, peerNodeId}` -

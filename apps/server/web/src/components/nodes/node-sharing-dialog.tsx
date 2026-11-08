@@ -69,7 +69,7 @@ export function NodeSharingDialog({
       description={
         kind === "local"
           ? "Let others see the server host or run subshells on it. Sharing is private by default."
-          : "Let others see this node or run subshells on it. Manage lets someone change everything about it except handing it to another account, retiring it, or moving files through it. Sharing is private by default."
+          : "Let others see this node or run subshells on it. Manage lets someone change everything about it except handing it to another account, deleting or re-registering it, or moving files through it. Sharing is private by default."
       }
       isLoading={shares.isPending || roster.isPending}
       loadError={

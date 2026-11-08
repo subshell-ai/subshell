@@ -31,10 +31,11 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
   const [saved, setSaved] = useState<string | null>(null);
 
   // Repointing rides the manage band: owner, or a `manage` grantee (spec
-  // 2026-11-07). This card renders for an enrolled machine only (the plane
-  // dropped it for `local` on 2026-10-09). On the plane, the wire's
-  // server-derived `canManage` is exactly the PATCH route's gate; on the
-  // machine's own dashboard it is the local operator's standing.
+  // 2026-11-07), enforced at the plane's PATCH route. The card itself has
+  // ONE renderer, the machine's own dashboard: the plane dropped the
+  // Server-URL card entirely on 2026-10-09, because it cannot see where a
+  // node dials. So `canManage` here is the local operator's standing (always
+  // true on that wire), and the plane-side band lives in the API docs.
   const canRepoint = node.canManage;
   const canSave = canRepoint && url.trim().length > 0 && !save.isPending;
 

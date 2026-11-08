@@ -52,21 +52,28 @@ export function parseNodeArgs(
   let json = false;
   for (let i = 1; i < args.length; i++) {
     const arg = args[i] ?? "";
-    if (arg === "--to" || arg === "--base-url") {
-      // A value that starts with `-` is the NEXT flag, not this flag's answer:
-      // `--to --key-stdin` must name `--to` as the hole, not later contradict
-      // the operator about a missing `--key-stdin` it just swallowed.
-      const value = args[i + 1];
-      if (value === undefined || value.startsWith("-")) {
+    const eq = arg.indexOf("=");
+    const name = eq < 0 ? arg : arg.slice(0, eq);
+    if (name === "--to" || name === "--base-url") {
+      // Both spellings work, like every other string flag in this binary
+      // (`backup --output=file.tar`): refusing `--to=u9` as an "unknown flag"
+      // about a flag the usage line just printed reads as a broken build.
+      // A value that starts with `-` is the NEXT flag in the space form, not
+      // this flag's answer: `--to --key-stdin` must name `--to` as the hole,
+      // not later contradict the operator about a missing `--key-stdin` it
+      // just swallowed; and ids and addresses never legitimately start that
+      // way in the equals form either.
+      const value = eq < 0 ? args[i + 1] : arg.slice(eq + 1);
+      if (value === undefined || value === "" || value.startsWith("-")) {
         error(
-          arg === "--to"
+          name === "--to"
             ? "node transfer: --to needs the receiving account's id (a flag is not an id)"
             : "node transfer: --base-url needs the server address (a flag is not an address)",
         );
         return null;
       }
-      i += 1;
-      if (arg === "--to") toUserId = value;
+      if (eq < 0) i += 1;
+      if (name === "--to") toUserId = value;
       else baseUrl = value;
     } else if (arg === "--key-stdin") keyStdin = true;
     else if (arg === "--keep-manage") retainAccessAsManager = true;

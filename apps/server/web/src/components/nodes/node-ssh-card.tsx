@@ -66,7 +66,9 @@ export function NodeSshCard({ node, children }: { node: NodeDetail; children?: R
             </p>
             {!node.canManage && (
               <p className="text-detail text-warning">
-                Only the node's owner or a Manage grantee can change this setting.
+                {node.kind === "local"
+                  ? "An admin can change this setting."
+                  : "Only the node's owner or a Manage grantee can change this setting."}
               </p>
             )}
             {wide.isError && (

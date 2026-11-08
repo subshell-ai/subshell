@@ -34,7 +34,7 @@ const LoggingResponseSchema = t.Object({
  * controllable from the browser that is the only way to read a headless node's
  * log at all.
  *
- * Gate: browser owner or `edit`, or an enabled system key on its own agent node (`nodeCanConfigure`, like the rest of the
+ * Gate: browser edit rank or above (manage included), or an enabled system key on its own agent node (`nodeCanConfigure`, like the rest of the
  * service surface). NOT owner-only: this changes what a machine writes to its
  * own disk — a bounded, self-replacing 200 KB file — and reverses with the
  * same call. Nothing here can strand a node, which is what makes `stop` and

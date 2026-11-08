@@ -153,7 +153,7 @@ export function NodeTransferDialog({
         </Field>
         <p className="text-detail text-muted-foreground">
           {retain
-            ? "You stay a Manage grantee: its settings, shares, and service stay yours to drive, except handing it to someone else, retiring it, or moving files through it."
+            ? "You stay a Manage grantee: its settings, shares, and service stay yours to drive, except handing it to someone else, deleting or re-registering it, or moving files through it."
             : "You'll keep nothing: the moment it lands, this node is out of your hands."}
         </p>
 

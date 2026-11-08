@@ -241,7 +241,7 @@ it("shows owner guidance and blocks unauthorized configuration", async () => {
   });
   await task();
   expect(screen.queryByRole("button", { name: "Enable SSH" })).toBeNull();
-  expect(screen.getByText(/Ask this node’s owner to enable it/)).toBeTruthy();
+  expect(screen.getByText(/Ask this node's owner or a Manage grantee to enable it/)).toBeTruthy();
   expect(disabled()).toBe(true);
   expect(calls.some((c) => c.method === "PUT")).toBe(false);
 });
@@ -432,7 +432,7 @@ it("cannot implicitly enable another owner's key-source node", async () => {
   });
   expect(disabled()).toBe(true);
   expect(screen.queryByRole("button", { name: "Enable SSH" })).toBeNull();
-  expect(screen.getByText(/Ask this node’s owner to enable it/)).toBeTruthy();
+  expect(screen.getByText(/Ask this node's owner or a Manage grantee to enable it/)).toBeTruthy();
 });
 
 it("removes the waiting notice when refreshed readiness reports SSH enabled", async () => {
@@ -440,7 +440,7 @@ it("removes the waiting notice when refreshed readiness reports SSH enabled", as
     initial: { node: "shared", destination: "target" },
     machines: [machine("shared", false, false)],
   });
-  const guidance = screen.getByText(/Ask this node’s owner to enable it/);
+  const guidance = screen.getByText(/Ask this node's owner or a Manage grantee to enable it/);
   expect(guidance.textContent).toContain("SSH is off on this machine.");
   expect(screen.getByText("Waiting for SSH to be enabled…")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
@@ -475,7 +475,9 @@ for (const ownerLabel of ["Alex Smith", "alex@example.com"]) {
       initial: { node: "shared", destination: "target" },
       machines: [{ ...machine("shared", false, false), ownerLabel }],
     });
-    expect(screen.getByText(`Ask this node’s owner (${ownerLabel}) to enable it.`, { exact: false })).toBeTruthy();
+    expect(
+      screen.getByText(`Ask this node's owner or a Manage grantee (${ownerLabel}) to enable it.`, { exact: false }),
+    ).toBeTruthy();
     expect(disabled()).toBe(true);
   });
 }

@@ -63,11 +63,14 @@ import { SERVER_VERSION } from "@/version.js";
  *
  * Convention (not a safety mechanism): handled quick commands run to
  * completion and `process.exit` SYNCHRONOUSLY inside `dispatchCli` (sync fs,
- * `readSync(0, …)` prompts, `Bun.spawnSync` for the service manager). Six
+ * `readSync(0, …)` prompts, `Bun.spawnSync` for the service manager). NINE
  * commands opt out by name: `mcp` (long-running by contract), `init` and
  * `configure` (clack prompts), `update`/`backup` (spec 2026-09-15 — they
- * download, prompt, and snapshot a database), and `reset`/`uninstall` (the
- * typed-name prompt and the bounded port wait; issue #232). It is
+ * download, prompt, and snapshot a database), `restore` (stages, validates,
+ * and awaits boot confirmation), `node transfer` (spec 2026-11-07 — one
+ * `fetch` against a running server, key read off stdin), and `reset`/
+ * `uninstall` (the typed-name prompt and the bounded port wait; issue #232).
+ * It is
  * kept because suspension is otherwise invisible on bun 1.4.0 — measured, NOT
  * spec behaviour: any top-level await in the entry prelude lets Bun evaluate
  * the rest of the graph and the entry body while the await is pending

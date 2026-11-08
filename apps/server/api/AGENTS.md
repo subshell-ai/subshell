@@ -698,16 +698,18 @@ never typed; ALWAYS exits 0).
 An unknown word exits 1 with usage. **Sync-exit design** (house style for
 the quick commands, no longer the safety mechanism): a handled command
 should run to completion and `process.exit` SYNCHRONOUSLY inside
-`dispatchCli` (sync fs, `Bun.spawnSync` for the service manager). There are
-now SEVEN exceptions rather than one: `mcp`, long-running by design and
+`dispatchCli` (sync fs, `Bun.spawnSync` for the service manager). NINE
+commands opt out rather than staying sync: `mcp`, long-running by design and
 suspended in its stdio loop; `init` and `configure`, which became async
 when their prompts moved to `@clack/prompts` (spec 2026-09-15), since a promise-based
 library cannot be driven by `readSync(0, …)`; `update` and `backup` (spec
 2026-09-15 §4.1/§4.4), which download, prompt and `VACUUM INTO` a database;
 `node transfer` (spec 2026-11-07), which awaits a `fetch` round trip against a
 running server and reads its key off stdin;
-and `restore`, which stages and validates an archive, performs offline
-replacement, and awaits boot confirmation. `update` and `restore` can wait
+`restore`, which stages and validates an archive, performs offline
+replacement, and awaits boot confirmation;
+and `reset`/`uninstall`, on the typed-name prompt and the bounded port wait
+(issue #232). `update` and `restore` can wait
 for the restarted server to finish or revert their transaction; restore's
 readiness probes also perform network I/O.
 
