@@ -1,5 +1,11 @@
 # @internal/node
 
+## 3.3.0
+
+### Minor Changes
+
+- [#495](https://github.com/subshell-ai/subshell/pull/495) [`2b99535`](https://github.com/subshell-ai/subshell/commit/2b995357ecd2bbe7d8d5d2e8344c92cf1cf46b2b) Thanks [@theogravity](https://github.com/theogravity)! - The Subshell MCP gained a `transfer_node` tool, so an agent launched from an automation key can hand a machine to another account the way the dashboard and the new `subshell-server node transfer` verb do. Like them it needs a credential carrying the `nodes:transfer` permission (plus `nodes:read`, since the tool looks the machine up in the node list first); an ordinary pane's own token gets a refusal that names the door. The tool rides the MCP server in both binaries, `subshell` and `subshell-server`; the new node share level (Manage) and the ownership transfer itself are covered by the server's entry this release.
+
 ## 3.2.1
 
 ### Patch Changes
