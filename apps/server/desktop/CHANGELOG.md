@@ -1,5 +1,12 @@
 # @internal/desktop-server
 
+## 1.7.7
+
+### Patch Changes
+
+- Updated dependencies [[`2b99535`](https://github.com/subshell-ai/subshell/commit/2b995357ecd2bbe7d8d5d2e8344c92cf1cf46b2b)]:
+  - @internal/server@3.2.0
+
 ## 1.7.6
 
 ### Patch Changes

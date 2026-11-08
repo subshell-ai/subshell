@@ -1,5 +1,11 @@
 # @internal/docs
 
+## 0.11.8
+
+### Patch Changes
+
+- [#495](https://github.com/subshell-ai/subshell/pull/495) [`2b99535`](https://github.com/subshell-ai/subshell/commit/2b995357ecd2bbe7d8d5d2e8344c92cf1cf46b2b) Thanks [@theogravity](https://github.com/theogravity)! - Public documentation for node ownership transfer: a new "Transfer a node" procedure covering the dashboard, the CLI verb, the API route, and the MCP tool; the sharing page now documents all three levels, Manage included; and the API-keys guide explains what `nodes:transfer` is for.
+
 ## 0.11.7
 
 ### Patch Changes
