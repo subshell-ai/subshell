@@ -47,7 +47,16 @@ export function VirtualDisplayIndicator({
         aria-label={`Open web preview or screen${count}`}
         aria-haspopup="dialog"
         onClick={onOpen}
-        className={cn("relative inline-flex shrink-0 items-center", hasLiveItems ? "text-primary" : "text-foreground")}
+        // The trigger is the CountBadge's anchor, and the header's OTHER
+        // counted control (SubshellDevices) anchors its badge to the 16px svg
+        // its Button sizes. Sizing this trigger to that same 16px box (with
+        // the 14px icon centered inside) puts both chips at the same level;
+        // each icon's own size was what skewed them (operator screenshot
+        // 2026-11-08).
+        className={cn(
+          "relative inline-flex size-4 shrink-0 items-center justify-center",
+          hasLiveItems ? "text-primary" : "text-foreground",
+        )}
       >
         {display ? (
           <AppWindow className="size-3.5" aria-hidden="true" />
