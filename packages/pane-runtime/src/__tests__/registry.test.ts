@@ -1,12 +1,18 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { capabilityMismatches } from "@subshell-ai/plugin-api";
 import claudeCode from "@subshell-ai/plugin-claude-code";
+import cline from "@subshell-ai/plugin-cline";
 import codex from "@subshell-ai/plugin-codex";
+import gemini from "@subshell-ai/plugin-gemini";
 import grokBuild from "@subshell-ai/plugin-grok-build";
 import hermes from "@subshell-ai/plugin-hermes";
 import ohMyPi from "@subshell-ai/plugin-oh-my-pi";
+import openInterpreter from "@subshell-ai/plugin-open-interpreter";
+import openclaw from "@subshell-ai/plugin-openclaw";
 import opencode from "@subshell-ai/plugin-opencode";
+import openhands from "@subshell-ai/plugin-openhands";
 import pi from "@subshell-ai/plugin-pi";
+import qwenCode from "@subshell-ai/plugin-qwen-code";
 import { createPluginHost } from "../plugin-host.js";
 import { allHarnesses, brokenBuiltIns, getHarness, resetRegistryForTests } from "../registry.js";
 
@@ -23,7 +29,23 @@ describe("the built-in registry", () => {
       allHarnesses()
         .map((h) => h.id)
         .sort(),
-    ).toEqual(["claude-code", "codex", "grok-build", "hermes", "oh-my-pi", "opencode", "pi", "ssh", "terminal"]);
+    ).toEqual([
+      "claude-code",
+      "cline",
+      "codex",
+      "gemini",
+      "grok-build",
+      "hermes",
+      "oh-my-pi",
+      "open-interpreter",
+      "openclaw",
+      "opencode",
+      "openhands",
+      "pi",
+      "qwen-code",
+      "ssh",
+      "terminal",
+    ]);
   });
 
   it("ships with nothing broken", () => {
@@ -76,7 +98,21 @@ describe("the built-in registry", () => {
     // built-in that got it wrong would be held to a lower standard than the
     // plugins it ships alongside.
     const host = createPluginHost({ pluginId: "test" });
-    for (const [id, factory] of Object.entries({ claudeCode, opencode, hermes, pi, ohMyPi, codex, grokBuild })) {
+    for (const [id, factory] of Object.entries({
+      claudeCode,
+      opencode,
+      hermes,
+      pi,
+      ohMyPi,
+      codex,
+      grokBuild,
+      gemini,
+      qwenCode,
+      cline,
+      openInterpreter,
+      openhands,
+      openclaw,
+    })) {
       expect([id, capabilityMismatches(factory(host), "agent-harness")]).toEqual([id, []]);
     }
   });

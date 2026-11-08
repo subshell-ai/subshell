@@ -37,10 +37,11 @@ import { planRemoteSubshellMcp } from "@/modules/subshells/mcp-launch.js";
  *
  * The mcp registration is the REAL one for the remote path:
  * `planRemoteSubshellMcp` (the same function `subshell-manager.#planMcp`
- * calls), driven with static node facts. For hermes and pi it is `undefined`
- * by production shape — neither has a per-subshell MCP format (manual setup
- * only), so "present" and "absent" are the same input the launch really
- * carries for them.
+ * calls), driven with static node facts. Only claude-code, codex, opencode,
+ * pi, and oh-my-pi ship an `mcpRegistration`; for the other ten built-ins it
+ * is `undefined` by production shape, so "present" and "absent" are the same
+ * input the launch really carries for them. Pi ships the member, but as a
+ * placeholder (the subagent bridge) rather than real MCP config.
  *
  * `extraFlags` is deliberately NOT in the matrix: neither production caller
  * passes it (it is not on `LaunchPlan` and not on the `launch` frame), so a
@@ -64,12 +65,24 @@ const SUBSHELL_ID = "a1000000-0000-4000-8000-000000000001";
 /** Each built-in's own settings keys — what its preset editor can store. */
 const SETTINGS_FIXTURES: Record<string, Record<string, unknown>> = {
   "claude-code": { permissionMode: "acceptEdits", model: "sonnet", maxTokens: 8192 },
+  cline: { model: "claude-sonnet-4-5", provider: "anthropic", thinking: "high" },
   codex: { model: "gpt-5-codex", sandbox: "workspace-write", askForApproval: "on-request" },
   opencode: { model: "anthropic/claude-sonnet-4-5", agent: "plan", auto: true },
   "grok-build": { model: "grok-4.6", reasoningEffort: "high", agent: "reviewer", alwaysApprove: true },
+  gemini: { model: "gemini-2.5-pro", approvalMode: "auto_edit" },
   hermes: { model: "anthropic/claude-sonnet-4.6", provider: "openrouter", toolsets: "web,files" },
   "oh-my-pi": { model: "sonnet", provider: "anthropic", thinking: "high" },
+  "open-interpreter": { model: "gpt-5.1-codex" },
+  // OpenClaw advertises no capabilities at all (2026.11.1: model choice lives in
+  // its config, and MCP is Gateway-scoped by ruling), so like terminal, ssh and
+  // openhands its "settings set" row is the empty object.
+  openclaw: {},
+  // OpenHands has no settings capability: SDK 1.21.0's --help exposes no
+  // settings flag, so its preset editor stores no keys and its "settings set"
+  // row is the empty object, as terminal's and ssh's are for the same reason.
+  openhands: {},
   pi: { model: "sonnet:high", provider: "anthropic", thinking: "high" },
+  "qwen-code": { model: "qwen3-coder-plus", workflowMode: "on" },
   // Terminal has no settings keys its preset editor can store, so its
   // "settings set" row is the empty object on purpose — the parity claim is
   // that the matrix holds for inputs the plugin ignores, and a shell ignores
@@ -109,7 +122,7 @@ interface MatrixRow {
   settings: Record<string, unknown> | null;
   flags: string[];
   harnessSession?: { id: string; mode: "start" | "resume" };
-  /** true = pass the production-computed remote registration (undefined for manual-setup harnesses). */
+  /** true = pass the production-computed remote registration (undefined for harnesses without an `mcpRegistration`). */
   mcp: boolean;
   subshellName: string;
 }
@@ -263,13 +276,29 @@ for (const id of BUILTIN_IDS) {
 }
 
 /**
- * Sanity: every built-in under test really is one of the nine, and the
+ * Sanity: every built-in under test really is one of the fifteen, and the
  * registry is what production reads (`getHarness`, the same accessor
  * `subshell-manager` resolves launches through) — no copies.
  */
-test("argv parity: the matrix covers all nine built-ins through the production registry", () => {
+test("argv parity: the matrix covers all fifteen built-ins through the production registry", () => {
   const registryIds = BUILTIN_IDS.map((id) => getHarness(id)?.id);
   expect(new Set(registryIds)).toEqual(
-    new Set(["claude-code", "codex", "grok-build", "opencode", "hermes", "oh-my-pi", "pi", "ssh", "terminal"]),
+    new Set([
+      "claude-code",
+      "cline",
+      "codex",
+      "gemini",
+      "grok-build",
+      "opencode",
+      "hermes",
+      "oh-my-pi",
+      "open-interpreter",
+      "openclaw",
+      "openhands",
+      "pi",
+      "qwen-code",
+      "ssh",
+      "terminal",
+    ]),
   );
 });
