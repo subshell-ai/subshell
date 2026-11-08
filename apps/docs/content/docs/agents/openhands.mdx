@@ -1,0 +1,41 @@
+---
+title: "OpenHands"
+description: "Install and launch OpenHands with Subshell, including its MCP and session behavior."
+---
+
+Run OpenHands as a Subshell agent.
+
+## Before you start
+
+Install `openhands` using the [vendor instructions](https://docs.openhands.dev/openhands/usage/cli/installation), which offer a curl one-liner and a `uv tool install openhands --python 3.12` path, and configure its provider access under the execution account. Ask an administrator to enable the harness under **Settings** → **Server Settings** → **Plugins** in the server dashboard's sidebar. Follow [Install an agent CLI](/agents/install-cli) to confirm detection on the target node.
+
+## Launch
+
+1. Open the new-subshell form using [Launch a subshell](/guides/launch), then choose **OpenHands** under **Agent or terminal**.
+2. Select a saved preset if you want launch flags such as `--last` or `--always-approve`. Configure those under **Settings** → **Presets** before launching.
+3. Choose the target node and an existing project directory.
+4. Launch and confirm that the CLI opens normally.
+
+The plugin launches `openhands` bare, which opens its interactive terminal UI. On a fresh config home that UI leads with a settings wizard where you pick the model and provider, so plan to run it once interactively before launching agents through Subshell. The plugin offers no preset settings because the CLI's own help exposes no settings flags, and the `LLM_MODEL`, `LLM_API_KEY`, and `LLM_BASE_URL` variables apply only when a launch carries `--override-with-envs`; by default the CLI ignores them. It detects `openhands` through PATH and `~/.local/bin/openhands`, and `OPENHANDS_PATH` can identify the binary explicitly in the execution environment. Before changing that override, see [Files and paths](/reference/paths) for configuration locations and service-environment guidance.
+
+## MCP and session behavior
+
+Register Subshell once under the OS account where OpenHands runs. In the server dashboard's sidebar, choose **Settings** → **Presets** → **New preset** → **New agent preset**, select **OpenHands**, and use the commands under **Cross-subshell comms**. Those commands use the MCP executable configured for your installation.
+
+For a node with `subshell` on PATH, registration looks like this:
+
+```bash
+openhands mcp add subshell --transport stdio subshell -- mcp
+```
+
+OpenHands takes `--transport stdio`, the command as the target, and the command's args after the `--` separator, and it stores the registration in `mcp.json` inside its config home, `~/.openhands`. Remove the registration later with `openhands mcp remove subshell`.
+
+The registration stores the command, not Subshell credentials. OpenHands's MCP child inherits them from the subshell where it runs, so one pane's identity stays inside that pane.
+
+Nothing resumes automatically. `--last`, which its help pairs with `--resume`, continues the most recent conversation, and `--always-approve` (also spelled `--yolo`) runs actions without asking. `--headless` drops the UI and needs `--task` or `--file` to say what to do, and `--json` streams JSONL events but only alongside `--headless`, so neither suits an interactive pane. OpenHands prints an SDK banner to standard error on every start; `OPENHANDS_SUPPRESS_BANNER=1` hides it. The plugin doesn't provide preset settings, automatic conversation resumption, attention hooks, or subagent tracking.
+
+Subshell runs the real CLI rather than proxying its provider API. Provider configuration, usage limits, and CLI-specific permissions remain the agent's own settings.
+
+## Next steps
+
+Read [MCP configuration](/mcp/configure), [Presets](/presets), and [Agent and launch errors](/troubleshooting/agents).

@@ -61,6 +61,7 @@ describe("the control-plane host's plugins", () => {
       "oh-my-pi",
       "open-interpreter",
       "opencode",
+      "openhands",
       "pi",
       "qwen-code",
       "ssh",

@@ -9,6 +9,7 @@ import hermes from "@subshell-ai/plugin-hermes";
 import ohMyPi from "@subshell-ai/plugin-oh-my-pi";
 import openInterpreter from "@subshell-ai/plugin-open-interpreter";
 import opencode from "@subshell-ai/plugin-opencode";
+import openhands from "@subshell-ai/plugin-openhands";
 import pi from "@subshell-ai/plugin-pi";
 import qwenCode from "@subshell-ai/plugin-qwen-code";
 import { createPluginHost } from "../plugin-host.js";
@@ -37,6 +38,7 @@ describe("the built-in registry", () => {
       "oh-my-pi",
       "open-interpreter",
       "opencode",
+      "openhands",
       "pi",
       "qwen-code",
       "ssh",
@@ -106,6 +108,7 @@ describe("the built-in registry", () => {
       qwenCode,
       cline,
       openInterpreter,
+      openhands,
     })) {
       expect([id, capabilityMismatches(factory(host), "agent-harness")]).toEqual([id, []]);
     }

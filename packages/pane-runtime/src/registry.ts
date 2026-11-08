@@ -18,6 +18,7 @@ import netbirdFactory, { manifest as netbirdManifest } from "@subshell-ai/plugin
 import ohMyPiFactory, { manifest as ohMyPiManifest } from "@subshell-ai/plugin-oh-my-pi";
 import openInterpreterFactory, { manifest as openInterpreterManifest } from "@subshell-ai/plugin-open-interpreter";
 import opencodeFactory, { manifest as opencodeManifest } from "@subshell-ai/plugin-opencode";
+import openhandsFactory, { manifest as openhandsManifest } from "@subshell-ai/plugin-openhands";
 import piFactory, { manifest as piManifest } from "@subshell-ai/plugin-pi";
 import qwenCodeFactory, { manifest as qwenCodeManifest } from "@subshell-ai/plugin-qwen-code";
 import sshFactory, { manifest as sshManifest } from "@subshell-ai/plugin-ssh";
@@ -71,6 +72,7 @@ const BUILT_INS: BuiltIn[] = [
   { manifest: qwenCodeManifest, factory: qwenCodeFactory },
   { manifest: clineManifest, factory: clineFactory },
   { manifest: openInterpreterManifest, factory: openInterpreterFactory },
+  { manifest: openhandsManifest, factory: openhandsFactory },
   { manifest: terminalManifest, factory: terminalFactory },
   // The ssh pane is the terminal launch pointed at ssh: same TYPE, same
   // `[binary, ...flags]` shape, the connection described entirely by the

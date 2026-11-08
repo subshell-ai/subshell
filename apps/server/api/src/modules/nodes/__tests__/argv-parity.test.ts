@@ -72,6 +72,10 @@ const SETTINGS_FIXTURES: Record<string, Record<string, unknown>> = {
   hermes: { model: "anthropic/claude-sonnet-4.6", provider: "openrouter", toolsets: "web,files" },
   "oh-my-pi": { model: "sonnet", provider: "anthropic", thinking: "high" },
   "open-interpreter": { model: "gpt-5.1-codex" },
+  // OpenHands has no settings capability: SDK 1.21.0's --help exposes no
+  // settings flag, so its preset editor stores no keys and its "settings set"
+  // row is the empty object, as terminal's and ssh's are for the same reason.
+  openhands: {},
   pi: { model: "sonnet:high", provider: "anthropic", thinking: "high" },
   "qwen-code": { model: "qwen3-coder-plus", workflowMode: "on" },
   // Terminal has no settings keys its preset editor can store, so its
@@ -267,11 +271,11 @@ for (const id of BUILTIN_IDS) {
 }
 
 /**
- * Sanity: every built-in under test really is one of the thirteen, and the
+ * Sanity: every built-in under test really is one of the fourteen, and the
  * registry is what production reads (`getHarness`, the same accessor
  * `subshell-manager` resolves launches through) — no copies.
  */
-test("argv parity: the matrix covers all thirteen built-ins through the production registry", () => {
+test("argv parity: the matrix covers all fourteen built-ins through the production registry", () => {
   const registryIds = BUILTIN_IDS.map((id) => getHarness(id)?.id);
   expect(new Set(registryIds)).toEqual(
     new Set([
@@ -284,6 +288,7 @@ test("argv parity: the matrix covers all thirteen built-ins through the producti
       "hermes",
       "oh-my-pi",
       "open-interpreter",
+      "openhands",
       "pi",
       "qwen-code",
       "ssh",

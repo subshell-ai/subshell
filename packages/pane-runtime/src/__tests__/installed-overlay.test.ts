@@ -40,6 +40,7 @@ const BUILT_IN_IDS = [
   "oh-my-pi",
   "open-interpreter",
   "opencode",
+  "openhands",
   "pi",
   "qwen-code",
   "ssh",
