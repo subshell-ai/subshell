@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.25
+
+### Patch Changes
+
+- [#498](https://github.com/subshell-ai/subshell/pull/498) [`501e600`](https://github.com/subshell-ai/subshell/commit/501e600561518af420d7483174455bc91e7cc4a7) Thanks [@theogravity](https://github.com/theogravity)! - Republish with the current release list: the install and download pages now point at cli-server v3.2.0, cli-node v3.3.0, Subshell Server 1.7.7 and Subshell Client 1.5.6.
+
 ## 0.2.24
 
 ### Patch Changes
