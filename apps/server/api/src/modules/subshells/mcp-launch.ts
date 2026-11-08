@@ -41,8 +41,9 @@ export function subshellMcpEnv(apiKey: string, subshellId: string, subshellName:
  * Registers `subshell mcp` for one subshell launch, in the HARNESS'S OWN dialect:
  * the plugin renders the config file content (plus any argv/env that activates
  * it), and this writes the file. Returns the registration for the caller to
- * bake into the pane, or undefined for the one harness with no per-subshell
- * format (hermes), whose one-time mcpSetup steps the UI explains instead.
+ * bake into the pane, or undefined for harnesses with no per-subshell format
+ * (hermes and the six manual-registration plugins; openclaw ships no MCP
+ * member at all), whose one-time mcpSetup steps the UI explains instead.
  * Content holds no secrets, but the file stays 0600: least exposure is free.
  */
 export function registerSubshellMcp(

@@ -16,8 +16,8 @@ them from a browser or desktop app.
   machine or enrolled nodes. You don't need a hosted Subshell account.
 - **Your choice of agents.** Built-in plugins support Claude Code, Codex,
   Gemini CLI, Qwen Code, Cline, Open Interpreter, OpenHands, OpenClaw, Grok
-  Build, OpenCode, Hermes, Oh My Pi, pi, and a plain terminal. Add more
-  through the plugin API.
+  Build, OpenCode, Hermes, Oh My Pi, pi, a plain terminal, and SSH sessions.
+  Add more through the plugin API.
 - **Work across devices.** Reconnect from a browser or desktop app, arrange
   sessions in workspaces, and share view or edit access with other users.
 - **Keep work together.** Browse workspace members and other subshells in one

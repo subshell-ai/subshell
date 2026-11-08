@@ -37,10 +37,13 @@ import { planRemoteSubshellMcp } from "@/modules/subshells/mcp-launch.js";
  *
  * The mcp registration is the REAL one for the remote path:
  * `planRemoteSubshellMcp` (the same function `subshell-manager.#planMcp`
- * calls), driven with static node facts. For hermes and pi it is `undefined`
- * by production shape — neither has a per-subshell MCP format (manual setup
- * only), so "present" and "absent" are the same input the launch really
- * carries for them.
+ * calls), driven with static node facts. For the harnesses that ship no
+ * `mcpRegistration` member — hermes and the six this branch added (gemini,
+ * qwen-code, cline, open-interpreter, openhands, and openclaw, which has no
+ * MCP member at all) — it is `undefined` by production shape, so "present"
+ * and "absent" are the same input the launch really carries for them. Pi is
+ * manual for MCP too, but it ships a defined placeholder registration (the
+ * subagent bridge), so its rows do carry real variation.
  *
  * `extraFlags` is deliberately NOT in the matrix: neither production caller
  * passes it (it is not on `LaunchPlan` and not on the `launch` frame), so a
