@@ -25,6 +25,7 @@ const BUILT_INS = [
   "hermes",
   "netbird",
   "oh-my-pi",
+  "open-interpreter",
   "opencode",
   "pi",
   "qwen-code",

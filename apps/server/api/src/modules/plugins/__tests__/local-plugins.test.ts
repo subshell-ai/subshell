@@ -59,6 +59,7 @@ describe("the control-plane host's plugins", () => {
       "hermes",
       "netbird",
       "oh-my-pi",
+      "open-interpreter",
       "opencode",
       "pi",
       "qwen-code",

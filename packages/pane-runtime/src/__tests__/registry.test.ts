@@ -7,6 +7,7 @@ import gemini from "@subshell-ai/plugin-gemini";
 import grokBuild from "@subshell-ai/plugin-grok-build";
 import hermes from "@subshell-ai/plugin-hermes";
 import ohMyPi from "@subshell-ai/plugin-oh-my-pi";
+import openInterpreter from "@subshell-ai/plugin-open-interpreter";
 import opencode from "@subshell-ai/plugin-opencode";
 import pi from "@subshell-ai/plugin-pi";
 import qwenCode from "@subshell-ai/plugin-qwen-code";
@@ -34,6 +35,7 @@ describe("the built-in registry", () => {
       "grok-build",
       "hermes",
       "oh-my-pi",
+      "open-interpreter",
       "opencode",
       "pi",
       "qwen-code",
@@ -103,6 +105,7 @@ describe("the built-in registry", () => {
       gemini,
       qwenCode,
       cline,
+      openInterpreter,
     })) {
       expect([id, capabilityMismatches(factory(host), "agent-harness")]).toEqual([id, []]);
     }

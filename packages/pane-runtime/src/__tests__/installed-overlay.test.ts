@@ -38,6 +38,7 @@ const BUILT_IN_IDS = [
   "grok-build",
   "hermes",
   "oh-my-pi",
+  "open-interpreter",
   "opencode",
   "pi",
   "qwen-code",

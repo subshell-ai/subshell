@@ -71,6 +71,7 @@ const SETTINGS_FIXTURES: Record<string, Record<string, unknown>> = {
   gemini: { model: "gemini-2.5-pro", approvalMode: "auto_edit" },
   hermes: { model: "anthropic/claude-sonnet-4.6", provider: "openrouter", toolsets: "web,files" },
   "oh-my-pi": { model: "sonnet", provider: "anthropic", thinking: "high" },
+  "open-interpreter": { model: "gpt-5.1-codex" },
   pi: { model: "sonnet:high", provider: "anthropic", thinking: "high" },
   "qwen-code": { model: "qwen3-coder-plus", workflowMode: "on" },
   // Terminal has no settings keys its preset editor can store, so its
@@ -266,11 +267,11 @@ for (const id of BUILTIN_IDS) {
 }
 
 /**
- * Sanity: every built-in under test really is one of the twelve, and the
+ * Sanity: every built-in under test really is one of the thirteen, and the
  * registry is what production reads (`getHarness`, the same accessor
  * `subshell-manager` resolves launches through) — no copies.
  */
-test("argv parity: the matrix covers all twelve built-ins through the production registry", () => {
+test("argv parity: the matrix covers all thirteen built-ins through the production registry", () => {
   const registryIds = BUILTIN_IDS.map((id) => getHarness(id)?.id);
   expect(new Set(registryIds)).toEqual(
     new Set([
@@ -282,6 +283,7 @@ test("argv parity: the matrix covers all twelve built-ins through the production
       "opencode",
       "hermes",
       "oh-my-pi",
+      "open-interpreter",
       "pi",
       "qwen-code",
       "ssh",

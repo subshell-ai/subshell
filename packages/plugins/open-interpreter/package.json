@@ -1,0 +1,64 @@
+{
+  "name": "@subshell-ai/plugin-open-interpreter",
+  "description": "Open Interpreter harness plugin for Subshell",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "dist/index.d.ts",
+  "homepage": "https://subshell.sh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/subshell-ai/subshell.git",
+    "directory": "packages/plugins/open-interpreter"
+  },
+  "bugs": {
+    "url": "https://github.com/subshell-ai/subshell/issues"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "build:dev": "hash-runner",
+    "clean": "rm -rf .turbo node_modules dist .hashes.json",
+    "lint": "biome check --write --unsafe src && biome format src --write && biome lint src --fix",
+    "lint:check": "biome check --no-errors-on-unmatched src",
+    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src",
+    "test": "bash \"$(git rev-parse --show-toplevel)/scripts/par-test.sh\" 4 bun test",
+    "verify-types": "tsc --project tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@internal/tsconfig": "workspace:*",
+    "@subshell-ai/plugin-api": "workspace:*",
+    "@types/bun": "1.3.14",
+    "hash-runner": "5.0.0",
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2"
+  },
+  "files": ["dist", "icon.svg"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "subshell": {
+    "apiVersion": 2,
+    "id": "open-interpreter",
+    "type": "agent-harness",
+    "name": "Open Interpreter",
+    "description": "The Open Interpreter team's open-source agentic coding CLI (interactive TUI)",
+    "icon": "icon.svg",
+    "entry": "dist/index.js",
+    "detect": {
+      "binaryName": "interpreter",
+      "envOverride": "INTERPRETER_PATH",
+      "knownPaths": [".local/bin/interpreter", ".openinterpreter/packages/standalone/current/bin/interpreter"]
+    },
+    "install": {
+      "command": "curl -fsSL https://www.openinterpreter.com/install | sh",
+      "docsUrl": "https://openinterpreter.com"
+    }
+  }
+}
