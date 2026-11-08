@@ -555,9 +555,17 @@ is deliberate: a 403 would confirm the id exists.
 **Grants.** The owner may share (§5). Subshell and preset grants confer view
 or edit; they never confer delete or re-sharing. Node shares add the `manage`
 rung (spec 2026-11-07): it confers the whole owner-manage band, never the
-ownership itself. Transfer answers 403 to a manage grantee and to an admin
-alike on any agent node, and `local` answers 400 to every actor, admins
-included: the control-plane host is never transferable.
+ownership itself. The rung is delegated by people, not machines: a `nodes:share`
+key may write view and edit rows but is refused (400) a manage row, because the
+grant advertises launch-access control while the rung hands over day-to-day
+ownership (security pass on #495). The shares PUT also CASes the row set the
+caller's gate was authorized against, so a revocation committed mid-flight
+turns the in-flight write into a 409 rather than letting it land over the
+revocation. Transfer answers 403 to a manage grantee and to an admin
+alike on any agent node, and `local` answers 400 to every signed-in actor,
+admins included (a machine credential never passes the node gate on `local`
+and gets the invisible 404 first): the control-plane host is never
+transferable.
 
 **Admin.** Since the operator ruling of 2026-10-09
 (`docs/superpowers/specs/2026-10-09-admin-pane-visibility-removal-design.md`),
@@ -1078,8 +1086,9 @@ consequences are:
   shared. `edit` additionally configures the node. `manage` (spec 2026-11-07)
   is the rung an owner grants above it: the whole owner-manage band (shares,
   rename, maintenance, the allowlist, key rotation, repointing, stop/uninstall,
-  the SSH switches) minus three things it never buys, transferring ownership,
-  deleting or re-registering the node, and file transfers. For the built-in
+  the SSH switches, the web-previews and virtual-display switch, and the
+  cross-agent guidance) minus three things it never buys, transferring
+  ownership, deleting or re-registering the node, and file transfers. For the built-in
   `local` node an admin stands where the owner would, and `manage` grants on
   it are refused: its band has no grantable half. On an agent node the
   Everyone row may carry `manage` (operator ruling, 2026-11-07): one row
@@ -1091,12 +1100,19 @@ consequences are:
   the link, and the machine's identity with it; the socket, the link
   credentials' VALUES, other shares, and every running pane are untouched,
   because the machine's relationship is with the key row, not the person
-  beside it. Unused re-registration keys die in the same transaction (they
-  are addressed to the old owner's id and would redeem into the wrong hands);
-  used ones' history stands. The giver can stay as a `manage` grantee, and
+  beside it. Unused re-registration keys die in the same transaction
+  (redemption compares the current owner to the key's, so a left-behind key
+  is dead weight the giver's UI still lists, and a round-trip transfer would
+  revive one against its new owner); used ones' history stands. The giver can stay as a `manage` grantee, and
   the wire field is explicit rather than defaulted. `local` is not
   transferable; neither self-transfer nor a disabled recipient is a handover;
-  a name collision on the receiving account rolls the whole thing back. A
+  a name collision on the receiving account rolls the whole thing back. The
+  transaction re-asserts the recipient's standing at commit time (a disable or
+  a pending approval landing mid-request is a 400, not a machine stranded
+  under a signed-out account), and the owner swap is a compare-and-swap against
+  both the owner and the live key row, so a rotation committed underneath the
+  transfer asks the caller to refresh instead of re-homing a dead key
+  (security pass on #495). A
   manage grantee and an admin alike get 403: deciding whose machine a machine
   is never delegates to another human. Nothing announces it, following the
   shares route: there is no `node.changed` feed in production, and the

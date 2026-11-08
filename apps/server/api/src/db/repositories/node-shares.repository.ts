@@ -1,5 +1,7 @@
+import { sql } from "kysely";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
 import type { NodeSharePermission, NodeShareTable } from "@/db/types/node-shares.db-types.js";
+import { NodeSharesConflictError } from "@/modules/nodes/errors.js";
 
 /**
  * One entry of a replace: who gets what. A null grantee is the Everyone
@@ -53,12 +55,40 @@ export class NodeSharesRepository extends BaseRepository {
    * constrain the Everyone (NULL) grant — NULLs are always distinct — so a
    * repeated grantee, Everyone included, collapses to its last entry here
    * rather than producing duplicate rows.
+   *
+   * When `expectRowIds` is given, the replace becomes an optimistic-
+   * concurrency write: the stored rows must still be exactly that set, or
+   * nothing changes and {@link NodeSharesConflictError} is thrown. The check
+   * runs AFTER a lock-taking touch of the node row, because SQLite has one
+   * writer at a time and a transaction's read snapshot must start once this
+   * write is the winner — a revoked manager's in-flight PUT then reads the
+   * revocation, mismatches, and lands a 409 instead of re-minting itself.
    */
-  async replaceForNode(nodeId: string, entries: NodeShareEntry[], createdBy: string): Promise<NodeShareTable[]> {
+  async replaceForNode(
+    nodeId: string,
+    entries: NodeShareEntry[],
+    createdBy: string,
+    expectRowIds?: string[],
+  ): Promise<NodeShareTable[]> {
     const collapsed = new Map<string, NodeShareEntry>();
     for (const e of entries) collapsed.set(e.granteeUserId ?? "\0everyone", e);
     const now = new Date().toISOString();
     await this.db.transaction().execute(async (tx) => {
+      if (expectRowIds) {
+        // No-op self-assignment: takes the single-writer lock without
+        // changing the row, so the comparison below sees every concurrently
+        // committed write (this transaction blocks until the prior writer
+        // lands, and later writers block behind us).
+        await tx.updateTable("nodes").set({ updatedAt: sql<string>`updated_at` }).where("id", "=", nodeId).execute();
+        const current = (await tx.selectFrom("nodeShares").select("id").where("nodeId", "=", nodeId).execute()) as {
+          id: string;
+        }[];
+        const currentIds = current.map((r) => r.id).sort();
+        const expected = [...expectRowIds].sort();
+        if (currentIds.length !== expected.length || currentIds.some((id, i) => id !== (expected[i] ?? ""))) {
+          throw new NodeSharesConflictError();
+        }
+      }
       await tx.deleteFrom("nodeShares").where("nodeId", "=", nodeId).execute();
       if (collapsed.size > 0) {
         await tx

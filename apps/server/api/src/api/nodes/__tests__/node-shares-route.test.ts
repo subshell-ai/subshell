@@ -7,6 +7,10 @@ import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { getAuth } from "@/modules/auth/auth.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { ensureSystemUser } from "@/modules/auth/system-user.js";
+import { NodeSharesConflictError } from "@/modules/nodes/errors.js";
 import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
@@ -237,5 +241,111 @@ describe("/api/nodes/:id/shares", () => {
     const res = await req("GET", "/local/shares", { bearer: "subshell_not_a_real_key" });
     expect(res.status).toBe(401); // auth-guard rejects unknown bearer first
     expect((await req("GET", "/local/shares")).status).toBe(401);
+  });
+
+  /**
+   * Security pass on merged #495 (slice C): the `nodes:share` grant's
+   * description promises launch-access control ("Grant or revoke other users'
+   * access to launch subshells"), and widening the shares route to `canManage`
+   * would otherwise have silently enlarged it into a band-delegation door: a
+   * leaked provisioning key could mint a MANAGE row for any account on its
+   * system-owned fleet, and that account's session then repoints, rotates, and
+   * stops those machines. Manage is a human owner's delegation; the machine
+   * door keeps its advertised View/Edit ceiling.
+   */
+  it("a nodes:share system key may set view/edit rows on its own account's node", async () => {
+    const systemUserId = await ensureSystemUser();
+    const id = await mkNode(systemUserId);
+    const created = (await getAuth().api.createApiKey({
+      body: {
+        name: "ns-share-key",
+        userId: systemUserId,
+        metadata: { kind: "system", permissionVersion: 1, systemPermissions: ["nodes:share"] },
+      },
+    })) as unknown as { id: string; key: string };
+    try {
+      const ok = await req("PUT", `/${id}/shares`, {
+        bearer: created.key,
+        body: { shares: [{ granteeUserId: bobId, permission: "view" }] },
+      });
+      expect(ok.status).toBe(200);
+    } finally {
+      authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [created.id]);
+      await nodes.deleteById(id);
+    }
+  });
+
+  it("a nodes:share system key may NOT mint a Manage row: the band is delegated by humans", async () => {
+    const systemUserId = await ensureSystemUser();
+    const id = await mkNode(systemUserId);
+    await shares.replaceForNode(id, [{ granteeUserId: bobId, permission: "view" }], systemUserId);
+    const created = (await getAuth().api.createApiKey({
+      body: {
+        name: "ns-manage-key",
+        userId: systemUserId,
+        metadata: { kind: "system", permissionVersion: 1, systemPermissions: ["nodes:share"] },
+      },
+    })) as unknown as { id: string; key: string };
+    try {
+      const bad = await req("PUT", `/${id}/shares`, {
+        bearer: created.key,
+        body: { shares: [{ granteeUserId: bobId, permission: "manage" }] },
+      });
+      expect(bad.status).toBe(400);
+      // Refusal leaves the stored set byte-unchanged, like every refusal here.
+      const after = await shares.listForNode(id);
+      expect(after.map((r) => `${r.granteeUserId}:${r.permission}`)).toEqual([`${bobId}:view`]);
+    } finally {
+      authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [created.id]);
+      await nodes.deleteById(id);
+    }
+  });
+
+  it("replaceForNode refuses when the rows changed under the caller's read (optimistic concurrency)", async () => {
+    // Security pass on merged #495 (slice A): the manage rung made shares a
+    // multi-writer surface, so a revoked manager's in-flight whole-set PUT
+    // could land AFTER its own revocation and re-mint the grant. The replace
+    // now CASes the caller's observed row set inside its transaction.
+    const id = await mkNode(aliceId);
+    await shares.replaceForNode(id, [{ granteeUserId: bobId, permission: "view" }], aliceId);
+    const current = await shares.listForNode(id);
+    await expect(
+      shares.replaceForNode(id, [{ granteeUserId: null, permission: "manage" }], aliceId, [
+        "share-row-that-no-longer-exists",
+      ]),
+    ).rejects.toBeInstanceOf(NodeSharesConflictError);
+    expect((await shares.listForNode(id)).map((r) => `${r.granteeUserId}:${r.permission}`)).toEqual([`${bobId}:view`]);
+    // Matching ids apply normally.
+    await shares.replaceForNode(
+      id,
+      [{ granteeUserId: null, permission: "manage" }],
+      aliceId,
+      current.map((r) => r.id),
+    );
+    expect((await shares.listForNode(id))[0]?.granteeUserId).toBe(null);
+  });
+
+  it("a shares conflict maps to 409 with the stored set unchanged", async () => {
+    const id = await mkNode(aliceId);
+    await shares.replaceForNode(id, [{ granteeUserId: bobId, permission: "view" }], aliceId);
+    const proto = NodeSharesRepository.prototype as unknown as {
+      replaceForNode: (this: NodeSharesRepository, ...args: never[]) => Promise<unknown>;
+    };
+    const original = proto.replaceForNode;
+    proto.replaceForNode = async function throwConflict() {
+      throw new NodeSharesConflictError();
+    } as typeof original;
+    try {
+      const res = await req("PUT", `/${id}/shares`, {
+        cookie: aliceCookie,
+        body: { shares: [{ granteeUserId: null, permission: "view" }] },
+      });
+      expect(res.status).toBe(409);
+      expect((await shares.listForNode(id)).map((r) => `${r.granteeUserId}:${r.permission}`)).toEqual([
+        `${bobId}:view`,
+      ]);
+    } finally {
+      proto.replaceForNode = original;
+    }
   });
 });

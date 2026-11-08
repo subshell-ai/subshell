@@ -72,6 +72,15 @@ export function parseNodeArgs(
         );
         return null;
       }
+      if (name === "--to" && value.startsWith("subshell_")) {
+        // A slipped bearer belongs to no slot of this command; the --base-url
+        // spelling already trips its own catch below, and this closes the
+        // last one that would have sent the key to the server as an id.
+        error(
+          "node transfer: --to got what looks like an automation key, so it is not echoed; --to takes the receiving account's id, and the key comes from --key-stdin",
+        );
+        return null;
+      }
       if (eq < 0) i += 1;
       if (name === "--to") toUserId = value;
       else baseUrl = value;

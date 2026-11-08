@@ -1,4 +1,5 @@
 import { db } from "@/db/index.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { audit } from "@/modules/audit.js";
 import { setApiKeyOwner } from "@/modules/auth/apikey-store.js";
 import { getRelayBroker } from "@/modules/ssh/relay-broker.js";
@@ -22,7 +23,9 @@ import { HttpError } from "@/shared/errors.js";
  * precedent).
  *
  * The caller (the route) has already refused `local`, non-owners, and bad
- * recipients; this module does no authorization of its own. A name collision
+ * recipients; this module authorizes no one, but it does re-assert the
+ * commit-time facts the route could only read: the recipient's state and the
+ * live key's identity (see the transaction body). A name collision
  * against the recipient's fleet surfaces as the index's own UNIQUE violation
  * (the route maps it to 409 `NODE_NAME_TAKEN`), which rolls the whole thing
  * back — nothing moves, then and there.
@@ -51,14 +54,33 @@ export async function transferNodeOwnership(input: NodeTransferInput): Promise<v
   const now = new Date().toISOString();
 
   await db.transaction().execute(async (tx) => {
-    // Compare-and-swap on the owner: whoever raced us to this row (a parallel
-    // transfer, a delete-and-re-enroll) makes this a 0-row update, and the
-    // caller is told to refresh rather than overwrite blind (rotate's shape).
+    // Re-assert the recipient's state FIRST, inside the transaction (security
+    // pass on #495): the route checked it before the handover began, and a
+    // disable or a pending approval that lands in between is a different row
+    // the owner CAS cannot catch. A node owned by an account that cannot sign
+    // in is the stranded machine the route's refusal exists to prevent, and a
+    // 400 that says so beats a 409 about ownership nobody raced.
+    const meta = new UserMetaRepository(tx);
+    if (await meta.isDisabled(toUserId)) {
+      throw new HttpError(400, "That account is disabled; re-enable it before transferring a node to it");
+    }
+    if ((await meta.approvalState(toUserId)) === "pending") {
+      throw new HttpError(400, "That account is still awaiting approval; approve it before transferring a node to it");
+    }
+
+    // Compare-and-swap on the owner AND the live key row: a rotate that
+    // committed under us rewrote the other half of the link fact, and
+    // re-homing the key the caller saw (not the one now live) would commit a
+    // node owned by bob whose key still belongs to alice — the split this
+    // transaction exists to prevent (security pass on #495; rotate CASes the
+    // key column and never the owner, so each act guards the composite fact
+    // the other one reads).
     const moved = await tx
       .updateTable("nodes")
       .set({ ownerUserId: toUserId, updatedAt: now })
       .where("id", "=", nodeId)
       .where("ownerUserId", "=", fromUserId)
+      .where("apiKeyId", apiKeyId === null ? "is" : "=", apiKeyId)
       .returning("id")
       .executeTakeFirst();
     if (!moved) throw new HttpError(409, "Node ownership changed; refresh and retry");

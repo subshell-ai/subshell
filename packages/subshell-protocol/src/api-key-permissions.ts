@@ -30,7 +30,8 @@ export const API_KEY_PERMISSION_GROUPS = [
       {
         id: "nodes:share",
         label: "Change node sharing",
-        description: "Grant or revoke other users' access to launch subshells on a node.",
+        description:
+          "Grant or revoke other users' access to launch subshells on a node. Keys reach View and View + edit; the Manage level must come from a signed-in manager.",
       },
       {
         id: "nodes:ssh",

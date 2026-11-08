@@ -40,7 +40,7 @@ Each API operation available to scoped keys declares its required permission in 
 For enrollment alone, select `nodes:enroll`. Add `nodes:read` to inspect node details and `nodes:configure` to rename nodes or change their calling-agent guidance. Monitoring subshell lists and saved output needs `subshells:read`; it doesn't need command execution.
 
 > [!warning] Permissions with broader effects
-> **Run commands** includes interactive terminal attachment, which can reveal output, and runs code with the machine user's privileges. **Transfer files** reads source files and writes destination files. Directory, sharing, and SSH permissions can widen access; maintenance and stop permissions can interrupt running work.
+> **Run commands** includes interactive terminal attachment, which can reveal output, and runs code with the machine user's privileges. **Transfer files** reads source files and writes destination files. Directory, sharing, and SSH permissions can widen access; maintenance and stop permissions can interrupt running work. A sharing key grants View or View + edit only: the Manage level is a person's delegation and is refused from any key.
 
 Keys created before permission selection retain their existing non-node access and appear as legacy keys. Replace them with scoped keys to reduce that access. Permissions are fixed when a key is created; create a replacement to change them.
 
