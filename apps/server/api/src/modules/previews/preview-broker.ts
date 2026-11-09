@@ -239,7 +239,13 @@ export interface PreviewBroker {
    */
   displayForPane(paneId: string): { nodeId: string; screen: NodePreviewScreenWire } | null;
   observeDisplay(nodeId: string, paneId: string, screen: NodePreviewScreenWire | null): void;
-  onDisplayClosed(paneId: string, reason: PreviewCloseReason): Promise<void>;
+  /**
+   * Forget the pane's display, audit the close, and invalidate its ports
+   * cache entry. `actorUserId` names the viewer who turned the display off
+   * when the close IS a user act (the runtime toggle); internal teardowns
+   * pass nothing, same as every non-user audit row.
+   */
+  onDisplayClosed(paneId: string, reason: PreviewCloseReason, actorUserId?: string): Promise<void>;
   closeForPane(paneId: string, reason: PreviewCloseReason): Promise<void>;
   closeAllForNode(nodeId: string, reason: PreviewCloseReason): Promise<void>;
   /** Sweeps the user's forwards, watch counts, and held streams; answers how many SESSIONS it closed. */
@@ -551,9 +557,17 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
    * (spec §6). Byte content stays out the same way; only ids, port, kind,
    * reason, and counts ride.
    */
-  async function auditPreview(action: string, nodeId: string | null, meta: Record<string, unknown>): Promise<void> {
+  async function auditPreview(
+    action: string,
+    nodeId: string | null,
+    meta: Record<string, unknown>,
+    actorUserId?: string,
+  ): Promise<void> {
     await deps.audit({
-      actorUserId: null,
+      // Null unless the caller names the acting viewer: most preview rows are
+      // not user acts, and the toggle-off row is (same column the restart rows
+      // put their grantee in).
+      actorUserId: actorUserId ?? null,
       action,
       targetType: "node",
       targetId: nodeId,
@@ -1169,16 +1183,27 @@ function buildPreviewBroker(deps: PreviewBrokerDeps): PreviewBroker {
       return displaysByPane.get(paneId) ?? null;
     },
 
-    async onDisplayClosed(paneId, reason) {
+    async onDisplayClosed(paneId, reason, actorUserId) {
+      // A closed display invalidates the ports answer that carried its screen:
+      // drop the cache HERE so no caller (the runtime toggle included) can
+      // leave `/views` serving the dead display for the rest of the 5 s
+      // window. Idempotent, so closeForPane's own drop stays a harmless
+      // second sure thing.
+      dropPortsCache([paneId]);
       const entry = displaysByPane.get(paneId);
       if (!entry) return; // double-close is idempotent; a pane that never displayed audits nothing
       displaysByPane.delete(paneId);
-      await auditPreview("node.preview_display.close", entry.nodeId, {
-        paneId,
-        nodeId: entry.nodeId,
-        ...entry.screen,
-        reason,
-      });
+      await auditPreview(
+        "node.preview_display.close",
+        entry.nodeId,
+        {
+          paneId,
+          nodeId: entry.nodeId,
+          ...entry.screen,
+          reason,
+        },
+        actorUserId,
+      );
     },
 
     async closeForPane(paneId, reason) {

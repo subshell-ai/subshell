@@ -15,7 +15,7 @@ The overview shows the operating system, release, architecture, hostname, CPU mo
 
 ## Cross-agent guidance
 
-On the node's **Overview** page, find **Cross-agent communication**. Only the node owner can edit this guidance; a server admin manages it for the server's own node.
+On the node's **Overview** page, find **Cross-agent communication**. The node's owner or someone they gave **Manage** can edit this guidance; a server admin manages it for the server's own node.
 
 1. Fill in **Notes for calling agents** with context that helps an agent choose and use this machine. For example: “Use this node for Linux builds; run tests with Bun.” Notes accept up to 8,000 characters.
 2. Select **Save guidance** to save the notes.
@@ -25,8 +25,8 @@ Adding or removing a directory also saves any pending notes. Agents read both fi
 
 ## Apps, browsers, and virtual displays
 
-The node owner controls web previews and virtual displays independently; an
-administrator manages the server's built-in node. Follow
+The node's owner or a **Manage** grantee controls web previews and virtual
+displays independently; an administrator manages the server's built-in node. Follow
 [Preview prerequisites and setup](/previews/setup) for the opt-in controls,
 access requirements, display providers, and the effects of changing settings.
 
@@ -69,17 +69,17 @@ Node owners manage the machine's settings. A share may allow launching there wit
 
 In the server dashboard, open **Nodes**, select your node, and find the **SSH** card on its overview. **Allow SSH** lets Subshell make outgoing SSH connections from this node and use its SSH agent to supply keys to other nodes. It doesn’t enable incoming SSH access to the node.
 
-Only the node’s owner can change this setting. An administrator manages it for the built-in node on the server host. Turning it off prevents new outgoing connections and stops the node from supplying keys, including to active connections.
+Only the node's owner or a **Manage** grantee can change this setting. An administrator manages it for the built-in node on the server host. Turning it off prevents new outgoing connections and stops the node from supplying keys, including to active connections.
 
 You can also enable it when starting an SSH subshell: the connection form explains the change before you submit. See [Connect over SSH](/guides/ssh).
 
-With SSH allowed, the card gains **Allow wide port forwards**. While it's off, local and dynamic port forwards bind the node's own loopback address, so only programs on that node can use them. Remote forwards listen on the SSH destination under its SSH server's policy. See [Port forwards](/guides/ssh#port-forwards) for examples and bind-address rules. Turning it on lets a launch bind a port other machines can reach, which routes their traffic through that connection. It's off by default and sits behind the same owner-only gate as **Allow SSH**; turning it off affects new launches, while forwards already running keep going until their subshell closes.
+With SSH allowed, the card gains **Allow wide port forwards**. While it's off, local and dynamic port forwards bind the node's own loopback address, so only programs on that node can use them. Remote forwards listen on the SSH destination under its SSH server's policy. See [Port forwards](/guides/ssh#port-forwards) for examples and bind-address rules. Turning it on lets a launch bind a port other machines can reach, which routes their traffic through that connection. It's off by default and sits behind the same gate as **Allow SSH**; turning it off affects new launches, while forwards already running keep going until their subshell closes.
 
 ## Service and logs
 
 Where you have management access, review the service and log sections. A node may be online from a terminal process even when no service is installed.
 
-The Service card shows **Start** or **Stop**, and **Install service** or **Uninstall service**, based on the node's reported state. **Restart** is available when a service manager runs the node. Only the node's owner can stop or uninstall its service.
+The Service card shows **Start** or **Stop**, and **Install service** or **Uninstall service**, based on the node's reported state. **Restart** is available when a service manager runs the node. Stop and uninstall sit on the **Manage** rung: the node's owner, or someone they gave Manage, can press them.
 
 Restart, Stop, and Uninstall service ask for confirmation before making changes. The dialog explains whether subshells may close and whether you'll need access to the machine to bring the node back.
 

@@ -30,8 +30,14 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
   const [failure, setFailure] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
-  const isOwner = node.access === "owner";
-  const canSave = isOwner && url.trim().length > 0 && !save.isPending;
+  // Repointing rides the manage band: owner, or a `manage` grantee (spec
+  // 2026-11-07), enforced at the plane's PATCH route. The card itself has
+  // ONE renderer, the machine's own dashboard: the plane dropped the
+  // Server-URL card entirely on 2026-10-09, because it cannot see where a
+  // node dials. So `canManage` here is the local operator's standing (always
+  // true on that wire), and the plane-side band lives in the API docs.
+  const canRepoint = node.canManage;
+  const canSave = canRepoint && url.trim().length > 0 && !save.isPending;
 
   async function submit(): Promise<void> {
     setFailure(null);
@@ -79,7 +85,7 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
             id="node-server-url"
             value={url}
             placeholder="https://subshell.example.com"
-            disabled={!isOwner}
+            disabled={!canRepoint}
             onChange={(e) => setUrl(e.target.value)}
           />
           {/* The dashboard has the config file in hand, so the current value
@@ -92,14 +98,16 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
             </p>
           )}
         </div>
-        {!isOwner && <p className="text-detail text-warning">Only the node owner can change the server address.</p>}
+        {!canRepoint && (
+          <p className="text-detail text-warning">Only the node's owner or a Manage grantee can change the address.</p>
+        )}
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
             disabled={!canSave}
             disabledReason={
-              !isOwner
-                ? "Only the node owner can change the server address."
+              !canRepoint
+                ? "Only the node's owner or a Manage grantee can change the address."
                 : save.isPending
                   ? "Wait for the address to save."
                   : "Enter a server address first."

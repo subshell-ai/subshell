@@ -15,6 +15,13 @@ import { useSetSshEnabled, useSetSshWideForwards } from "@/hooks/use-ssh";
 export function NodeSshCard({ node, children }: { node: NodeDetail; children?: ReactNode }) {
   const update = useSetSshEnabled();
   const wide = useSetSshWideForwards();
+  // Both switches share one below-the-band remedy line; naming it once keeps
+  // the two warnings from drifting apart and stops a non-admin on `local`
+  // being pointed at a Manage grantee the route refuses there.
+  const holderLine =
+    node.kind === "local"
+      ? "An admin can change this setting."
+      : "Only the node's owner or a Manage grantee can change this setting.";
   return (
     <Card>
       <CardHeader>
@@ -37,11 +44,7 @@ export function NodeSshCard({ node, children }: { node: NodeDetail; children?: R
               : "Turning this on allows SSH connections from this node and lets it provide keys to other nodes through Subshell. It doesn't enable incoming SSH access to this machine."}
           </p>
         ) : (
-          <p className="text-detail text-warning">
-            {node.kind === "local"
-              ? "An admin can change this setting."
-              : "Only this node’s owner can change this setting."}
-          </p>
+          <p className="text-detail text-warning">{holderLine}</p>
         )}
         {update.isError && (
           <p role="alert" className="text-destructive text-detail">
@@ -64,9 +67,7 @@ export function NodeSshCard({ node, children }: { node: NodeDetail; children?: R
                 ? "Forwards here are no longer confined to 127.0.0.1. One can bind a LAN address or 0.0.0.0, and any machine that reaches it gets through to the target via the SSH connection. Turning this off affects new subshells only."
                 : "Port forwards on this machine listen on 127.0.0.1 only. Turn this on to let a forward bind another address, such as 0.0.0.0 for every interface. Remote forwards bind on the destination under its own policy either way."}
             </p>
-            {!node.canManage && (
-              <p className="text-detail text-warning">Only this node’s owner can change this setting.</p>
-            )}
+            {!node.canManage && <p className="text-detail text-warning">{holderLine}</p>}
             {wide.isError && (
               <p role="alert" className="text-destructive text-detail">
                 {errMessage(wide.error, "Couldn't update the port-forward setting.")}

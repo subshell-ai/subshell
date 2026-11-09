@@ -25,13 +25,14 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing
  * §4.5, Task 17) - the §4.5 machine trust re-pair's HTTP door. The
  * posture this file pins is the ONE the design makes load-bearing:
  *
- * - EXACT owner only, on BOTH machines' facts: `gate.row.ownerUserId ===
- *   user.id`. An `edit` grantee is 403 (re-authorizing a peer's key on
- *   someone else's machine is not a share level confers); the ADMIN is 403
- *   on a foreign agent (the instance-wide boost stops at a trust act, and
- *   the `canManage` local exception must not leak here); `local` never
- *   repairs (its owner is the system service user, so every human hits the
- *   owner door); a stranger is 404 (an invisible node stays invisible);
+ * - The MANAGE band on BOTH machines' facts (route `gate.canManage` and the
+ *   service's mirror, spec 2026-11-07): the owner or a `manage` grantee. An
+ *   `edit` grantee is 403 (re-authorizing a peer's key on someone else's
+ *   machine is not a share level confers); the ADMIN is 403 on a foreign
+ *   agent (the instance-wide boost stops at a trust act, and the `canManage`
+ *   local exception must not leak here); `local` repairs only for an admin
+ *   (its owner is the system service user, so every other human hits the
+ *   band door); a stranger is 404 (an invisible node stays invisible);
  *   a bearer is refused (cookie-only like every node write).
  * - The success path names the acting human in exactly one
  *   `node.ssh_machine_pin.repair` row carrying `{nodeIdOfA, peerNodeId}` -
@@ -180,7 +181,7 @@ beforeEach(() => {
   });
 });
 
-describe("the door: EXACTLY the owner", () => {
+describe("the door: the manage band, not the retire gate", () => {
   it("the owner re-pairs: 200, the registered pair sent, one ids-only audit row", async () => {
     const res = await post(NODE_A, PEER_B, ownerCookie);
     expect(res.status).toBe(200);
@@ -210,9 +211,46 @@ describe("the door: EXACTLY the owner", () => {
     expect((await repairRows()).length).toBe(before);
   });
 
+  /**
+   * `manage` (spec 2026-11-07) rides every door the `canManage` band opens,
+   * and this door sat behind two checks that had agreed by accident (route:
+   * canManage = owner; service: owner equality). Widening only the route
+   * would let a manage grantee through the door and refuse them inside it,
+   * so both arms move together.
+   */
+  it("a manage grantee re-pairs on a node they hold manage on", async () => {
+    const nodeC = `${NODE_A}-managed`;
+    const now = new Date().toISOString();
+    await db
+      .insertInto("nodes")
+      .values({
+        id: nodeC,
+        ownerUserId: ownerId,
+        name: nodeC,
+        kind: "agent",
+        status: "offline",
+        createdAt: now,
+        updatedAt: now,
+      } as never)
+      .execute();
+    await new NodeSharesRepository(db).replaceForNode(
+      nodeC,
+      [{ granteeUserId: editorId, permission: "manage" }],
+      ownerId,
+    );
+    try {
+      const res = await post(nodeC, PEER_B, editorCookie);
+      expect(res.status).toBe(200);
+      expect(sentCmds).toHaveLength(1);
+    } finally {
+      await db.deleteFrom("nodes").where("id", "=", nodeC).execute();
+    }
+  });
+
   it("an admin cannot repair a foreign node but manages server pins", async () => {
-    // The exact-owner rule, not `canManage`: the admin boost (effective edit)
-    // and the seeded-local manage exception both stop at a trust act.
+    // The manage band simply does not contain an admin on a FOREIGN agent
+    // (owner or `manage` grantee, no boost); on `local` the seeded admin
+    // exception is precisely the authority the 200 below exercises.
     const before = (await repairRows()).length;
     expect((await post(NODE_A, PEER_B, adminCookie)).status).toBe(403);
     expect((await post(LOCAL_NODE_ID, PEER_B, adminCookie)).status).toBe(200);

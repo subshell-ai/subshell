@@ -1,0 +1,64 @@
+{
+  "name": "@subshell-ai/plugin-qwen-code",
+  "description": "Qwen Code harness plugin for Subshell",
+  "version": "1.1.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "dist/index.d.ts",
+  "homepage": "https://subshell.sh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/subshell-ai/subshell.git",
+    "directory": "packages/plugins/qwen-code"
+  },
+  "bugs": {
+    "url": "https://github.com/subshell-ai/subshell/issues"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "build:dev": "hash-runner",
+    "clean": "rm -rf .turbo node_modules dist .hashes.json",
+    "lint": "biome check --write --unsafe src && biome format src --write && biome lint src --fix",
+    "lint:check": "biome check --no-errors-on-unmatched src",
+    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src",
+    "test": "bash \"$(git rev-parse --show-toplevel)/scripts/par-test.sh\" 4 bun test",
+    "verify-types": "tsc --project tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@internal/tsconfig": "workspace:*",
+    "@subshell-ai/plugin-api": "workspace:*",
+    "@types/bun": "1.3.14",
+    "hash-runner": "5.0.0",
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2"
+  },
+  "files": ["dist", "icon.svg"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "subshell": {
+    "apiVersion": 2,
+    "id": "qwen-code",
+    "type": "agent-harness",
+    "name": "Qwen Code",
+    "description": "The Qwen team's open-source agentic coding CLI (interactive TUI)",
+    "icon": "icon.svg",
+    "entry": "dist/index.js",
+    "detect": {
+      "binaryName": "qwen",
+      "envOverride": "QWEN_PATH",
+      "knownPaths": [".npm-global/bin/qwen", ".local/bin/qwen"]
+    },
+    "install": {
+      "command": "npm i -g --registry https://registry.npmjs.org/ @qwen-code/qwen-code",
+      "docsUrl": "https://github.com/QwenLM/qwen-code"
+    }
+  }
+}

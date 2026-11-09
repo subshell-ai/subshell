@@ -205,6 +205,17 @@ function projectSlug(cwd: string): string {
 }
 
 /**
+ * Claude Code puts a cycling status glyph at the front of its pane title
+ * (`✳ Ship the rename feature`, then `✻ …` on the next sweep). The glyph is
+ * Claude's run state, not part of the session name, and leaving it in made the
+ * mirrored name churn between sweeps. Strip the leading decoration — glyphs,
+ * punctuation, and the space after them — so only the task text remains. A
+ * title that is nothing but the glyph parses to nothing, and the caller keeps
+ * the name it already had.
+ */
+const STATUS_GLYPH = /^[^\p{L}\p{N}]+/u;
+
+/**
  * Built-in harness: Claude Code.
  *
  * Launch shape:
@@ -224,6 +235,9 @@ function projectSlug(cwd: string): string {
 const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin => ({
   subagents: { discovery: "hooks", navigation: "unavailable" },
   capabilities: (): PluginCapability[] => ["subagents", "mcp", "resume", "attention", "settings"],
+
+  /** Claude Code prefixes its pane title with a cycling status glyph. */
+  parsePaneTitle: (raw) => raw.replace(STATUS_GLYPH, "").trim(),
 
   supportsAttentionHooks: true,
 

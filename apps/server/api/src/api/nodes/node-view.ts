@@ -29,7 +29,13 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import type { NodeViewableAccess } from "@/modules/nodes/access.js";
-import { type NodeAccess, nodeCanLaunchOn, nodeCanManageFor, nodeCanRetire } from "@/modules/nodes/access.js";
+import {
+  type NodeAccess,
+  nodeCanLaunchOn,
+  nodeCanManageFor,
+  nodeCanRetire,
+  nodeCanTransfer,
+} from "@/modules/nodes/access.js";
 import { type EffectiveHarnessReport, effectiveHarnessStates } from "@/modules/nodes/inventory.js";
 import { getHeld, type HeldReason } from "@/modules/nodes/node-registry.js";
 import { localPlatform } from "@/modules/nodes/seed-local.js";
@@ -37,9 +43,13 @@ import { enabledHarnessPlugins } from "@/modules/plugins/store.js";
 import { serverSubshellsEnabled } from "@/modules/server/server-as-node.js";
 
 /** The viewer's effective access on this node; "none" is never rendered (invisible → 404/absent). */
-export const NodeAccessSchema = t.Union([t.Literal("owner"), t.Literal("edit"), t.Literal("view")], {
-  description: "Caller's effective access on this node (none is never rendered, invisible nodes 404)",
-});
+export const NodeAccessSchema = t.Union(
+  [t.Literal("owner"), t.Literal("manage"), t.Literal("edit"), t.Literal("view")],
+  {
+    description:
+      "Caller's effective access on this node (none is never rendered, invisible nodes 404). manage (spec 2026-11-07) is the granted owner-management band, never a role",
+  },
+);
 
 /** One harness row of a node view — plugin identity × per-node state. */
 export const NodeHarnessViewSchema = t.Object({
@@ -134,11 +144,15 @@ export const NodeViewSchema = t.Object({
   ),
   canManage: t.Boolean({
     description:
-      "Whether the caller manages this node (shares/rename/maintenance/rotate/allowlist): real owner, or an admin on `local`; same rule as the route gate",
+      "Whether the caller manages this node (shares/rename/maintenance/rotate/allowlist/repoint/one-way service verbs): real owner, a `manage` grantee, or an admin on `local`; same rule as the route gate",
   }),
   canRetire: t.Boolean({
     description:
       "Whether the caller may end or replace this machine's standing on this plane (DELETE and RE-REGISTER): real owner, or any admin (ruling 2026-10-09: the admin-wide Nodes list must be able to act on the machines it shows). Deliberately NOT shares: retiring a machine is the owner's or the operator's act; re-sharing someone else's is only the owner's",
+  }),
+  canTransfer: t.Boolean({
+    description:
+      "Whether the caller may hand this node to another account (spec 2026-11-07): the real owner of an enrolled machine only. Deliberately narrower than canManage (a manage grantee runs everything else and stops here) and than canRetire (an admin's arm does not reach an ownership change), and always false for `local`, which belongs to the instance rather than to a person",
   }),
   canLaunch: t.Boolean({
     description:
@@ -215,8 +229,10 @@ export type NodeHarnessView = Static<typeof NodeHarnessViewSchema>;
 
 // Shared TypeBox refs for the sharing schemas (models.ts discipline: one
 // object reused across body and response keeps the composed `App` shallow).
-const SharePermissionSchema = t.Union([t.Literal("view"), t.Literal("edit")], {
-  description: "Access level a grant confers",
+// Node-only on purpose: `manage` (spec 2026-11-07) exists on this axis alone;
+// the subshell/preset union in schemas/models.ts deliberately stayed view/edit.
+const SharePermissionSchema = t.Union([t.Literal("view"), t.Literal("edit"), t.Literal("manage")], {
+  description: "Access level a grant confers: view observes, edit configures, manage holds the owner's management band",
 });
 const GranteeIdSchema = t.Nullable(t.String({ description: "Grantee user id" }), {
   description: "Grantee user id, or null for the Everyone grant",
@@ -484,6 +500,7 @@ function nodeViewBase(
     // can never drift (T14 review carry: the frontend cannot derive admin identity).
     canManage: nodeCanManageFor(row.kind, access, isAdmin),
     canRetire: nodeCanRetire(access, isAdmin),
+    canTransfer: nodeCanTransfer(access, row.kind),
     // The SAME helper the launch gate calls, for the same reason `canManage`
     // shares one: the picker must not re-derive a rule the server enforces.
     canLaunch: nodeCanLaunchOn(row.kind, access, granted, row.maintenance === 1, serverAsNode),

@@ -24,7 +24,9 @@ type Section = "overview" | "service" | "logs";
  * cannot disagree about who sees what.
  */
 export function managesNodeSections(node: NodeDetail): boolean {
-  return node.kind === "agent" && (node.access === "owner" || node.access === "edit");
+  // owner∪edit, plus `manage` (spec 2026-11-07): a manage grantee drives the
+  // daemon, so the daemon's pages are theirs to open.
+  return node.kind === "agent" && (node.access === "owner" || node.access === "manage" || node.access === "edit");
 }
 
 /**

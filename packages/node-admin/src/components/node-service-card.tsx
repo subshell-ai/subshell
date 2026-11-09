@@ -22,7 +22,7 @@ interface VerbSpec {
    * and on the dashboard "stop the node" is also "stop this page".
    */
   describe: (nodeName: string, kills: boolean, here: "remote" | "local") => string;
-  /** Owner-only, because it cannot be undone from here. */
+  /** Manage-band, because it cannot be undone from here. */
   oneWay?: boolean;
   /** Can end live panes, so it carries `force`. */
   destructive?: boolean;
@@ -87,7 +87,8 @@ const VERBS: VerbSpec[] = [
  * **`stop` and `uninstall` say what they cost, in the confirmation.** A command
  * reaches a node over the NODE'S OWN socket, so nothing in this app can start
  * a node that is not running: those two end the connection that would have
- * carried the verb undoing them. The server gates them on ownership; this
+ * carried the verb undoing them. The server gates them on the manage band
+ * (owner or Manage grantee, admin on the host); this
  * names the consequence, because it is invisible from a button that looks like
  * every other one.
  *
@@ -127,7 +128,12 @@ export function NodeServiceCard({
   if (!runtime) return null;
 
   const kills = runtime.service.paneSafety !== "keeps";
-  const isOwner = node.access === "owner";
+  // The one-way verbs ride the manage band: owner, or a `manage` grantee
+  // (spec 2026-11-07). The card renders only where a runtime report was
+  // attached, which is an agent node the viewer configures — so the wire's
+  // server-derived `canManage` is exactly this gate, with no `local` case in
+  // view to worry about.
+  const canDrive = node.canManage;
 
   async function run(spec: VerbSpec): Promise<void> {
     if (!runtime || confirming || service.isPending || wait.waiting || blocked(spec)) return;
@@ -166,7 +172,7 @@ export function NodeServiceCard({
     if (spec.verb === "restart" && !runtime?.supervised) {
       return `Nothing on ${local ? "this" : "that"} machine is supervising this node, so exiting would stop it rather than restart it`;
     }
-    if (spec.oneWay && !isOwner) return `Only the node owner can ${spec.verb} this service.`;
+    if (spec.oneWay && !canDrive) return `Only the node's owner or a Manage grantee can ${spec.verb} this service.`;
     return undefined;
   }
 
@@ -210,8 +216,10 @@ export function NodeServiceCard({
             );
           })}
         </div>
-        {!isOwner && runtime?.service.installed && (
-          <p className="text-detail text-warning">Only the node owner can stop or uninstall this service.</p>
+        {!canDrive && runtime?.service.installed && (
+          <p className="text-detail text-warning">
+            Only the node's owner or a Manage grantee can stop or uninstall this service.
+          </p>
         )}
         {wait.outcome === "waiting" && (
           <p className="flex items-center gap-2 text-sm text-warning">

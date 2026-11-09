@@ -94,6 +94,12 @@ test("GET /api/nodes/:id answers the local view — online, owner-managed, serve
   expect(v.status).toBe("online");
   expect(v.access).toBe("owner");
   expect(v.canManage).toBe(true);
+  // The wire type declares these fields, and this page offers neither door
+  // (handing over and retiring are the plane's acts), so the payload answers
+  // false explicitly rather than leaving them off and letting the consumer
+  // guess what `undefined` meant.
+  expect(v.canTransfer).toBe(false);
+  expect(v.canRetire).toBe(false);
   expect(v.canLaunch).toBe(true);
   expect(v.held).toBeNull();
   expect(v.harnesses).toEqual([]);

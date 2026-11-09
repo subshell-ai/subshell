@@ -146,7 +146,7 @@ export async function openSubshellView(deps: ToolDeps, args: z.infer<typeof Open
       );
     if (!info.nodeEnabled || !info.screen)
       throw new Error(
-        "subshell: this subshell has no available virtual display; check get_node for provider requirements, then launch with screen on a prepared node",
+        "subshell: this subshell has no available virtual display; call set_subshell_display to turn one on (it restarts the subshell), or check get_node for provider requirements",
       );
     port = info.screen.viewer.port;
   } else {
@@ -166,6 +166,28 @@ export async function openSubshellView(deps: ToolDeps, args: z.infer<typeof Open
         ? "Private capability path for the screen viewer's WebSocket. Use Virtual display in the dashboard to control it. This call does not open a workspace tab."
         : "Private capability path relative to the server URL. Anyone with the complete link can use it while valid. This call does not open a workspace tab.",
   };
+}
+
+export const SetSubshellDisplaySchema = z.object({
+  subshell_id: z.string().min(1),
+  screen: ScreenSchema.nullable().describe(
+    "A {width,height,provider?} request turns the display ON: the subshell restarts in place and its process starts holding the new screen (resuming harnesses continue the conversation). null turns it OFF immediately without a restart; apps drawing on the screen close and the node frees its memory and CPU. Both flips refuse while the node is offline. If a 409 says a restart is already running, your enable request was kept: call the tool again once that restart settles and it applies.",
+  ),
+});
+
+/**
+ * Toggle a live subshell's virtual display (spec 2026-11-06). Enabling
+ * restarts the pane's process, so calling this on the pane you run in kills
+ * the tool call with it, the way restart_subshell already does; the tool
+ * description carries the warning, the HTTP semantics belong to the routes.
+ */
+export async function setSubshellDisplay(
+  deps: ToolDeps,
+  args: z.infer<typeof SetSubshellDisplaySchema>,
+): Promise<unknown> {
+  const path = `/api/subshells/${encodeURIComponent(args.subshell_id)}/screen`;
+  if (args.screen === null) return deps.api.req(path, { method: "DELETE" });
+  return deps.api.req(path, { method: "PUT", body: args.screen });
 }
 
 export const WatchSubshellBrowserSchema = z.object({

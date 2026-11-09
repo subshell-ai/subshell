@@ -11,8 +11,14 @@
  * probed).
  */
 
-/** The caller's effective access to a node (viewer-relative; "none" never has a view). */
-export type NodeAccess = "owner" | "edit" | "view";
+/**
+ * The caller's effective access to a node (viewer-relative; "none" never has a
+ * view). `manage` (spec 2026-11-07) ranks above `edit`: the holder runs the
+ * node's whole settings band but cannot transfer or delete it. No mobile
+ * screen branches on it yet; the type states the wire so a manage grantee's
+ * row is inside the mirror, not outside it.
+ */
+export type NodeAccess = "owner" | "manage" | "edit" | "view";
 
 /** `local` = the control-plane host itself; `agent` = an enrolled machine. */
 export type NodeKind = "local" | "agent";

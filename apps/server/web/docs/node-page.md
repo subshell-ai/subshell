@@ -1,7 +1,8 @@
 # A node's page: structure, gates, maintenance
 
 The Web previews & screens card keeps the node's combined opt-in switch visible to all
-viewers, with changes restricted to the owner (an admin for the built-in node).
+viewers, with changes on the manage band (the node's owner or a Manage grantee; an
+admin for the built-in node).
 When enabled, it uses `useNodeDisplayReadiness`, shared with the new-subshell
 dialog, to show missing prerequisites, setup guidance, and Recheck. Platform
 limitations remain visible even when the switch is on. Rechecking is read-only
@@ -48,7 +49,7 @@ someone a machine is quiet while panes are still alive on it. The wording is
 
 **The node page is Overview + two daemon sections, and the rules live on the
 Overview.** `managesNodeSections` (`node-section-nav.tsx`: an AGENT machine
-AND an `owner`/`edit` viewer) hides the Service and Logs tabs and gates their
+AND an owner/`manage`/`edit` viewer) hides the Service and Logs tabs and gates their
 deep links. Hiding a pill never gated the URL: once the sections were flat
 routes (2026-09-20), `/nodes/local/service` was typeable and answered with a
 card calling the LIVE control plane "offline, nothing to report". The server

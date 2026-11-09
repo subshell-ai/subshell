@@ -1,0 +1,33 @@
+---
+title: "OpenClaw"
+description: "Install and launch OpenClaw with Subshell, including why cross-subshell comms are not wired yet."
+---
+
+Run OpenClaw as a Subshell agent.
+
+## Before you start
+
+Install `openclaw` from npm (`npm i -g --registry https://registry.npmjs.org/ openclaw`, with setup details in the [vendor docs](https://docs.openclaw.ai)), and give it provider access under the execution account through its own guided commands, `openclaw onboard` or `openclaw configure`. On npm 11.16 and later the vendor's own command adds `--allow-scripts=openclaw`, because those npm versions block a package's install scripts until the flag allows them. Ask an administrator to enable the harness under **Settings** → **Server Settings** → **Plugins** in the server dashboard's sidebar. Follow [Install an agent CLI](/agents/install-cli) to confirm detection on the target node.
+
+## Launch
+
+1. Open the new-subshell form using [Launch a subshell](/guides/launch), then choose **OpenClaw** under **Agent or terminal**.
+2. Select a saved preset if you want to launch on a named session with `--session <key>`. Configure presets under **Settings** → **Presets** before launching.
+3. Choose the target node and an existing project directory.
+4. Launch and confirm that the CLI opens normally.
+
+The plugin launches `openclaw chat`, which is the CLI's own alias for `tui --local`: the embedded terminal UI, with no Gateway service required. A render on a fresh config home with no Gateway running reached "local ready", though real conversations still need the provider access you configure with OpenClaw itself. The plugin detects `openclaw` through PATH, `~/.npm-global/bin/openclaw`, and `~/.local/bin/openclaw`, and `OPENCLAW_PATH` can identify the binary explicitly in the execution environment. Before changing that override, see [Files and paths](/reference/paths) for configuration locations and service-environment guidance.
+
+OpenClaw keeps its model and provider choices in its own config file rather than in launch flags, so the plugin offers no preset settings. The config defaults to `~/.openclaw/openclaw.json`, and `OPENCLAW_CONFIG_PATH` names a different file; keep sign-in and model config on the file your panes actually launch against. `OPENCLAW_GATEWAY_TOKEN` authenticates runs that connect to a Gateway; the embedded `chat` run needs none.
+
+## MCP and session behavior
+
+Cross-subshell comms are not wired for OpenClaw yet, and that is deliberate. OpenClaw's MCP registration is Gateway-scoped: it lives in the OpenClaw config every OpenClaw session on the host shares. Subshell's MCP child, on the other hand, is spawned for one pane and keeps that pane's credential, which is revoked the moment the pane stops. One registration would therefore hand a single pane's identity to every other OpenClaw session on the machine, and take it back from all of them when that pane closes. Subshell ships no registration for OpenClaw, and its preset form shows no **Cross-subshell comms** commands. When OpenClaw grows a per-session registration path, this page will say so. See [MCP configuration](/mcp/configure) for how the other harnesses register.
+
+Nothing resumes on its own, and the pane's command line is always `openclaw chat`. Each embedded run lands on session `main` unless a preset stores `--session <key>`; the TUI's status line shows which session key it holds. Resuming happens through `openclaw resume`, a top-level command rather than an option of `chat`, and it reaches Gateway sessions only. The embedded `chat` runs these panes launch are not Gateway sessions, so there is nothing for it to pick up here; it's something you run yourself, not something a Subshell preset adds.
+
+Subshell runs the real CLI rather than proxying its provider API. Provider configuration, usage limits, and CLI-specific permissions remain the agent's own settings.
+
+## Next steps
+
+Read [Presets](/presets), [MCP configuration](/mcp/configure), and [Agent and launch errors](/troubleshooting/agents).

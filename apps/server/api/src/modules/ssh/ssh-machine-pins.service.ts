@@ -88,10 +88,14 @@ export async function repairMachinePin(args: {
 
   const aRow = await repos.nodes.findById(nodeId);
   if (!aRow) throw new SshMachinePinRepairError("no-node", `node "${nodeId}" has no row`, nodeId);
-  const canRepair =
-    aRow.kind === "local"
-      ? (await loadNodeGate(actorUserId, nodeId))?.isAdmin === true
-      : aRow.ownerUserId === actorUserId;
+  // The service-side check mirrors the route's `canManage` band: owner, or a
+  // `manage` grantee since spec 2026-11-07 (the two doors used to agree by
+  // both asking for the owner exactly; widening only the route would let a
+  // manage grantee through the door and refuse them inside it). `local` keeps
+  // the literal admin rule: its seeded manage exception belongs to whoever
+  // holds the admin role, never to a system-account cookie.
+  const gate = await loadNodeGate(actorUserId, nodeId);
+  const canRepair = aRow.kind === "local" ? gate?.isAdmin === true : gate?.canManage === true;
   if (!canRepair)
     throw new SshMachinePinRepairError("not-owner", "Only this machine's manager may repair its trust", nodeId);
   if (peerNodeId === nodeId) {

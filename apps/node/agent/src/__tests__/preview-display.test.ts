@@ -15,7 +15,9 @@ import { join } from "node:path";
 import { type DisplayChild, type XvfbDisplayDeps as DisplayDeps, XvfbDisplayProvider } from "@internal/pane-runtime";
 import { HARNESS_BINARY_PLACEHOLDER, type NodeEvent, parseNodePreviewPortsResult } from "@internal/subshell-protocol";
 import type { Cmd, CommandContext } from "../commands/context.js";
+import { dispatchCommand } from "../commands/index.js";
 import { execLaunch } from "../commands/launch.js";
+import { execPreviewDisplayClose } from "../commands/preview-display-close-exec.js";
 import { execPreviewPorts, PREVIEW_NODE_OFF, type PreviewPortsSeams } from "../commands/preview-ports-exec.js";
 import { runExitWatchTick } from "../commands/report.js";
 import type { NodeConfig } from "../config.js";
@@ -1077,3 +1079,109 @@ function launchCmd(over: Partial<LaunchCmd> = {}): LaunchCmd {
     ...over,
   } as unknown as LaunchCmd;
 }
+
+/* Live toggle (spec 2026-11-06): preview_display_close ends the display, the pane survives. */
+
+describe("preview_display_close (live display toggle)", () => {
+  it("closes an allocated display: registry cleared, per-pane state and lock gone", async () => {
+    const dataDir = onDir("toggle-close-basic");
+    const { deps } = makeDeps();
+    const reg = new PreviewDisplays(dataDir, deps);
+    await reg.openFor(PANE, { width: 640, height: 480 });
+    expect(reg.getFor(PANE)).not.toBeNull();
+
+    const answer = await execPreviewDisplayClose(portsCtx(dataDir, reg), {
+      type: "preview_display_close",
+      paneId: PANE,
+    });
+    expect(answer).toEqual({ ok: true, data: { closed: true } });
+    expect(reg.getFor(PANE)).toBeNull();
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", PANE))).toBe(false);
+    expect(existsSync(xauthorityPath(dataDir, PANE))).toBe(false);
+    expect(existsSync(join(dataDir, "display-providers", "xvfb-x11vnc", "displays", ".display-90.lock"))).toBe(false);
+  });
+
+  it("the command switch routes preview_display_close here (wiring pin, the preview_close family's habit)", async () => {
+    // Every other case drives the executor directly, which the switch cannot
+    // break: a deleted or mislabeled `case` arm compiles and answers
+    // `unsupported` at runtime, and the plane would map that to its
+    // update-the-node refusal forever. This is the one call through dispatch.
+    const dataDir = onDir("toggle-close-dispatch");
+    const { deps } = makeDeps();
+    const reg = new PreviewDisplays(dataDir, deps);
+    await reg.openFor(PANE, { width: 640, height: 480 });
+    expect(await dispatchCommand(portsCtx(dataDir, reg), { type: "preview_display_close", paneId: PANE })).toEqual({
+      ok: true,
+      data: { closed: true },
+    });
+    expect(reg.getFor(PANE)).toBeNull();
+  });
+
+  it("answers closed:false for a pane that owns no display, and a repeat says the same", async () => {
+    const dataDir = onDir("toggle-close-none");
+    const { deps } = makeDeps();
+    const reg = new PreviewDisplays(dataDir, deps);
+    const cmd = { type: "preview_display_close", paneId: PANE } as const;
+    expect(await execPreviewDisplayClose(portsCtx(dataDir, reg), cmd)).toEqual({
+      ok: true,
+      data: { closed: false },
+    });
+    expect(await execPreviewDisplayClose(portsCtx(dataDir, reg), cmd)).toEqual({
+      ok: true,
+      data: { closed: false },
+    });
+  });
+
+  it("teardown is never policy-gated: a switched-off mirror still closes the display", async () => {
+    const dataDir = onDir("toggle-close-switched");
+    const { deps } = makeDeps();
+    const reg = new PreviewDisplays(dataDir, deps);
+    await reg.openFor(PANE, { width: 640, height: 480 });
+    setPreviewEnabled(dataDir, { on: false, changedAt: STAMP });
+    const answer = await execPreviewDisplayClose(portsCtx(dataDir, reg), {
+      type: "preview_display_close",
+      paneId: PANE,
+    });
+    expect(answer).toEqual({ ok: true, data: { closed: true } });
+    expect(reg.getFor(PANE)).toBeNull();
+  });
+
+  it("the sweep cannot resurrect a display the user closed", async () => {
+    const dataDir = onDir("toggle-close-sweep");
+    const { deps } = makeDeps();
+    const reg = new PreviewDisplays(dataDir, deps);
+    await reg.openFor(PANE, { width: 640, height: 480 });
+    await execPreviewDisplayClose(portsCtx(dataDir, reg), { type: "preview_display_close", paneId: PANE });
+    const { ctx } = makeLaunchCtx(dataDir, reg);
+    ctx.meta = { listComplete: async () => ({ metas: [], scanOk: true }) } as unknown as SubshellMetaStore;
+    await runDisplaySweep(ctx, reg); // trusted census, pane absent: nothing on disk to rehydrate
+    expect(reg.getFor(PANE)).toBeNull();
+  });
+
+  it("a malformed pane id is refused before the registry is touched: no getFor, no closeFor", async () => {
+    // The id guard every composition site keeps: closeFor ends in the
+    // providers' per-pane dirs, so `../x` must never reach even the pre-read.
+    const dataDir = onDir("toggle-close-bad-id");
+    const { deps } = makeDeps();
+    const reg = new PreviewDisplays(dataDir, deps);
+    await reg.openFor(PANE, { width: 640, height: 480 }); // a live display the refusal must leave alone
+    const touched: string[] = [];
+    const spy = {
+      getFor: (paneId: string) => {
+        touched.push(`getFor:${paneId}`);
+        return reg.getFor(paneId);
+      },
+      closeFor: async (paneId: string) => {
+        touched.push(`closeFor:${paneId}`);
+        await reg.closeFor(paneId);
+      },
+    } as unknown as PreviewDisplays;
+    const answer = await execPreviewDisplayClose(portsCtx(dataDir, spy), {
+      type: "preview_display_close",
+      paneId: "../x",
+    });
+    expect(answer).toEqual({ ok: false, error: "invalid subshell id" });
+    expect(touched).toEqual([]);
+    expect(reg.getFor(PANE)).not.toBeNull();
+  });
+});

@@ -256,6 +256,7 @@ function NodesPage() {
         <NodeSharingDialog
           key={sharingNode.id}
           nodeId={sharingNode.id}
+          kind={sharingNode.kind}
           open
           canManage={sharingNode.canManage}
           onOpenChange={(open) => {

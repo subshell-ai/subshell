@@ -289,6 +289,7 @@ const LAUNCH_NODE = {
   access: "owner",
   canManage: true,
   canRetire: true,
+  canTransfer: false,
   canLaunch: true,
   capabilities: [],
   harnesses: [{ harnessId: "terminal", name: "Terminal", enabled: true, installed: true }],

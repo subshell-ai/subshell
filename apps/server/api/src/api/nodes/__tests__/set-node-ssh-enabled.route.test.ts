@@ -12,8 +12,9 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing
  * `PUT /api/nodes/:id/ssh-enabled` (spec 4.3) — the per-node SSH capability
  * gate, opt-in and off by default.
  *
- * OWNER-only (`gate.canManage`, with the seeded-`local` admin exception), the
- * same gate as maintenance, delete and re-share — deliberately NOT the
+ * Manage band (`gate.canManage`: owner or a `manage` grantee, with the
+ * seeded-`local` admin exception), the same gate as maintenance and re-share
+ * (delete sits wider, on the retire gate) — deliberately NOT the
  * `nodeCanConfigure` gate an `edit` grantee holds. The act is what decides it:
  * flipping this on lets the plane dial out of and serve keys from an OS
  * account this machine owns; a grantee may restart the agent or read its log,

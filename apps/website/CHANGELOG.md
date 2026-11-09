@@ -1,5 +1,29 @@
 # @internal/website
 
+## 0.2.27
+
+### Patch Changes
+
+- [#505](https://github.com/subshell-ai/subshell/pull/505) [`55b3644`](https://github.com/subshell-ai/subshell/commit/55b36448a46071b7dca9e92c32cc461cd53c8ade) Thanks [@theogravity](https://github.com/theogravity)! - Republish after this release so the install and download pages carry the new release list.
+
+## 0.2.26
+
+### Patch Changes
+
+- [`07daf6f`](https://github.com/subshell-ai/subshell/commit/07daf6f350de613caa8785469bf4a7932ecce52b) Thanks [@theogravity](https://github.com/theogravity)! - Republish with the current release list: the install and download pages now point at cli-server v3.3.0, cli-node v3.4.0, Subshell Server 1.7.8 and Subshell Client 1.5.7, and the agents roster gains the six new harness plugins.
+
+## 0.2.25
+
+### Patch Changes
+
+- [#498](https://github.com/subshell-ai/subshell/pull/498) [`501e600`](https://github.com/subshell-ai/subshell/commit/501e600561518af420d7483174455bc91e7cc4a7) Thanks [@theogravity](https://github.com/theogravity)! - Republish with the current release list: the install and download pages now point at cli-server v3.2.0, cli-node v3.3.0, Subshell Server 1.7.7 and Subshell Client 1.5.6.
+
+## 0.2.24
+
+### Patch Changes
+
+- [#493](https://github.com/subshell-ai/subshell/pull/493) [`7981c8c`](https://github.com/subshell-ai/subshell/commit/7981c8c1e346df71cb4e0fe3608f90fbee403961) Thanks [@theogravity](https://github.com/theogravity)! - Refresh the website's release listing and download links for the November server, node, and desktop releases.
+
 ## 0.2.23
 
 ### Patch Changes

@@ -24,6 +24,7 @@ import { execFileRead } from "./file-read.js";
 import { execFsLs } from "./fs-ls.js";
 import { execLaunch } from "./launch.js";
 import { execPreviewClose } from "./preview-close-exec.js";
+import { execPreviewDisplayClose } from "./preview-display-close-exec.js";
 import { execPreviewOpen } from "./preview-open-exec.js";
 import { execPreviewPorts } from "./preview-ports-exec.js";
 import { execPromptDeliver } from "./prompt.js";
@@ -142,6 +143,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
           ok: true,
           data: { ...(await (ctx.previewDisplays?.readiness(cmd.provider) ?? previewDisplayReadiness(cmd.provider))) },
         };
+      case "preview_display_close":
+        return await execPreviewDisplayClose(ctx, cmd);
       case "preview_ports_get":
         return await execPreviewPorts(ctx, cmd);
       case "prompt_deliver":

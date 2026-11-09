@@ -15,8 +15,9 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing
  * `PUT /api/nodes/:id/maintenance` (spec 2026-09-14 §5.4) — the browser half
  * of a flag the machine can also set for itself.
  *
- * OWNER-only (`gate.canManage`, with the seeded-`local` admin exception), on
- * the same gate as delete and re-share rather than the `nodeCanConfigure` one
+ * Manage band (`gate.canManage`: owner or a `manage` grantee, with the
+ * seeded-`local` admin exception), on the same gate as re-share rather than
+ * the `nodeCanConfigure` one
  * the service verbs use. The reason is what the act does: it stops subshells
  * belonging to everyone the node was shared with, including people the owner
  * cannot see, so it is not a grantee's decision to make about someone else's

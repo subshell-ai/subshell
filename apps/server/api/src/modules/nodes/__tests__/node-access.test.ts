@@ -13,6 +13,7 @@ import {
   nodeCanManage,
   nodeCanManageFor,
   nodeCanRetire,
+  nodeCanTransfer,
   resolveNodeAccess,
 } from "@/modules/nodes/access.js";
 
@@ -73,6 +74,18 @@ describe("resolveNodeAccess (pure)", () => {
   it("no grant, not owner, not admin → none", () => {
     expect(resolveNodeAccess("bob", false, node("n1", "alice"), [])).toBe("none");
   });
+
+  it("manage ranks above edit and below owner (spec 2026-11-07)", () => {
+    expect(resolveNodeAccess("bob", false, node("n1", "alice"), [grant("bob", "manage")])).toBe("manage");
+    // The highest-of-grants rule already knows the new rank: a manage grant
+    // beats Everyone(edit), and owner still beats a manage grant on the owner.
+    expect(resolveNodeAccess("bob", false, node("n1", "alice"), [grant(null, "edit"), grant("bob", "manage")])).toBe(
+      "manage",
+    );
+    expect(resolveNodeAccess("alice", false, node("n1", "alice"), [grant("alice", "manage")])).toBe("owner");
+    // The admin boost stays `edit`: manage is conferred by a grant, never by role.
+    expect(resolveNodeAccess("root", true, node("n1", "alice"), [grant("root", "manage")])).toBe("manage");
+  });
 });
 
 describe("capability predicates (spec §2 — NOT the subshell rule)", () => {
@@ -90,11 +103,18 @@ describe("capability predicates (spec §2 — NOT the subshell rule)", () => {
     expect(nodeCanConfigure("none")).toBe(false);
   });
 
-  it("manage (re-share/rename/maintenance) is owner-only — admins get false here, retire is the wider gate", () => {
+  it("manage (re-share/rename/maintenance) is owner OR manage — admins get false here, retire is the wider gate", () => {
     expect(nodeCanManage("owner")).toBe(true);
+    expect(nodeCanManage("manage")).toBe(true);
     expect(nodeCanManage("edit")).toBe(false);
     expect(nodeCanManage("view")).toBe(false);
     expect(nodeCanManage("none")).toBe(false);
+  });
+
+  it("manage configures and launches like edit, and manages like owner (spec 2026-11-07)", () => {
+    expect(nodeCanLaunch("manage")).toBe(true);
+    expect(nodeCanConfigure("manage")).toBe(true);
+    expect(nodeCanManage("manage")).toBe(true);
   });
 
   it("a view grant launches but does not configure", () => {
@@ -112,7 +132,7 @@ describe("nodeCanManageFor (ONE rule shared by the gate and the views)", () => {
     expect(nodeCanManageFor("local", "owner", true)).toBe(true);
   });
 
-  it("edit/view manage only via the seeded-`local` admin exception", () => {
+  it("edit/view/manage manage rules (spec 2026-11-07)", () => {
     // Admin on `local` manages (T3 ruling); admin on an agent node does not.
     expect(nodeCanManageFor("local", "edit", true)).toBe(true);
     expect(nodeCanManageFor("agent", "edit", true)).toBe(false);
@@ -122,6 +142,10 @@ describe("nodeCanManageFor (ONE rule shared by the gate and the views)", () => {
     expect(nodeCanManageFor("agent", "edit", false)).toBe(false);
     expect(nodeCanManageFor("agent", "view", false)).toBe(false);
     expect(nodeCanManageFor("agent", "none", true)).toBe(false);
+    // A manage grant manages on an agent node, admin or not (spec 2026-11-07).
+    // (`local` never carries one: the shares route refuses the level there.)
+    expect(nodeCanManageFor("agent", "manage", false)).toBe(true);
+    expect(nodeCanManageFor("agent", "manage", true)).toBe(true);
   });
 });
 
@@ -140,12 +164,38 @@ describe("nodeCanRetire (delete + re-register: owner OR any admin)", () => {
     expect(nodeCanRetire("none", false)).toBe(false);
   });
 
+  it("a manage grantee retires nothing — the creep pin (spec 2026-11-07)", () => {
+    // nodeCanRetire used to call nodeCanManage. When manage joined canManage,
+    // a shared call would have handed every manage grantee DELETE and
+    // RE-REGISTER. The retire gate asks for the owner rank directly.
+    expect(nodeCanRetire("manage", false)).toBe(false);
+    // An admin still retires everything, manage grantee or not.
+    expect(nodeCanRetire("manage", true)).toBe(true);
+  });
+
   it("`none` never pairs with an admin (the resolver ranks admins at edit)", () => {
     // So the impossible-state question "does an admin retire a node they
     // cannot even see?" has no answer to pin: `resolveNodeAccess` returns
     // `edit` for an admin BEFORE the shares loop, and the gate 404s `none`.
     // The predicate's `|| isAdmin` is therefore only ever reached at edit+.
     expect(resolveNodeAccess("root", true, node("n1", "alice"), [])).toBe("edit");
+  });
+});
+
+describe("nodeCanTransfer (the handover: the owner rank on an agent node, nothing wider)", () => {
+  it("only the owner rank transfers an agent node", () => {
+    expect(nodeCanTransfer("owner", "agent")).toBe(true);
+    // The whole point of the rank split: manage opens every other owner door
+    // and stops here (spec 2026-11-07).
+    expect(nodeCanTransfer("manage", "agent")).toBe(false);
+    expect(nodeCanTransfer("edit", "agent")).toBe(false);
+    expect(nodeCanTransfer("view", "agent")).toBe(false);
+  });
+
+  it("`local` is never transferable, not even for its owner", () => {
+    // The control-plane host belongs to the instance; the route 400s the kind
+    // before the rank is ever asked, and the rendered flag must agree.
+    expect(nodeCanTransfer("owner", "local")).toBe(false);
   });
 });
 
@@ -209,6 +259,14 @@ describe("loadNodeAccess", () => {
     expect((await loadNodeAccess(deps, viewer, n.id)).access).toBe("edit");
   });
 
+  it("a manage grant resolves as manage from a real row (spec 2026-11-07)", async () => {
+    const owner = unique("u");
+    const grantee = unique("u");
+    const n = await mkNode(owner);
+    await deps.shares.replaceForNode(n.id, [grant(grantee, "manage")], owner);
+    expect((await loadNodeAccess(deps, grantee, n.id)).access).toBe("manage");
+  });
+
   it("allowAdminAndShares:false (machine actor) — admin loses the boost, grants ignored", async () => {
     const owner = unique("u");
     const admin = await mkAdmin();
@@ -242,7 +300,7 @@ describe("nodeCanLaunchOn", () => {
   });
 
   it("lets a real grant launch on the host, at any level", () => {
-    for (const granted of ["view", "edit", "owner"] as const) {
+    for (const granted of ["view", "edit", "manage", "owner"] as const) {
       expect(nodeCanLaunchOn("local", "edit", granted, false)).toBe(true);
     }
   });
@@ -256,7 +314,7 @@ describe("nodeCanLaunchOn", () => {
   // anything for them — which is what makes this safe to apply everywhere.
   it("changes nothing for a viewer who was never boosted", () => {
     for (const kind of ["local", "agent"] as const) {
-      for (const a of ["none", "view", "edit", "owner"] as const) {
+      for (const a of ["none", "view", "edit", "manage", "owner"] as const) {
         expect(nodeCanLaunchOn(kind, a, a, false)).toBe(nodeCanLaunch(a));
       }
     }
@@ -270,8 +328,8 @@ describe("nodeCanLaunchOn", () => {
    */
   it("refuses every access level on both kinds while the node is in maintenance", () => {
     for (const kind of ["local", "agent"] as const) {
-      for (const access of ["none", "view", "edit", "owner"] as const) {
-        for (const granted of ["none", "view", "edit", "owner"] as const) {
+      for (const access of ["none", "view", "edit", "manage", "owner"] as const) {
+        for (const granted of ["none", "view", "edit", "manage", "owner"] as const) {
           expect(nodeCanLaunchOn(kind, access, granted, true)).toBe(false);
         }
       }
@@ -298,8 +356,8 @@ describe("nodeCanLaunchOn", () => {
     });
 
     it("refuses the control-plane host at every access level when off, owner and admin included", () => {
-      for (const access of ["none", "view", "edit", "owner"] as const) {
-        for (const granted of ["none", "view", "edit", "owner"] as const) {
+      for (const access of ["none", "view", "edit", "manage", "owner"] as const) {
+        for (const granted of ["none", "view", "edit", "manage", "owner"] as const) {
           expect(nodeCanLaunchOn("local", access, granted, false, false)).toBe(false);
         }
       }

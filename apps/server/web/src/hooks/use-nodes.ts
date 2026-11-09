@@ -8,7 +8,7 @@ import {
   type SetupKeyRow,
 } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import { NODE_SHARES_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
 /**
  * The PLANE-only half of the node registry (spec 2026-08-31 §9): the list,
@@ -79,8 +79,9 @@ export function useRecheckNode(id: string) {
 }
 
 /**
- * Renames a node (`PATCH /api/nodes/:id` `{name}`) — OWNER-only server-side
- * (an admin's effective edit does not extend to renaming a foreign agent) and
+ * Renames a node (`PATCH /api/nodes/:id` `{name}`) — manager-band server-side
+ * (owner or a `manage` grantee, admin on `local`; an admin's effective edit
+ * does not extend to renaming a foreign agent) and
  * the `local` node's name is fixed for everyone (400). A per-owner name
  * collision answers 409 `NODE_NAME_TAKEN` with the server's own message.
  * The response is a plain NodeView; the detail cache is INVALIDATED rather
@@ -95,6 +96,38 @@ export function useRenameNode(id: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
+    },
+  });
+}
+
+/** What a completed handover answers (spec 2026-11-07). */
+export interface NodeTransferResult {
+  nodeId: string;
+  /** The account that owns the node now */
+  ownerUserId: string;
+  /** Whether the outgoing owner was kept on as a manage grantee */
+  retainedAccessAsManager: boolean;
+}
+
+/**
+ * Hands a node to another account (`POST /api/nodes/:id/transfer`) — the
+ * owner's own act (spec 2026-11-07), so the control renders only on
+ * `Node.canTransfer`. One transaction server-side: the machine's link, key,
+ * running subshells, and every OTHER share survive untouched; unused recovery
+ * keys die; and the share-back, when kept, is a fresh grant — so the shares
+ * read AND the setup-key list invalidate too, not just the row and the
+ * badges (a card still listing a key the transfer voided offers a dead row).
+ */
+export function useTransferNode(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { toUserId: string; retainAccessAsManager: boolean }) =>
+      apiFetch<NodeTransferResult>(`/api/nodes/${id}/transfer`, { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] });
+      void queryClient.invalidateQueries({ queryKey: [...NODE_SHARES_QUERY_KEY, id] });
+      void queryClient.invalidateQueries({ queryKey: SETUP_KEYS_QUERY_KEY });
     },
   });
 }
@@ -203,7 +236,7 @@ export function useDeleteSetupKey() {
 
 /**
  * Flip one machine's pane-preview allowance (pane-preview spec Task 3).
- * Owner-only at the route (the same gate as the SSH switch), and it answers
+ * Manager-band at the route (the same gate as the SSH switch), and it answers
  * on an offline node too: the flag is the plane's record, and the machine
  * learns the value at its next connect - which is why the card never dims
  * the control for a node that is merely dark.

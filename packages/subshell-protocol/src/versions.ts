@@ -132,8 +132,17 @@ export function semverLt(a: string, b: string): boolean {
  * agent below this answers the ports scan in the old shape, and the exact-match
  * gate already refuses it: the floor is what turns that refusal into
  * "install subshell >= 3.1.0" wherever a version gets compared.
+ *
+ * Raised to 3.2.0 with protocol 27 (`preview_display_close`, the live display
+ * toggle, spec 2026-11-06). The published agent is 3.1.4, so the floor goes
+ * one minor above it rather than to it, and `apps/node/agent/package.json`
+ * moves with it in this commit. An agent below this speaks no
+ * `preview_display_close`, so its panes' displays could never be freed by the
+ * toggle; the exact-match handshake already refuses one, and the floor is what
+ * turns that refusal into "install subshell >= 3.2.0" wherever a version gets
+ * compared.
  */
-export const MIN_NODE_VERSION = "3.1.0";
+export const MIN_NODE_VERSION = "3.2.0";
 
 /**
  * Whether an agent reporting `version` may connect.

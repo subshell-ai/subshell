@@ -29,8 +29,8 @@ const AllowedDirsBodySchema = t.Object({
  * `PUT /api/nodes/:id/allowed-dirs` `{dirs}` — replace a node's directory
  * allowlist (spec 2026-09-05). Browser session or explicitly enabled system API key.
  *
- * **OWNER-only** (`gate.canManage`), deliberately NOT the `nodeCanConfigure`
- * gate that harness toggles use. Any node share — even `view` — lets the
+ * **Manage band** (`gate.canManage`: owner or a `manage` grantee), deliberately
+ * NOT the `nodeCanConfigure` gate that harness toggles use. Any node share — even `view` — lets the
  * grantee launch subshells on the node, so an `edit` grantee who could widen
  * this list to `/` would face no restriction at all: it would stop being a
  * boundary against precisely the people it exists to constrain. Admins get the
@@ -128,7 +128,7 @@ export const setNodeAllowedDirsRoute = new Elysia()
         operationId: "setNodeAllowedDirs",
         tags: ["nodes"],
         description:
-          "Replace the directories subshells may be created under on this node (owner-only, enabled system key or browser session). An empty array clears the rules; the node becomes unrestricted. The set is pushed to the node, which enforces it independently",
+          "Replace the directories subshells may be created under on this node (manager band: the node's owner or a Manage grantee, via browser session or an enabled system key). An empty array clears the rules; the node becomes unrestricted. The set is pushed to the node, which enforces it independently",
       },
     },
   );

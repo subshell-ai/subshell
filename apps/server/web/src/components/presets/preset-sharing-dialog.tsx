@@ -1,6 +1,6 @@
 import { Button } from "@internal/node-admin";
 import { ErrorBanner } from "@/components/error-banner";
-import { SharingDialogCore } from "@/components/sharing-dialog-core";
+import { BASIC_SHARE_LEVELS, SharingDialogCore } from "@/components/sharing-dialog-core";
 import { usePresetShares, useSetPresetShares } from "@/hooks/use-preset-shares";
 import { useSharableUsers } from "@/hooks/use-subshell-shares";
 
@@ -15,6 +15,7 @@ export function PresetSharingDialog({ id, kind, onClose }: { id: string; kind: "
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
+      levels={BASIC_SHARE_LEVELS}
       title="Share preset"
       description="Presets are private by default. View access lets people inspect, use, and clone this preset. Edit access also lets them change it. Only you can share or delete it."
       warning={

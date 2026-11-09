@@ -10,6 +10,7 @@ import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
 import { HarnessSubagentTitle } from "@/components/harness-subagents";
 import { SubshellNotFoundCard } from "@/components/not-found-page";
+import { PathTail } from "@/components/path-tail";
 import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
 import { SplitSubshellButton } from "@/components/split-subshell-button";
 import { SshPaneLabels } from "@/components/ssh-pane-labels";
@@ -320,9 +321,11 @@ function SubshellPage() {
            condition is the same `subshell?.workingDir`. */
         subtitle={
           subshell?.workingDir ? (
-            <span className={cn("block truncate", agentState?.selectedId && !dead ? "pl-6" : "pl-4")}>
-              {subshell.workingDir}
-            </span>
+            <PathTail
+              path={subshell.workingDir}
+              title={subshell.workingDir}
+              className={cn("block", agentState?.selectedId && !dead ? "pl-6" : "pl-4")}
+            />
           ) : undefined
         }
         actions={

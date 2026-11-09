@@ -1,5 +1,79 @@
 # @internal/server
 
+## 3.3.1
+
+### Patch Changes
+
+- [#491](https://github.com/subshell-ai/subshell/pull/491) [`9032140`](https://github.com/subshell-ai/subshell/commit/9032140d1ab798e1ada54324cdafa5fc6ca945a3) Thanks [@theogravity](https://github.com/theogravity)! - Workspace header: the add-subshell button is icon-only now, a plain "+" pill. The tooltip and screen-reader name still carry the full label, so the control keeps the header row short without losing its name.
+
+- [#503](https://github.com/subshell-ai/subshell/pull/503) [`f2026f6`](https://github.com/subshell-ai/subshell/commit/f2026f6f16942a1c1af578e6dddd043197e4aaa6) Thanks [@theogravity](https://github.com/theogravity)! - Fixed the count chips sitting at different heights in a pane's header: the preview chip hung off a 14px anchor and the devices chip off a 16px one. Both controls now anchor to the same box, so the badges ride level.
+
+- [#505](https://github.com/subshell-ai/subshell/pull/505) [`55b3644`](https://github.com/subshell-ai/subshell/commit/55b36448a46071b7dca9e92c32cc461cd53c8ade) Thanks [@theogravity](https://github.com/theogravity)! - A mouse or pen click on a workspace tab now hands the keyboard back to that pane's terminal, so the next Esc or keystroke reaches the agent. Before this, clicking a tab left focus on the tab itself: a docked `/mcp list` report stayed open while the turn streamed above it, and typing went nowhere.
+  
+  Names mirrored from a pane's title also drop omp's `π` brand and run-state separator, so a session reads `🚌 Fix the stuck overlay` instead of `π ⠋ 🚌 Fix the stuck overlay` in the rail, the pane header and the subshell page.
+
+- [#502](https://github.com/subshell-ai/subshell/pull/502) [`6034b4e`](https://github.com/subshell-ai/subshell/commit/6034b4e821fcb0443cf1743102bacd08a61f98aa) Thanks [@theogravity](https://github.com/theogravity)! - Long working directories now clip from the front everywhere they appear in a narrow space, so a path still names its leaf: `…/projects/hmn-vm` instead of `/home/theo/projects…`. That's the sidebar rows, subshell cards, both pane headers, the subshells table, and the add-a-pane picker. What tells two panes apart sits at the end of the path, and the full directory still reads whole in each row's tooltip.
+
+- [#491](https://github.com/subshell-ai/subshell/pull/491) [`9032140`](https://github.com/subshell-ai/subshell/commit/9032140d1ab798e1ada54324cdafa5fc6ca945a3) Thanks [@theogravity](https://github.com/theogravity)! - Sidebar: the harness subagent rows a pane reports now hang off the same tree rail as its created subshells, so a pane showing both kinds of child reads as one tree instead of two.
+- Updated dependencies []:
+  - @internal/pane-runtime@1.0.0
+
+## 3.3.0
+
+### Minor Changes
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Cline harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Gemini CLI harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Open Interpreter harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the OpenClaw harness plugin: launch, detect, and install guidance ship now. The pane runs the embedded terminal UI (`openclaw chat`), and cross-subshell comms stay unwired until OpenClaw grows a per-session MCP registration path, since its registrations are Gateway-scoped.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the OpenHands harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Qwen Code harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @internal/pane-runtime@1.0.0
+
+## 3.2.0
+
+### Minor Changes
+
+- [#495](https://github.com/subshell-ai/subshell/pull/495) [`2b99535`](https://github.com/subshell-ai/subshell/commit/2b995357ecd2bbe7d8d5d2e8344c92cf1cf46b2b) Thanks [@theogravity](https://github.com/theogravity)! - Nodes can change hands. The owner of a machine can now hand it to another account in one step, from the node's page, without the running agent noticing: the link, the credentials, every share, and all running subshells carry on untouched. The dialog offers to keep the giver as a Manage grantee on the machine they gave away (the default), and a handover to a disabled account or a colliding node name is refused before anything moves. Unused re-registration keys die with the transfer, so an old owner's unredeemed recovery key can't pull the machine back. The server's own node stays the instance's, never transferable.
+  
+  Node sharing grew a third level to match. **Manage** ranks above view and edit and carries the whole owner band of day-to-day control: sharing itself, renaming, maintenance, directory rules, key rotation, repointing, stop and uninstall, the SSH switches and SSH trust re-pairing, the web-previews and virtual-display switch, and the machine's cross-agent guidance. What it never buys is ownership: a Manage grantee can't transfer the node, can't delete or re-register it, and file transfers stay the owner's alone. Manage is delegated by people, not machines: an API key can grant View or View + edit, and a Manage row written through a key's sharing call is refused. The only Manage row a machine credential can cause is a transfer's own share-back, which names the acting account and nobody else.
+  
+  The handover and the share set also hold firm under races. A transfer re-checks the receiving account when it commits (an approval-pending recipient is refused alongside a disabled one), and it refuses to re-home a key that a rotation replaced underneath it. Saving shares that changed while your dialog was open answers "refresh and retry" instead of quietly overwriting what someone else just set.
+  
+  Automation reaches the same act through a new API key permission, `nodes:transfer`, and a server CLI verb:
+  
+  ```bash
+  subshell-server node transfer <nodeId> --to <userId> --key-stdin
+  ```
+  
+  The key comes from stdin and never from the command line, where it would be visible to every local user. A machine credential carrying the grant can only hand over nodes its own account owns, which is exactly the provisioning loop: the server mints setup keys, automation assigns the machines they enroll.
+
+## 3.1.0
+
+### Minor Changes
+
+- [#492](https://github.com/subshell-ai/subshell/pull/492) [`0f393a4`](https://github.com/subshell-ai/subshell/commit/0f393a4025093d878772aa2f7f3cd143a266574c) Thanks [@theogravity](https://github.com/theogravity)! - Turn a running subshell's virtual display on or off from the Web previews &
+  screens picker, or with the new set_subshell_display MCP tool. Turning a display
+  on restarts the subshell in place so its process starts on the new screen;
+  turning one off closes the screen immediately and frees the machine's memory
+  and CPU while the subshell keeps running. Nodes and the server must update
+  together (protocol 27).
+
+### Patch Changes
+
+- [#484](https://github.com/subshell-ai/subshell/pull/484) [`c90dee0`](https://github.com/subshell-ai/subshell/commit/c90dee0da29e148f0d4d084f7cf0d3d8d78da916) Thanks [@theogravity](https://github.com/theogravity)! - Fixed "Update all" failing on most nodes when many are registered. An update now fetches the release bytes it's about to authorize before ordering the download, and a fleet of simultaneous node downloads shares one fetch of those bytes instead of each paying for its own. On a plane with a hand-published node binary, this was the difference between every machine timing out on the first try and the whole batch updating at once.
+  
+  The Updates page now tells that wait honestly: while the server is fetching the release bytes, the node's row says exactly that, naming the version, and it keeps saying it through a refresh and in a second tab that never pressed anything. The row switches to "installing" only once the machine has actually been told.
+
 ## 3.0.8
 
 ### Patch Changes

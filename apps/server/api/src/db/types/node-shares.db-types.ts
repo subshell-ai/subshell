@@ -1,5 +1,11 @@
-/** Node access level a share grants (spec §2: any share grants launch; edit adds config). */
-export type NodeSharePermission = "view" | "edit";
+/**
+ * Node access level a share grants (spec §2: any share grants launch; edit
+ * adds config). `manage` (spec 2026-11-07) adds the owner-only band — shares,
+ * rename, maintenance, the allowlist, key rotation, repointing, stop/uninstall
+ * — but never transfer, DELETE or RE-REGISTER. The column has no CHECK: the
+ * wire schema and this union are the validation, matching the older two.
+ */
+export type NodeSharePermission = "view" | "edit" | "manage";
 
 /**
  * Database table schema for per-node access grants — mirror of subshell_shares.
@@ -11,7 +17,7 @@ export interface NodeShareTable {
   nodeId: string;
   /** Grantee user id; NULL means the "Everyone" grant */
   granteeUserId: string | null;
-  /** 'view' | 'edit' */
+  /** 'view' | 'edit' | 'manage' */
   permission: NodeSharePermission;
   /** User id who created the grant */
   createdBy: string;

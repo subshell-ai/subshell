@@ -31,7 +31,7 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { resetNodeRegistryForTests } from "@/modules/nodes/node-registry.js";
 import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
-import { attachScriptedNode, ok, probeAllAlive, type ScriptedHandlers, statDirEcho } from "@/testing/scripted-node.js";
+import { attachScriptedNode, restartLifecycleHandlers } from "@/testing/scripted-node.js";
 import { seedPreset } from "@/testing/seed-preset.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
@@ -41,21 +41,9 @@ const nodes = new NodesRepository(db);
 const subshells = new SubshellsRepository(db);
 const shares = new SubshellSharesRepository(db);
 
-/** The lifecycle a restart triggers on the scripted node, plus the prompt answer. */
-function lifecycle(promptDelivered: boolean): ScriptedHandlers {
-  return {
-    stat_dir: statDirEcho,
-    launch: ok,
-    terminate: ok,
-    kill: ok,
-    input: ok,
-    resize: ok,
-    probe: probeAllAlive,
-    prompt_deliver: () => ({ promptDelivered }),
-    path_exists: () => ({ exists: true }),
-    remove_paths: ok,
-  };
-}
+// The lifecycle a restart triggers on the scripted node, plus the prompt
+// answer, comes from the shared fixture factory in `@/testing/scripted-node.js`
+// (the display-toggle suite builds on the same map).
 
 describe("prompt inside POST /api/subshells/:id/restart (spec 2026-09-25)", () => {
   const ownerEmail = `rp-owner-${crypto.randomUUID()}@subshell.local`;
@@ -141,7 +129,7 @@ describe("prompt inside POST /api/subshells/:id/restart (spec 2026-09-25)", () =
   });
 
   it("a prompt rides a successful revive: one prompt_deliver frame, promptDelivered true", async () => {
-    const sim = attachScriptedNode(node, lifecycle(true));
+    const sim = attachScriptedNode(node, restartLifecycleHandlers(true));
     try {
       const id = await createRunning("rp-deliver");
       const res = await restart(id, { cookie: ownerCookie, body: { prompt: "carry on the audit" } });
@@ -163,7 +151,7 @@ describe("prompt inside POST /api/subshells/:id/restart (spec 2026-09-25)", () =
   });
 
   it("the pane never settles: the restart still succeeds and answers promptDelivered false", async () => {
-    const sim = attachScriptedNode(node, lifecycle(false));
+    const sim = attachScriptedNode(node, restartLifecycleHandlers(false));
     try {
       const id = await createRunning("rp-unsure");
       const res = await restart(id, { cookie: ownerCookie, body: { prompt: "typed blind?" } });
@@ -175,7 +163,7 @@ describe("prompt inside POST /api/subshells/:id/restart (spec 2026-09-25)", () =
   });
 
   it("a blank prompt asks the pane for nothing: no frame, flag false", async () => {
-    const sim = attachScriptedNode(node, lifecycle(true));
+    const sim = attachScriptedNode(node, restartLifecycleHandlers(true));
     try {
       const id = await createRunning("rp-blank");
       const res = await restart(id, { cookie: ownerCookie, body: { prompt: "   " } });
@@ -188,7 +176,7 @@ describe("prompt inside POST /api/subshells/:id/restart (spec 2026-09-25)", () =
   });
 
   it("a plain restart stays byte-identical: no prompt_deliver, flag false", async () => {
-    const sim = attachScriptedNode(node, lifecycle(true));
+    const sim = attachScriptedNode(node, restartLifecycleHandlers(true));
     try {
       const id = await createRunning("rp-plain");
       for (const body of [undefined, {}]) {
@@ -204,7 +192,7 @@ describe("prompt inside POST /api/subshells/:id/restart (spec 2026-09-25)", () =
   });
 
   it("a refused restart types nothing: the view grantee's prompt dies at the gate", async () => {
-    const sim = attachScriptedNode(node, lifecycle(true));
+    const sim = attachScriptedNode(node, restartLifecycleHandlers(true));
     try {
       const id = await createRunning("rp-refused");
       await shares.replaceForSubshell(id, [{ granteeUserId: granteeId, permission: "view" }], ownerId);

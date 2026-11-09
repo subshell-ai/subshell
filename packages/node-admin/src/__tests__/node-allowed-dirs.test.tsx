@@ -25,6 +25,7 @@ function node(over: Partial<Node> = {}): Node {
     access: "owner",
     canManage: true,
     canRetire: true,
+    canTransfer: false,
     canLaunch: true,
     allowedDirs: [],
     capabilities: [],
@@ -68,7 +69,7 @@ describe("NodeAllowedDirs", () => {
     // Otherwise an operator tightening the rules on a busy node cannot tell
     // whether they are about to kill live work.
     renderCard({ allowedDirs: ["/srv/work"] });
-    expect(document.body.textContent).toContain("already running aren’t affected");
+    expect(document.body.textContent).toContain("already running aren't affected");
   });
 
   it("explains where to change rules on the read-only dashboard", () => {
@@ -76,7 +77,7 @@ describe("NodeAllowedDirs", () => {
     // edits the next reconnect would overwrite (spec 2026-09-10: the plane
     // holds the set and re-pushes on `ready`).
     renderCard({ allowedDirs: ["/srv/work"] }, { readOnly: true });
-    expect(document.body.textContent).toContain("To change these rules, open this node’s page in the control plane.");
+    expect(document.body.textContent).toContain("To change these rules, open this node's page in the control plane.");
   });
 
   it("does not invite adding when the viewer has no Add control", () => {
@@ -86,7 +87,7 @@ describe("NodeAllowedDirs", () => {
     renderCard({ canManage: false, allowedDirs: [] });
     expect(document.body.textContent).toContain("All directories are allowed.");
     expect(document.body.textContent).not.toContain("Add a directory");
-    expect(screen.getByText("Only the node owner can change these rules.")).toBeDefined();
+    expect(screen.getByText("Only the node's owner or a Manage grantee can change these rules.")).toBeDefined();
     expect(screen.queryByRole("button", { name: /add directory/i })).toBeNull();
   });
 
@@ -105,7 +106,7 @@ describe("NodeAllowedDirs", () => {
   it("shows a non-manager the rules but no way to change them", () => {
     renderCard({ canManage: false, access: "edit", allowedDirs: ["/srv/work"] });
     expect(screen.getByText("/srv/work")).toBeDefined();
-    expect(screen.getByText("Only the node owner can change these rules.")).toBeDefined();
+    expect(screen.getByText("Only the node's owner or a Manage grantee can change these rules.")).toBeDefined();
     expect(screen.queryByRole("button", { name: /add directory/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Remove/ })).toBeNull();
   });

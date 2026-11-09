@@ -16,8 +16,9 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing
  * per-node preview switch, opt-in and off by default, cloned from the SSH
  * capability route it sits beside.
  *
- * OWNER-only (`gate.canManage`, with the seeded-`local` admin exception), the
- * same gate as SSH and maintenance: a grantee may restart the agent or read
+ * Manage band (`gate.canManage`: owner or a `manage` grantee, with the
+ * seeded-`local` admin exception), the same gate as SSH and maintenance: an
+ * `edit` grantee may restart the agent or read
  * its log, but deciding whether this machine's pane content may be watched is
  * not theirs.
  *

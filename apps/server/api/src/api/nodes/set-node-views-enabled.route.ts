@@ -29,7 +29,7 @@ const PreviewEnabledBodySchema = t.Object({
   feature: t.Optional(t.Union([t.Literal("web-previews"), t.Literal("display")])),
   on: t.Boolean({
     description:
-      "Allow the selected feature on this machine. Web previews apply to every subshell; virtual displays must be requested at launch. Off by default. Owner only; admin on the control-plane host.",
+      "Allow the selected feature on this machine. Web previews apply to every subshell; virtual displays must be requested at launch. Off by default. The node's owner or a Manage grantee; admin on the control-plane host.",
   }),
 });
 
@@ -38,8 +38,9 @@ const PreviewEnabledBodySchema = t.Object({
  * one machine (pane-preview spec Task 3). Browser session or an API key
  * holding the `nodes:preview` grant.
  *
- * **OWNER-only** (`gate.canManage`, with the seeded-`local` admin exception),
- * the same gate as SSH and maintenance: a grantee may restart the agent or
+ * **Manage band** (`gate.canManage`: owner or a `manage` grantee, with the
+ * seeded-`local` admin exception), the same gate as SSH and maintenance: an
+ * `edit` grantee may restart the agent or
  * read its log, but deciding whether this machine's pane content may be
  * watched is not theirs. The permission is its OWN catalog id, not
  * `nodes:ssh`. A key scoped to SSH must not be able to flip preview; the
@@ -107,7 +108,7 @@ export const setNodeViewsEnabledRoute = new Elysia()
         operationId: "setNodeViewsEnabled",
         tags: ["nodes"],
         description:
-          "Enable or disable web previews and virtual displays on a node (owner only; admin on the control-plane host). Off by default; enabling lets authorized viewers watch this machine's pane content.",
+          "Enable or disable web previews and virtual displays on a node (the node's owner or a Manage grantee; admin on the control-plane host). Off by default; enabling lets authorized viewers watch this machine's pane content.",
       },
     },
   );
