@@ -1,5 +1,23 @@
 # @internal/server
 
+## 3.3.1
+
+### Patch Changes
+
+- [#491](https://github.com/subshell-ai/subshell/pull/491) [`9032140`](https://github.com/subshell-ai/subshell/commit/9032140d1ab798e1ada54324cdafa5fc6ca945a3) Thanks [@theogravity](https://github.com/theogravity)! - Workspace header: the add-subshell button is icon-only now, a plain "+" pill. The tooltip and screen-reader name still carry the full label, so the control keeps the header row short without losing its name.
+
+- [#503](https://github.com/subshell-ai/subshell/pull/503) [`f2026f6`](https://github.com/subshell-ai/subshell/commit/f2026f6f16942a1c1af578e6dddd043197e4aaa6) Thanks [@theogravity](https://github.com/theogravity)! - Fixed the count chips sitting at different heights in a pane's header: the preview chip hung off a 14px anchor and the devices chip off a 16px one. Both controls now anchor to the same box, so the badges ride level.
+
+- [#505](https://github.com/subshell-ai/subshell/pull/505) [`55b3644`](https://github.com/subshell-ai/subshell/commit/55b36448a46071b7dca9e92c32cc461cd53c8ade) Thanks [@theogravity](https://github.com/theogravity)! - A mouse or pen click on a workspace tab now hands the keyboard back to that pane's terminal, so the next Esc or keystroke reaches the agent. Before this, clicking a tab left focus on the tab itself: a docked `/mcp list` report stayed open while the turn streamed above it, and typing went nowhere.
+  
+  Names mirrored from a pane's title also drop omp's `π` brand and run-state separator, so a session reads `🚌 Fix the stuck overlay` instead of `π ⠋ 🚌 Fix the stuck overlay` in the rail, the pane header and the subshell page.
+
+- [#502](https://github.com/subshell-ai/subshell/pull/502) [`6034b4e`](https://github.com/subshell-ai/subshell/commit/6034b4e821fcb0443cf1743102bacd08a61f98aa) Thanks [@theogravity](https://github.com/theogravity)! - Long working directories now clip from the front everywhere they appear in a narrow space, so a path still names its leaf: `…/projects/hmn-vm` instead of `/home/theo/projects…`. That's the sidebar rows, subshell cards, both pane headers, the subshells table, and the add-a-pane picker. What tells two panes apart sits at the end of the path, and the full directory still reads whole in each row's tooltip.
+
+- [#491](https://github.com/subshell-ai/subshell/pull/491) [`9032140`](https://github.com/subshell-ai/subshell/commit/9032140d1ab798e1ada54324cdafa5fc6ca945a3) Thanks [@theogravity](https://github.com/theogravity)! - Sidebar: the harness subagent rows a pane reports now hang off the same tree rail as its created subshells, so a pane showing both kinds of child reads as one tree instead of two.
+- Updated dependencies []:
+  - @internal/pane-runtime@1.0.0
+
 ## 3.3.0
 
 ### Minor Changes

@@ -1,5 +1,12 @@
 # @internal/desktop-client
 
+## 1.5.8
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @internal/node@3.4.1
+
 ## 1.5.7
 
 ### Patch Changes
