@@ -24,8 +24,9 @@ const OkSchema = t.Object({ ok: t.Boolean({ description: "Always true on success
  * RETIRE gate: the real owner, or any admin (operator ruling 2026-10-09: the
  * #351 list put every machine on every admin's Nodes page, and a page that
  * shows a machine it cannot retire reads as broken). Cookie-only, and `local`
- * is undeletable (400). Managing a foreign node's SHARES stays owner-only;
- * retirement is the weaker act and the admin holds it. Guards, in order:
+ * is undeletable (400). Managing a foreign node's SHARES sits on the manage
+ * band, which an admin off `local` does not hold; retirement is the weaker act
+ * and the admin holds it. Guards, in order:
  * running subshells → 409 unless `?force=true`; force on a node that is
  * ONLINE → 409 (force may not ambush a live machine — remote terminate is
  * phase 2, so "go offline first" is the honest instruction).

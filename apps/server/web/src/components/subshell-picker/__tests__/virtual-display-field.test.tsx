@@ -247,7 +247,7 @@ it("preserves a selected display while revalidating the same machine", async () 
 
 describe("launch refusals at the control", () => {
   const refusal =
-    "That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or launch without a screen. (preview-display-not-ready: display :90 / rfb 5910 not answering within 10000ms (Xvfb socket never appeared))";
+    "That node's virtual display did not come up inside the launch budget, so the screen pane was refused. Try again, or go without a screen. (preview-display-not-ready: display :90 / rfb 5910 not answering within 10000ms (Xvfb socket never appeared))";
   it("renders the refusal beside the checkbox and names it to assistive tech", async () => {
     respond(ready);
     render(<VirtualDisplayField node={linux} id="display" checked onChange={() => {}} launchError={refusal} />, {

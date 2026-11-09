@@ -11,38 +11,59 @@ import {
 } from "@/components/ui/dialog";
 import { ErrorNotice, WarningNotice } from "@/components/ui/notice";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { RosterUser, ShareDraft } from "@/hooks/use-subshell-shares";
-import type { SubshellAccess } from "@/types/subshell";
+import type { RosterUser } from "@/hooks/use-subshell-shares";
 
-/** The grantee levels a share can hold (owner is implicit, never assignable). */
-type ShareLevel = Exclude<SubshellAccess, "owner">;
+/** One assignable rung of the sharing ladder, lowest first. */
+export interface ShareLevelDef<P extends string> {
+  /** The wire value stored on the grant */
+  value: P;
+  /** The picker's label */
+  label: string;
+}
 
-const LEVEL_OPTIONS: { value: ShareLevel; label: string }[] = [
+/** A grant in the dialog's shape: who, and which rung. */
+export interface ShareGrant<P extends string> {
+  granteeUserId: string | null;
+  permission: P;
+}
+
+/** The ladder, ordered bottom rung first so the picker and the styling agree. */
+export type ShareLevels<P extends string> = readonly [ShareLevelDef<P>, ...ShareLevelDef<P>[]];
+
+/** The view/edit ladder the subshell and preset dialogs share. */
+export const BASIC_SHARE_LEVELS: ShareLevels<"view" | "edit"> = [
   { value: "view", label: "View" },
   { value: "edit", label: "View + edit" },
 ];
 
-function ShareLevelSelect({
+function ShareLevelSelect<P extends string>({
   label,
+  levels,
   value,
   onChange,
   disabled = false,
 }: {
   label: string;
+  levels: ShareLevels<P>;
   disabled?: boolean;
-  value: ShareLevel;
-  onChange: (value: ShareLevel) => void;
+  value: P;
+  onChange: (value: P) => void;
 }) {
   return (
-    <Select disabled={disabled} items={LEVEL_OPTIONS} value={value} onValueChange={(level) => level && onChange(level)}>
+    <Select
+      disabled={disabled}
+      items={levels.map((level) => ({ value: level.value as string, label: level.label }))}
+      value={value}
+      onValueChange={(next) => next && onChange(next as P)}
+    >
       <SelectTrigger aria-label={label} className="w-full" disabledReason="Wait for sharing changes to save.">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
         <SelectGroup>
-          {LEVEL_OPTIONS.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
+          {levels.map((level) => (
+            <SelectItem key={level.value} value={level.value}>
+              {level.label}
             </SelectItem>
           ))}
         </SelectGroup>
@@ -55,12 +76,16 @@ function ShareLevelSelect({
 const EVERYONE = "everyone";
 
 /**
- * The grant-editing dialog behind both `SharingDialog` (subshells) and
- * `NodeSharingDialog` (nodes) — the wire contracts are identical (GET returns
- * the grant set, PUT replaces it whole, null grantee = Everyone, same
- * view|edit vocabulary), so only the endpoint and the copy differ. The
- * wrappers own the hooks and pass everything here as plain data + one
- * `onSave`, which keeps this file fetch-free and the wrappers thin.
+ * The grant-editing dialog behind `SharingDialog` (subshells),
+ * `PresetSharingDialog` (presets) and `NodeSharingDialog` (nodes) — the wire
+ * contracts are identical (GET returns the grant set, PUT replaces it whole,
+ * null grantee = Everyone), so only the endpoint, the copy, and the ladder of
+ * assignable levels differ. Node sharing gained `manage` (spec 2026-11-07)
+ * without giving the other two a rung they do not have: `levels` is a
+ * required prop, ordered lowest first, and the read-only rows and the picker
+ * both render from it. The wrappers own the hooks and pass everything here as
+ * plain data + one `onSave`, which keeps this file fetch-free and the wrappers
+ * thin.
  *
  * Controlled with no trigger of its own. Local draft state is seeded from the
  * server data on every render until the first edit (so a freshly-opened dialog
@@ -68,11 +93,12 @@ const EVERYONE = "everyone";
  * edit never leaks forward. `canManage` (server-derived, never re-derived
  * here) renders the same rows read-only for viewers who cannot move grants.
  */
-export function SharingDialogCore({
+export function SharingDialogCore<P extends string>({
   open,
   onOpenChange,
   title,
   description,
+  levels,
   isLoading,
   serverGrants,
   roster,
@@ -90,17 +116,19 @@ export function SharingDialogCore({
   title: string;
   /** Dialog sub-copy explaining what the grants confer */
   description: string;
+  /** The assignable rungs, lowest first; drives picker labels and read-only styling */
+  levels: ShareLevels<P>;
   /** True while the current grant set is still loading */
   isLoading: boolean;
   /** The server's current grants — the seed until a local edit starts */
-  serverGrants: ShareDraft[];
+  serverGrants: ShareGrant<P>[];
   /** Instance roster for the add-row picker (emails as labels) */
   roster: RosterUser[];
   /** True while the PUT is in flight */
   saving: boolean;
   /**
    * Amber note under the description, for what a grant DISCLOSES rather than
-   * what it permits. Optional because the two callers disclose different
+   * what it permits. Optional because the callers disclose different
    * things: a subshell share hands over a live terminal's contents, a node
    * share hands over a machine.
    */
@@ -108,16 +136,16 @@ export function SharingDialogCore({
   /** Failed initial reads must not be mistaken for an empty grant set. */
   loadError?: ReactNode;
   /** PUTs the complete replacement set; rejects with the failure to surface */
-  onSave: (grants: ShareDraft[]) => Promise<unknown>;
+  onSave: (grants: ShareGrant<P>[]) => Promise<unknown>;
   /** False renders everything read-only (no add/remove/level/Save) */
   canManage?: boolean;
 }) {
   // Local edits (null = "unsaved, still what the server has"). Derived grants
   // fall back to the server set so a freshly-opened dialog renders rows without
   // waiting on a seeding effect.
-  const [draft, setDraft] = useState<ShareDraft[] | null>(null);
+  const [draft, setDraft] = useState<ShareGrant<P>[] | null>(null);
   const [pickId, setPickId] = useState<string>(EVERYONE);
-  const [pickLevel, setPickLevel] = useState<ShareLevel>("view");
+  const [pickLevel, setPickLevel] = useState<P>(levels[0].value);
   const [error, setError] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
@@ -147,7 +175,7 @@ export function SharingDialogCore({
     onOpenChange(next);
   }
 
-  function changeLevel(index: number, level: ShareLevel) {
+  function changeLevel(index: number, level: P) {
     if (isLoading || loadError || busy) return;
     setDraft(grants.map((g, i) => (i === index ? { ...g, permission: level } : g)));
   }
@@ -179,6 +207,10 @@ export function SharingDialogCore({
       setSubmitting(false);
     }
   }
+
+  // Read-only rows name the rung from `levels` (never a hardcoded branch, so a
+  // third rung can't arrive unlabelled); only the bottom rung sits muted.
+  const levelLabel = (permission: P) => levels.find((level) => level.value === permission);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -217,8 +249,9 @@ export function SharingDialogCore({
               </span>
               {canManage && !isLoading && !loadError ? (
                 <>
-                  <ShareLevelSelect
+                  <ShareLevelSelect<P>
                     label={`Access for ${g.granteeUserId === null ? "Everyone" : "this user"}`}
+                    levels={levels}
                     disabled={busy}
                     value={g.permission}
                     onChange={(level) => changeLevel(i, level)}
@@ -235,10 +268,10 @@ export function SharingDialogCore({
                     Remove
                   </Button>
                 </>
-              ) : g.permission === "edit" ? (
-                <span className="text-sm">View + edit</span>
               ) : (
-                <span className="text-muted-foreground text-sm">View</span>
+                <span className={levelLabel(g.permission) === levels[0] ? "text-muted-foreground text-sm" : "text-sm"}>
+                  {levelLabel(g.permission)?.label ?? g.permission}
+                </span>
               )}
             </div>
           ))}
@@ -258,7 +291,8 @@ export function SharingDialogCore({
                   emptyText="No matching people to add."
                 />
               </fieldset>
-              <ShareLevelSelect
+              <ShareLevelSelect<P>
+                levels={levels}
                 disabled={busy}
                 label="Access level to grant"
                 value={pickLevel}

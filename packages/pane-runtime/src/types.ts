@@ -154,6 +154,15 @@ export interface HarnessPlugin {
    * for a host that has both the plugin and the binary in front of it.
    */
   parseVersion?(raw: string): string | null;
+  /**
+   * Interprets the harness's terminal title as a subshell name.
+   *
+   * The sweep has already removed escape sequences and control bytes; the
+   * plugin strips what its harness puts around the session name. Omit it for
+   * a harness whose title is the name itself, and the sanitized title is used
+   * as-is. Comes straight from the plugin, attached by the adapter.
+   */
+  parsePaneTitle?(raw: string): string;
   /** Builds the argv (no shell) used to launch a subshell. */
   buildCommand(input: BuildCommandInput): string[];
   /**

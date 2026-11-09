@@ -494,3 +494,31 @@ describe("ClaudeCodePlugin attention hooks", () => {
     expect(hooks.PreToolUse?.[1]?.matcher).toBe("Agent|Task");
   });
 });
+
+describe("ClaudeCodePlugin pane titles", () => {
+  const parse = plugin.parsePaneTitle;
+  if (!parse) throw new Error("Claude Code must parse its own pane titles");
+
+  /**
+   * Claude Code prefixes the pane title with a cycling status glyph
+   * (`✳ Ship the rename feature`, then `✻ …` on the next sweep). The glyph is
+   * run state, not the session name, and leaving it in made a mirrored name
+   * churn between sweeps.
+   */
+  it("strips the cycling status glyph and keeps the task text", () => {
+    expect(parse("✳ Ship the rename feature")).toBe("Ship the rename feature");
+    expect(parse("✻ Ship the rename feature")).toBe("Ship the rename feature");
+    expect(parse("· Ship the rename feature")).toBe("Ship the rename feature");
+    expect(parse("  ✳   Ship the rename feature")).toBe("Ship the rename feature");
+  });
+
+  it("answers empty for a title that is only the glyph", () => {
+    expect(parse("✳")).toBe("");
+    expect(parse("· ")).toBe("");
+  });
+
+  it("leaves an undecorated title alone", () => {
+    expect(parse("Ship the rename feature")).toBe("Ship the rename feature");
+    expect(parse("2FA refactor")).toBe("2FA refactor");
+  });
+});

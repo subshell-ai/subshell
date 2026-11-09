@@ -24,6 +24,7 @@ import { setNodeServerUrlRoute } from "@/api/nodes/set-node-server-url.route.js"
 import { setNodeSharesRoute } from "@/api/nodes/set-node-shares.route.js";
 import { setNodeSshEnabledRoute } from "@/api/nodes/set-node-ssh-enabled.route.js";
 import { setNodeViewsEnabledRoute } from "@/api/nodes/set-node-views-enabled.route.js";
+import { transferNodeRoute } from "@/api/nodes/transfer-node.route.js";
 import { updateNodeRoute } from "@/api/nodes/update-node.route.js";
 import { routeDiscoveryRoute } from "./route-discovery.route.js";
 
@@ -63,6 +64,7 @@ const nodeOperationsRoutes = new Elysia()
   .use(displayReadinessRoute)
   .use(repairNodeMachinePinRoute)
   .use(rotateNodeKeyRoute)
+  .use(transferNodeRoute)
   .use(reregisterNodeRoute)
   .use(recheckNodeRoute)
   .use(serviceNodeRoute)

@@ -18,6 +18,7 @@ import {
   parseNodePaneSizeResult,
   parseNodePathExistsResult,
   parseNodePreviewCloseResult,
+  parseNodePreviewDisplayCloseResult,
   parseNodePreviewOpenResult,
   parseNodePreviewPortsResult,
   parseNodeProbeEntries,
@@ -343,6 +344,17 @@ describe("preview results (protocol 23)", () => {
     expect(parseNodePreviewCloseResult({ ref: REF })).toBeNull();
     expect(parseNodePreviewCloseResult({ closed: true })).toBeNull();
     expect(parseNodePreviewCloseResult({ ref: REF, closed: "yes" })).toBeNull();
+  });
+
+  it("parseNodePreviewDisplayCloseResult accepts only a boolean closed", () => {
+    expect(parseNodePreviewDisplayCloseResult({ closed: true })).toEqual({ closed: true });
+    expect(parseNodePreviewDisplayCloseResult({ closed: false })).toEqual({ closed: false });
+    expect(parseNodePreviewDisplayCloseResult({})).toBeNull();
+    expect(parseNodePreviewDisplayCloseResult({ closed: "yes" })).toBeNull();
+    expect(parseNodePreviewDisplayCloseResult(null)).toBeNull();
+    // An additive stray member rides through tolerated and out of the answer:
+    // the plane reads exactly { closed }, like every rebuild here.
+    expect(parseNodePreviewDisplayCloseResult({ closed: true, display: ":90" })).toEqual({ closed: true });
   });
 
   it("ports_get reports ports, a nullable CDP hint, a nullable screen, and an optional screenLost", () => {

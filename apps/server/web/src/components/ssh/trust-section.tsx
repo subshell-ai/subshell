@@ -5,20 +5,28 @@ import { useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useRepairSshMachinePin } from "@/hooks/use-ssh";
 
-/** Machine fingerprints and explicit peer-pin repair: agent owners may repair their own pins,
+/** Machine fingerprints and explicit peer-pin repair: the manage band (owner
+ * or Manage grantee) repairs an agent node's pins,
  * while only cookie admins may inspect or change the server's pin store.
  * The displayed copy still needs comparison with each machine through a trusted channel. */
 export function SshTrustSection({ node, embedded = false }: { node: NodeDetail; embedded?: boolean }) {
   const { data: nodeData } = useNodes();
   const { data: settings } = usePublicSettings();
   const localAdmin = node.kind === "local" && node.canManage && settings?.viewerIsAdmin === true;
-  if ((node.kind === "local" ? !localAdmin : node.access !== "owner" && node.access !== "edit") || !node.sshTrust) {
+  if (
+    (node.kind === "local"
+      ? !localAdmin
+      : node.access !== "owner" && node.access !== "manage" && node.access !== "edit") ||
+    !node.sshTrust
+  ) {
     return null;
   }
   const machines = Array.isArray(nodeData?.nodes) ? nodeData.nodes : [];
   const peerName = (peerId: string) => machines.find((n) => n.id === peerId)?.name ?? peerId;
-  // Foreign agent admins remain edit viewers. Only local has the explicit admin configuration role.
-  const isOwner = node.kind === "local" ? localAdmin : node.access === "owner";
+  // The repair gate is the server's `canManage` band (spec 2026-11-07 widened
+  // the agent arm from owner-only to owner∪manage; the local arm stays the
+  // literal admin rule). Foreign agent admins remain edit viewers.
+  const canRepair = node.kind === "local" ? localAdmin : node.canManage;
 
   return (
     <div className={cn("flex w-full flex-col gap-3", embedded && "border-t pt-4")}>
@@ -27,7 +35,7 @@ export function SshTrustSection({ node, embedded = false }: { node: NodeDetail; 
         node={node}
         allowLocal={localAdmin}
         renderPeerAction={
-          isOwner
+          canRepair
             ? (peer: NodeSshTrustPeer) => (
                 <PeerRepairButton nodeId={node.id} peer={peer} label={peerName(peer.nodeId)} />
               )
@@ -36,11 +44,11 @@ export function SshTrustSection({ node, embedded = false }: { node: NodeDetail; 
       />
       <p className="text-detail text-muted-foreground">
         This server displays the fingerprints reported by each machine. To verify them independently, open each
-        machine’s own dashboard and compare its fingerprints with the saved copy on the other machine.
+        machine's own dashboard and compare its fingerprints with the saved copy on the other machine.
       </p>
-      {isOwner && node.sshTrust.peers.length > 0 && (
+      {canRepair && node.sshTrust.peers.length > 0 && (
         <p className="text-detail text-muted-foreground">
-          Re-pairing replaces the saved identity for one peer machine. Verify both machines’ fingerprints before you
+          Re-pairing replaces the saved identity for one peer machine. Verify both machines' fingerprints before you
           re-pair them.
         </p>
       )}

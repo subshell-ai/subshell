@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import { browserWatchRoute } from "@/api/subshells/browser-watch.route.js";
+import { clearSubshellScreenRoute } from "@/api/subshells/clear-subshell-screen.route.js";
 import { createSubshellRoute } from "@/api/subshells/create-subshell.route.js";
 import { deleteSubshellRoute } from "@/api/subshells/delete-subshell.route.js";
 import { execSubshellRoute } from "@/api/subshells/exec-subshell.route.js";
@@ -9,6 +10,7 @@ import { getSubshellLogRoute } from "@/api/subshells/get-subshell-log.route.js";
 import { inputSubshellRoute } from "@/api/subshells/input-subshell.route.js";
 import { listSubshellsRoute } from "@/api/subshells/list-subshells.route.js";
 import { restartSubshellRoute } from "@/api/subshells/restart-subshell.route.js";
+import { setSubshellScreenRoute } from "@/api/subshells/set-subshell-screen.route.js";
 import { subshellAttentionRoute } from "@/api/subshells/subshell-attention.route.js";
 import { subshellExitRoute } from "@/api/subshells/subshell-exit.route.js";
 import { subshellHarnessSessionRoute } from "@/api/subshells/subshell-harness-session.route.js";
@@ -49,6 +51,8 @@ export const subshellRoutes = new Elysia({ prefix: "/api/subshells" }).use([
   inputSubshellRoute,
   execSubshellRoute,
   restartSubshellRoute,
+  setSubshellScreenRoute,
+  clearSubshellScreenRoute,
   terminateSubshellRoute,
   extendSubshellTokenRoute,
   deleteSubshellRoute,

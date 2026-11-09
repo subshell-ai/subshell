@@ -67,7 +67,8 @@ export const setNodeCrossAgentRoute = new Elysia()
       detail: {
         operationId: "setNodeCrossAgentGuidance",
         tags: ["nodes"],
-        description: "Save calling-agent guidance. Node owner only, or a server admin for the server's node.",
+        description:
+          "Save calling-agent guidance. The node's owner or a Manage grantee; a server admin for the server's node.",
       },
     },
   );

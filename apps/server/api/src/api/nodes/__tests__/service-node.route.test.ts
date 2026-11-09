@@ -268,9 +268,9 @@ describe("/api/nodes service + runtime", () => {
    * `stop` and `uninstall` end the connection that would carry the verb
    * undoing them. An `edit` grantee is trusted to interrupt a machine they
    * were shared (a restart comes back); making it unreachable until somebody
-   * walks to it is a different act, so those two are the owner's.
+   * walks to it is a different act, so those two sit on the manage band.
    */
-  it("stop and uninstall are owner-only, even for an edit grantee", async () => {
+  it("stop and uninstall ride the manage band, not the edit rank", async () => {
     const id = await mkNode();
     await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "edit" }], aliceId);
     for (const verb of ["stop", "uninstall"] as const) {
@@ -279,6 +279,22 @@ describe("/api/nodes service + runtime", () => {
     // The reachable verbs stay with `nodeCanConfigure`, so the same grantee
     // may still drive them — offline here, which is a 409 and not a 403.
     for (const verb of ["restart", "start", "install"] as const) {
+      expect((await req("POST", `/api/nodes/${id}/service`, { cookie: carolCookie, body: { verb } })).status).toBe(409);
+    }
+  });
+
+  /**
+   * `manage` (spec 2026-11-07) carries the owner's management band, so the
+   * two one-way verbs ride it too: a manage grantee passes the gate on every
+   * verb and what they meet is this node being offline (409), never a 403.
+   * The band stops at ownership itself — delete and re-register stayed on
+   * the retire gate, pinned in nodes-crud — and the transfer route is
+   * owner-rank-only by its own suite.
+   */
+  it("a manage grantee may drive every verb, stop and uninstall included", async () => {
+    const id = await mkNode();
+    await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "manage" }], aliceId);
+    for (const verb of ["stop", "uninstall", "restart", "start", "install"] as const) {
       expect((await req("POST", `/api/nodes/${id}/service`, { cookie: carolCookie, body: { verb } })).status).toBe(409);
     }
   });

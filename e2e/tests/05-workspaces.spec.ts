@@ -25,9 +25,9 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
   await dialog.getByRole("button", { name: "Create workspace" }).click();
   await expect(page).toHaveURL(/\/workspaces\/.+/);
 
-  // Wide viewport (Desktop Chrome) → dock. The add button's accessible name
-  // is its aria-label "Add a subshell to this workspace" (aria-label wins over
-  // the "Add subshell" text content), so a partial label would not match.
+  // Wide viewport (Desktop Chrome) → dock. The add button is the icon-only
+  // pill; its accessible name is its aria-label "Add a subshell to this
+  // workspace", so a partial label would not match.
   await page.getByRole("button", { name: "Add a subshell to this workspace" }).click();
   // With nothing on the instance yet, the dialog can open straight on the
   // New half (newOnly): no segmented control, title "New subshell". The

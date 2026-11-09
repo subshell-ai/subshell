@@ -121,11 +121,16 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
   // The web-side mirror of `nodeCanConfigure` — the SPA hand-mirrors the
   // server's view model and its rules (see `types/node.ts`), and no helper
   // for this one existed here. `access` is "none" nowhere a view exists, so
-  // owner|edit is exactly the route's gate. Same SHAPE as the sections'
-  // `managesNodeSections` (which it may superficially resemble) but a
-  // different concept: this gates the Re-check ROUTE, not the section tabs.
-  // Do not collapse them into one predicate on the strength of the spelling.
-  const canRecheck = data !== undefined && data.kind === "agent" && (data.access === "owner" || data.access === "edit");
+  // owner|manage|edit is exactly the route's gate (manage joined at spec
+  // 2026-11-07; it ranks above edit, so a manage grantee re-checks too). Same
+  // SHAPE as the sections' `managesNodeSections` (which it may superficially
+  // resemble) but a different concept: this gates the Re-check ROUTE, not the
+  // section tabs. Do not collapse them into one predicate on the strength of
+  // the spelling.
+  const canRecheck =
+    data !== undefined &&
+    data.kind === "agent" &&
+    (data.access === "owner" || data.access === "manage" || data.access === "edit");
   // Permission is only half the button's truth: re-check is a DETECTION
   // command over the live socket, and a node with no live socket cannot run
   // one. A HELD link drops it too (held answers `update` only), so the honest

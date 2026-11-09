@@ -15,7 +15,8 @@ const RepairedSchema = t.Object({
   repaired: t.Boolean({ description: "Always true on success: the machine's ack confirmed the write" }),
 });
 
-/** Repair one peer pin: cookie owner on an enrolled node, cookie admin on the server host. */
+/** Repair one peer pin: manage-band cookie (owner or `manage` grantee on an
+ * enrolled node, admin on the server host). */
 export const repairNodeMachinePinRoute = new Elysia()
   .use(authGuard)
   .use(apiModels)

@@ -16,8 +16,16 @@ import type { NodeSystemSpecs } from "@internal/subshell-protocol";
 /** Why a stale node is being kept connected for exactly one command. */
 export type HeldReason = "below-floor" | "protocol-mismatch";
 
-/** The caller's effective access to a node (viewer-relative; "none" never has a view). */
-export type NodeAccess = "owner" | "edit" | "view";
+/**
+ * The caller's effective access to a node (viewer-relative; "none" never has a view).
+ *
+ * `manage` (spec 2026-11-07) is the granted owner-management band: shares,
+ * settings, rotation, repointing, stop/uninstall, but never transfer, DELETE
+ * or RE-REGISTER. It never exists on `local` (the shares route refuses a
+ * manage grant there), so mirrors of the old owner-only gates can read it as
+ * "this viewer may manage" without touching the server host's rules.
+ */
+export type NodeAccess = "owner" | "manage" | "edit" | "view";
 
 /** `local` = the control-plane host itself; `agent` = an enrolled machine. */
 export type NodeKind = "local" | "agent";
@@ -123,6 +131,15 @@ export interface Node {
    * (someone else's shares stay their act). Server-derived.
    */
   canRetire: boolean;
+  /**
+   * Whether the caller may hand this node to another account (spec 2026-11-07):
+   * the real owner of an ENROLLED machine only. Narrower than both flags above
+   * on purpose — a manage grantee runs everything else about the machine and
+   * stops at ownership, and an admin's retire arm never reaches a handover
+   * (administering a fleet is not seizing its machines). Always false for
+   * `local`, which the instance holds. Server-derived, like the others.
+   */
+  canTransfer: boolean;
   /**
    * Whether this viewer may start a subshell here — the SERVER's answer, never
    * re-derived on this side.
@@ -263,8 +280,8 @@ export interface NodeShare {
   granteeUserId: string | null;
   /** Grantee display name ("Everyone" for the null grant; the id when the user is gone) */
   granteeName: string | null;
-  /** Access level this grant confers */
-  permission: "view" | "edit";
+  /** Access level this grant confers. `manage` (spec 2026-11-07) is nodes' top assignable rung, refused on `local`. */
+  permission: "view" | "edit" | "manage";
 }
 
 /**

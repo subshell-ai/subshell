@@ -19,6 +19,7 @@ function node(over: Partial<NodeDetail> = {}): NodeDetail {
     access: "owner",
     canManage: true,
     canRetire: true,
+    canTransfer: false,
     canLaunch: true,
     capabilities: [],
     allowedDirs: [],
@@ -72,7 +73,7 @@ it("keeps guidance read-only for shared viewers and explains ownership", () => {
   mount(node({ canManage: false, access: "edit" }));
   expect((screen.getByLabelText("Notes for calling agents") as HTMLTextAreaElement).readOnly).toBe(true);
   expect(screen.getByRole("button", { name: "Save guidance" }).getAttribute("aria-disabled")).toBe("true");
-  expect(screen.getByText("Only the node owner can edit this guidance.")).toBeTruthy();
+  expect(screen.getByText("Only the node's owner or a Manage grantee can edit this guidance.")).toBeTruthy();
 });
 it("rejects relative suggestions and retains edits after a failed save", async () => {
   globalThis.fetch = (async () =>

@@ -15,8 +15,8 @@ import { NodeViewReadiness } from "./node-view-readiness";
 
 /**
  * The node page's independent preview switches, cloned from the SSH card's gate posture:
- * the same owner-only flip (`canManage`, seeded-`local` aside), the same
- * remedy lines for a non-owner, and the one `PUT /:id/views-enabled` call.
+ * the same manage-band flip (`canManage`, seeded-`local` aside), the same
+ * remedy lines for a viewer below that band, and the one `PUT /:id/views-enabled` call.
  * The flags are the plane's record, so the switches work on an offline node too
  * - the machine learns the value at its next connect - and the copy says what
  * turning it on lets happen, not that it happens now.
@@ -40,7 +40,7 @@ function NodePreviewFeatureCard({ node, feature }: { node: NodeDetail; feature: 
   const disabledReason = !node.canManage
     ? node.kind === "local"
       ? "An admin can change this setting."
-      : "Only this node’s owner can change this setting."
+      : "Only the node's owner or a Manage grantee can change this setting."
     : update.isPending
       ? `Saving ${title.toLowerCase()}…`
       : undefined;

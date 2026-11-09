@@ -13,14 +13,14 @@ import { ForbiddenError } from "@/shared/errors.js";
 const SshWideForwardsBodySchema = t.Object({
   on: t.Boolean({
     description:
-      "Allow SSH port forwards on this machine to bind non-loopback addresses. Off by default: forwards bind loopback only. Owner only; admin on the control-plane host.",
+      "Allow SSH port forwards on this machine to bind non-loopback addresses. Off by default: forwards bind loopback only. The node's owner or a Manage grantee; admin on the control-plane host.",
   }),
 });
 
 const SshEnabledBodySchema = t.Object({
   on: t.Boolean({
     description:
-      "Allow this machine to be used for Subshell SSH (outbound ssh and serving its keys). Off by default. Owner only; admin on the control-plane host.",
+      "Allow this machine to be used for Subshell SSH (outbound ssh and serving its keys). Off by default. The node's owner or a Manage grantee; admin on the control-plane host.",
   }),
 });
 
@@ -28,8 +28,9 @@ const SshEnabledBodySchema = t.Object({
  * `PUT /api/nodes/:id/ssh-enabled` `{on}` — open or close Subshell SSH on one
  * machine (spec 4.3). Browser session or explicitly enabled system API key.
  *
- * **OWNER-only** (`gate.canManage`, with the seeded-`local` admin exception),
- * the same gate as maintenance, delete and re-share — deliberately NOT the
+ * **Manage band** (`gate.canManage`: owner or a `manage` grantee, with the
+ * seeded-`local` admin exception), the same gate as maintenance and re-share
+ * (delete sits wider, on the retire gate) — deliberately NOT the
  * `nodeCanConfigure` gate an `edit` grantee holds. Enabling SSH widens what
  * can be done THROUGH this machine's OS account (dial out with its keys,
  * serve them to peers); restarting the agent or reading its log is
@@ -84,7 +85,7 @@ export const setNodeSshEnabledRoute = new Elysia()
         operationId: "setNodeSshEnabled",
         tags: ["nodes"],
         description:
-          "Allow or refuse Subshell SSH on a node (owner only; admin on the control-plane host). Off by default; enabling lets the plane dial out of and serve keys from this machine.",
+          "Allow or refuse Subshell SSH on a node (the node's owner or a Manage grantee; admin on the control-plane host). Off by default; enabling lets the plane dial out of and serve keys from this machine.",
       },
     },
   )
@@ -92,7 +93,7 @@ export const setNodeSshEnabledRoute = new Elysia()
   // own for a measured reason: a second mounted route module of this shape
   // tips the Elysia `App` inference into TS2589 (the depth ceiling already
   // recorded for new route files; `auth-rate-limit.route.ts` is the fold
-  // precedent). The acts are one family anyway, owner-only SSH flags on the
+  // precedent). The acts are one family anyway, manage-band SSH flags on the
   // machine's row, each written at exactly one change-site.
   .put(
     "/:id/ssh-wide-forwards",
@@ -123,7 +124,7 @@ export const setNodeSshEnabledRoute = new Elysia()
         operationId: "setNodeSshWideForwards",
         tags: ["nodes"],
         description:
-          "Allow or refuse non-loopback binds for SSH port forwards on a node (owner only; admin on the control-plane host). Off by default: forwards bind loopback only, and enabling lets launches on this machine bind addresses other machines can reach. Turning it off refuses future wide binds; already-running forwards ride the connections approved when they started.",
+          "Allow or refuse non-loopback binds for SSH port forwards on a node (the node's owner or a Manage grantee; admin on the control-plane host). Off by default: forwards bind loopback only, and enabling lets launches on this machine bind addresses other machines can reach. Turning it off refuses future wide binds; already-running forwards ride the connections approved when they started.",
       },
     },
   );

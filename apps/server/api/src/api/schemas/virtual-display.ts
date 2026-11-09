@@ -11,5 +11,8 @@ export const VirtualDisplayRequestSchema = t.Object(
     height: t.Integer({ minimum: 320, maximum: 4096, description: "Display height in pixels" }),
     provider: t.Optional(DisplayProviderIdSchema),
   },
-  { description: "Virtual display request; omitted provider uses the node default at creation" },
+  {
+    description:
+      "Virtual display request; an omitted provider takes the node's default, resolved and pinned whenever the display turns on, at launch or at runtime",
+  },
 );

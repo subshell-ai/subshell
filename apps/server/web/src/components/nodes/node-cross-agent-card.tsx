@@ -58,10 +58,12 @@ export function NodeCrossAgentCard({ node }: { node: NodeDetail }) {
         : directories.length >= CROSS_AGENT_DIRS_MAX
           ? `Suggest up to ${CROSS_AGENT_DIRS_MAX} directories.`
           : null;
+  // The gate is `canManage`, so the sentence must name the whole band: a
+  // manage grantee edits this guidance too (spec 2026-11-07).
   const restriction =
     node.kind === "local"
       ? "Only a server admin can edit this guidance."
-      : "Only the node owner can edit this guidance.";
+      : "Only the node's owner or a Manage grantee can edit this guidance.";
   const save = useMutation({
     mutationFn: (nextDirectories: string[] = directories) =>
       apiFetch<{ ok: boolean }>(`/api/nodes/${encodeURIComponent(node.id)}/cross-agent`, {
