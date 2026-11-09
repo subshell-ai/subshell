@@ -7,15 +7,21 @@ import {
   type SubshellPlugin,
 } from "@subshell-ai/plugin-api";
 import claudeCodeFactory, { manifest as claudeCodeManifest } from "@subshell-ai/plugin-claude-code";
+import clineFactory, { manifest as clineManifest } from "@subshell-ai/plugin-cline";
 import cloudflareTunnelFactory, { manifest as cloudflareTunnelManifest } from "@subshell-ai/plugin-cloudflare-tunnel";
 import codexFactory, { manifest as codexManifest } from "@subshell-ai/plugin-codex";
+import geminiFactory, { manifest as geminiManifest } from "@subshell-ai/plugin-gemini";
 import grokBuildFactory, { manifest as grokBuildManifest } from "@subshell-ai/plugin-grok-build";
 import headscaleFactory, { manifest as headscaleManifest } from "@subshell-ai/plugin-headscale";
 import hermesFactory, { manifest as hermesManifest } from "@subshell-ai/plugin-hermes";
 import netbirdFactory, { manifest as netbirdManifest } from "@subshell-ai/plugin-netbird";
 import ohMyPiFactory, { manifest as ohMyPiManifest } from "@subshell-ai/plugin-oh-my-pi";
+import openInterpreterFactory, { manifest as openInterpreterManifest } from "@subshell-ai/plugin-open-interpreter";
+import openclawFactory, { manifest as openclawManifest } from "@subshell-ai/plugin-openclaw";
 import opencodeFactory, { manifest as opencodeManifest } from "@subshell-ai/plugin-opencode";
+import openhandsFactory, { manifest as openhandsManifest } from "@subshell-ai/plugin-openhands";
 import piFactory, { manifest as piManifest } from "@subshell-ai/plugin-pi";
+import qwenCodeFactory, { manifest as qwenCodeManifest } from "@subshell-ai/plugin-qwen-code";
 import sshFactory, { manifest as sshManifest } from "@subshell-ai/plugin-ssh";
 import tailscaleFactory, { manifest as tailscaleManifest } from "@subshell-ai/plugin-tailscale";
 import terminalFactory, { manifest as terminalManifest } from "@subshell-ai/plugin-terminal";
@@ -63,6 +69,12 @@ const BUILT_INS: BuiltIn[] = [
   { manifest: piManifest, factory: piFactory },
   { manifest: ohMyPiManifest, factory: ohMyPiFactory },
   { manifest: codexManifest, factory: codexFactory },
+  { manifest: geminiManifest, factory: geminiFactory },
+  { manifest: qwenCodeManifest, factory: qwenCodeFactory },
+  { manifest: clineManifest, factory: clineFactory },
+  { manifest: openInterpreterManifest, factory: openInterpreterFactory },
+  { manifest: openhandsManifest, factory: openhandsFactory },
+  { manifest: openclawManifest, factory: openclawFactory },
   { manifest: terminalManifest, factory: terminalFactory },
   // The ssh pane is the terminal launch pointed at ssh: same TYPE, same
   // `[binary, ...flags]` shape, the connection described entirely by the

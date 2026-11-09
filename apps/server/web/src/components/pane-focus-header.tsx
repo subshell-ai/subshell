@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
 import { HarnessSubagentTitle } from "@/components/harness-subagents";
+import { PathTail } from "@/components/path-tail";
 import { SshPaneLabels } from "@/components/ssh-pane-labels";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDevices } from "@/components/subshell-devices";
@@ -161,7 +162,11 @@ export function PaneFocusHeader({
          `gap-2` is `pl-4`. */
       subtitle={
         subshell?.workingDir ? (
-          <span className={cn("block truncate", showingAgent ? "pl-6" : "pl-4")}>{subshell.workingDir}</span>
+          <PathTail
+            path={subshell.workingDir}
+            title={subshell.workingDir}
+            className={cn("block", showingAgent ? "pl-6" : "pl-4")}
+          />
         ) : undefined
       }
       actions={

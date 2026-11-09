@@ -7,7 +7,12 @@ import type { SubshellStatus } from "./subshell-status.js";
  * subshell at query time (tmux is the source of truth).
  */
 export interface SubshellTable {
-  /** Requested virtual display dimensions, retained across manual and automatic restarts. */
+  /**
+   * Stored JSON `{width,height,provider}` with the provider pinned at write
+   * time. The row's DESIRED screen state (spec 2026-11-06): written at create
+   * and by the PUT/DELETE `/api/subshells/:id/screen` toggle routes, read by
+   * every restart. NULL = no display wanted.
+   */
   screenConfig: string | null;
   /** Unique subshell id (uuid) */
   id: string;

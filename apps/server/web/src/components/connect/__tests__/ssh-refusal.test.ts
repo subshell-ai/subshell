@@ -55,9 +55,9 @@ describe("sshLaunchRefusal", () => {
     });
   });
 
-  it("403 SSH_GATE_OFF on a gated-off agent names the owner remedy", () => {
+  it("403 SSH_GATE_OFF on a gated-off agent names the band remedy", () => {
     expect(sshLaunchRefusal(new ApiError(403, "x", { code: "SSH_GATE_OFF" }), machine({ sshEnabled: false }))).toEqual({
-      text: "Outgoing SSH is disabled on this node. Ask this node’s owner to enable it.",
+      text: "Outgoing SSH is disabled on this node. Ask this node's owner or a Manage grantee to enable it.",
       field: "machine",
     });
   });
@@ -65,7 +65,7 @@ describe("sshLaunchRefusal", () => {
   it("403 SSH_GATE_OFF on the control-plane host names the admin remedy", () => {
     const local = machine({ kind: "local", name: "this host", sshEnabled: false });
     expect(sshLaunchRefusal(new ApiError(403, "x", { code: "SSH_GATE_OFF" }), local)).toEqual({
-      text: "Outgoing SSH is disabled on this node. An admin can enable it in this node’s settings.",
+      text: "Outgoing SSH is disabled on this node. An admin can enable it in this node's settings.",
       field: "machine",
     });
   });

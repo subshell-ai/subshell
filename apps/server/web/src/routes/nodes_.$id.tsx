@@ -16,7 +16,7 @@ import {
 } from "@internal/subshell-protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Share2, Trash2 } from "lucide-react";
+import { ArrowLeftRight, Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { DirectoryPickerInput } from "@/components/directory-picker-input";
 import { EditableText } from "@/components/editable-text";
@@ -30,6 +30,7 @@ import { osLabel } from "@/components/nodes/node-row";
 import { managesNodeSections } from "@/components/nodes/node-section-nav";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
 import { NodeSshCard } from "@/components/nodes/node-ssh-card";
+import { NodeTransferDialog } from "@/components/nodes/node-transfer-dialog";
 import { NodeUpdateCard } from "@/components/nodes/node-update-card";
 import { ServerIdentityRecovery } from "@/components/ssh/server-identity-recovery";
 import { SshTrustSection } from "@/components/ssh/trust-section";
@@ -45,18 +46,20 @@ export const Route = createFileRoute("/nodes_/$id")({
 /**
  * One node's config page (spec 2026-08-31 §9/§10): machine facts, the
  * node's harness detection card, the Rotate-key action, and the Share/Delete
- * actions. The title renames itself (owner-only PATCH; `local`'s name is
+ * actions. The title renames itself (manage-band PATCH; `local`'s name is
  * fixed for everyone).
  *
  * The harness card is read-only everywhere (spec 2026-09-10: plugins are
  * instance-level and managed under `/settings/plugins`); its one control,
  * Re-check, moved inside the card and gates itself on the view's server-
- * derived `access` (owner|edit — the rule the recheck route applies), not on
+ * derived `access` (edit rank or above, manage included — the rule the
+ * recheck route applies), not on
  * `canManage`.
  *
  * Gating is entirely server-derived: invisible nodes 404 (handled as a load
- * error, never a leak); Share enables on `Node.canManage` (owner, or admin on
- * `local`) while Delete and Re-register enable on the wider `Node.canRetire`
+ * error, never a leak); Share enables on `Node.canManage` (owner or a Manage
+ * grantee, admin on `local`) while Delete and Re-register enable on the wider
+ * `Node.canRetire`
  * (owner or any admin, ruling 2026-10-09) — the frontend must not re-derive
  * admin identity for either.
  */
@@ -70,8 +73,9 @@ function NodeDetailPage() {
   const renameNode = useRenameNode(id);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
 
-  /** Owner-only rename; a 409 NODE_NAME_TAKEN (or the `local` 400) surfaces inline in the field. */
+  /** Manage-band rename; a 409 NODE_NAME_TAKEN (or the `local` 400) surfaces inline in the field. */
   async function saveName(name: string): Promise<void> {
     await renameNode.mutateAsync(name);
   }
@@ -81,8 +85,8 @@ function NodeDetailPage() {
       id={id}
       errorContent={id === "local" ? <ServerIdentityRecovery /> : undefined}
       title={
-        // Rename is owner-gated: `canManage` is exactly that gate — a real
-        // owner on an agent node, or an admin on `local`, whose boost is
+        // Rename rides `canManage`: a real owner or a Manage grantee on an
+        // agent node, or an admin on `local`, whose boost is
         // `local`-only. So an admin names the control-plane host's row and
         // nobody else's (spec §9 stands for agents).
         node.data?.canManage ? (
@@ -105,10 +109,26 @@ function NodeDetailPage() {
             disabledReason={
               n.kind === "local"
                 ? "Only a server admin can change sharing for this node."
-                : "Only the node owner can change sharing for this node."
+                : "Only the node's owner or a Manage grantee can change sharing."
             }
           >
             <Share2 /> Share
+          </Button>
+          {/* Ownership handover (spec 2026-11-07): the ONE control gated on
+              `canTransfer`, which is narrower than both neighbors — a manage
+              grantee drives everything else about this machine, and an admin
+              can retire it, yet neither may take it over. */}
+          <Button
+            variant="outline"
+            onClick={() => setTransferOpen(true)}
+            disabled={!n.canTransfer}
+            disabledReason={
+              n.kind === "local"
+                ? "The server's own node belongs to the instance, not to a person."
+                : "Only the node's owner can hand it to another account."
+            }
+          >
+            <ArrowLeftRight /> Transfer
           </Button>
           <Button
             variant="outline"
@@ -116,7 +136,7 @@ function NodeDetailPage() {
             disabled={!n.canRetire || n.kind === "local"}
             disabledReason={
               n.kind === "local"
-                ? "The server’s own node cannot be deleted."
+                ? "The server's own node cannot be deleted."
                 : "Only the node owner or a server admin can delete this node."
             }
           >
@@ -242,7 +262,7 @@ function NodeDetailPage() {
               the same owner-only posture, the same remedy lines. */}
           <NodePreviewCard key={`preview-${n.id}`} node={n} />
 
-          {/* The same owner-or-edit-on-an-agent rule as the daemon sections and the route's gate.
+          {/* The same rank-or-edit-on-an-agent rule (owner/manage/edit) as the daemon sections and the route's gate.
               `local` updates with the server, which the page already cannot ask here. */}
           {managesNodeSections(n) && <NodeUpdateCard node={n} />}
 
@@ -255,13 +275,13 @@ function NodeDetailPage() {
           {/* The §4.6 machine trust block (spec 2026-10-08): own and pinned
               peers' key fingerprints, for the out-of-band compare each side
               can verify against its own machine. The server serializes the
-              field only for owner/edit on agent nodes, so a `view` grantee
+              field from the edit rank up on agent nodes, so a `view` grantee
               never receives it and the card renders nothing; the card's own
               kind/access check is the belt. Live report while the machine is
               connected, durable mirror marked stale when it is not. The
               section adds the plane-only halves: the "display only" honesty
               line (§4.6: this rendering proves nothing, the two dashboards
-              do) and the owner-only re-pair act on each peer (§4.5). */}
+              do) and the manage-band re-pair act on each peer (§4.5). */}
           {n.kind === "local" && <ServerIdentityRecovery />}
 
           {/* The node's RULES live on its page, not in a tab of one card:
@@ -315,7 +335,24 @@ function NodeDetailPage() {
               onDeleted={() => void navigate({ to: "/nodes" })}
             />
           )}
-          <NodeSharingDialog nodeId={n.id} open={shareOpen} onOpenChange={setShareOpen} canManage={n.canManage} />
+          <NodeSharingDialog
+            nodeId={n.id}
+            kind={n.kind}
+            open={shareOpen}
+            onOpenChange={setShareOpen}
+            canManage={n.canManage}
+          />
+          {transferOpen && (
+            <NodeTransferDialog
+              nodeId={n.id}
+              nodeName={n.name}
+              open
+              onOpenChange={setTransferOpen}
+              // After the handover this page is about someone else's machine,
+              // manage share or not; the list is the honest place to stand.
+              onDone={() => void navigate({ to: "/nodes" })}
+            />
+          )}
         </>
       )}
     </NodePageShell>

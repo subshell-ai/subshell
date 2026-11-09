@@ -41,8 +41,12 @@ export function subshellMcpEnv(apiKey: string, subshellId: string, subshellName:
  * Registers `subshell mcp` for one subshell launch, in the HARNESS'S OWN dialect:
  * the plugin renders the config file content (plus any argv/env that activates
  * it), and this writes the file. Returns the registration for the caller to
- * bake into the pane, or undefined for the one harness with no per-subshell
- * format (hermes), whose one-time mcpSetup steps the UI explains instead.
+ * bake into the pane, or undefined for every harness without an
+ * `mcpRegistration` member (only claude-code, codex, opencode, pi and
+ * oh-my-pi ship one). The manual-registration harnesses have one-time
+ * mcpSetup steps the UI explains instead; openclaw, terminal, and ssh have
+ * no MCP path at all. Pi's member is a subagent-bridge placeholder, so its
+ * MCP wiring is manual like the seven's.
  * Content holds no secrets, but the file stays 0600: least exposure is free.
  */
 export function registerSubshellMcp(
@@ -120,8 +124,9 @@ export function nodeSelfInvoke(facts: Pick<NodeFacts, "selfInvoke">, subcommand:
  * @param harness - The resolved plugin (its `mcpRegistration` dialect)
  * @param subshellId - The subshell the config is generated for
  * @param facts - The node's live facts (dataDir + the ready-reported mcpLaunch)
- * @returns the registration plus the node-side path, or undefined for the
- *          one harness with no per-subshell format (hermes)
+ * @returns the registration plus the node-side path, or undefined for every
+ *          harness without an `mcpRegistration` member (the same split
+ *          `registerSubshellMcp` documents for the local path)
  */
 export function planRemoteSubshellMcp(
   harness: HarnessPlugin,

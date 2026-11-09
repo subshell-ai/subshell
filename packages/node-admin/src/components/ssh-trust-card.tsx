@@ -20,9 +20,11 @@ import { Fact } from "./fact-list";
  * key material, and nothing here proves anything until both machines have
  * been read.
  *
- * Agent trust requires owner/edit access. The control plane may opt its local
- * row in for an authenticated admin through `allowLocal`; its canManage check
- * remains a second gate. Node dashboards retain the agent-only default.
+ * Agent trust requires edit access or above, so `manage` (spec 2026-11-07)
+ * sees it too: the server's read gate is rank-based. The control plane may
+ * opt its local row in for an authenticated admin through `allowLocal`; its
+ * canManage check remains a second gate. Node dashboards retain the
+ * agent-only default.
  *
  * Staleness is not the gate: an OFFLINE agent renders the durable mirror, and
  * says so plainly, because comparing last-known fingerprints during an
@@ -30,7 +32,7 @@ import { Fact } from "./fact-list";
  * stale value as current would mislead.
  *
  * `renderPeerAction` is the plane's slot (Task 15): the re-pair act belongs
- * to the control plane's owner gate, not to the card, so the CARD stays a
+ * to the control plane's manage-band gate, not to the card, so the CARD stays a
  * pure display and the node's own dashboard renders no action by never
  * passing the prop. It renders inside the peer's row, so the act sits on the
  * facts it acts on.
@@ -48,7 +50,11 @@ export function NodeSshTrustCard({
   /** Render inside an existing SSH card without nesting another card. */
   embedded?: boolean;
 }): JSX.Element | null {
-  if (node.kind === "local" ? !allowLocal || !node.canManage : node.access !== "owner" && node.access !== "edit")
+  if (
+    node.kind === "local"
+      ? !allowLocal || !node.canManage
+      : node.access !== "owner" && node.access !== "edit" && node.access !== "manage"
+  )
     return null;
   const trust = node.sshTrust;
   if (!trust) return null;

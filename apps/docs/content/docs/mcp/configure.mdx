@@ -19,7 +19,7 @@ The compiled server and node binaries both include an `mcp` subcommand. The host
 
 ## Manual integration
 
-Grok Build, Hermes, and pi require one-time host setup. In the server dashboard's sidebar, choose **Settings** → **Presets** → **New preset** → **New agent preset** and select the agent. Find **Cross-subshell comms** near the bottom of the form for the registration commands. Run those commands on the machine where that agent will execute. See [Grok Build](/agents/grok-build), [Hermes Agent](/agents/hermes) and [pi](/agents/pi).
+Gemini CLI, Qwen Code, Cline, Open Interpreter, OpenHands, Grok Build, Hermes, and pi require one-time host setup. In the server dashboard's sidebar, choose **Settings** → **Presets** → **New preset** → **New agent preset** and select the agent. Find **Cross-subshell comms** near the bottom of the form for the registration commands. Run those commands on the machine where that agent will execute. See [Gemini CLI](/agents/gemini), [Qwen Code](/agents/qwen-code), [Cline](/agents/cline), [Open Interpreter](/agents/open-interpreter), [OpenHands](/agents/openhands), [Grok Build](/agents/grok-build), [Hermes Agent](/agents/hermes), and [pi](/agents/pi).
 
 For a node with `subshell` on PATH, a standard registration has this shape:
 
@@ -32,6 +32,8 @@ For a node with `subshell` on PATH, a standard registration has this shape:
 ```
 
 Use `subshell-server` or the displayed absolute executable where that is the resolved host command. The MCP host must forward the pane's identity environment to the child process. Codex requires an explicit `env_vars` allowlist; see [MCP troubleshooting](/mcp/troubleshooting#codex-starts-but-subshell-mcp-fails) if its registration omits that list.
+
+OpenClaw appears in neither the automatic nor the manual list: its cross-subshell comms are not wired yet. OpenClaw stores MCP registrations in the Gateway-scoped config that every OpenClaw session on the host shares, while a Subshell MCP child carries one pane's credential from spawn, so a shared registration would leak that pane's identity across sessions. See [OpenClaw](/agents/openclaw).
 
 ## Verify
 

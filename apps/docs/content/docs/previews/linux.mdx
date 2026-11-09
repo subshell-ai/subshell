@@ -8,8 +8,8 @@ A Linux virtual display gives graphical programs in a subshell their own screen 
 ## Before you start
 
 You'll need permission to install packages on the Linux node. Follow
-[Preview prerequisites and setup](/previews/setup) for node ownership and view
-access requirements.
+[Preview prerequisites and setup](/previews/setup) for who can enable the
+settings and for the view access requirements.
 
 ## Install and configure
 
@@ -49,3 +49,24 @@ when you're viewing it from another device.
 See [Preview prerequisites and setup](/previews/setup#enable-node-features) to
 save the display choice in a preset or understand how provider changes affect
 restarts.
+
+## Turn the display on or off later
+
+You don't have to start a new subshell to change its screen. Open the Web
+previews & screens dialog from the icon in the subshell header, then switch
+**Virtual display**:
+
+- Turning it on restarts the subshell's process so it comes back with the new
+  screen. The subshell keeps its history, and the conversation picks up again
+  if the agent can resume it.
+- Turning it off closes the screen right away and frees the memory and CPU it
+  was using. Apps on the screen close, but the subshell keeps running.
+- To change the size or the provider, turn the display off and then on again.
+  The dialog always uses the launch default size, so there's no size to pick
+  here. When the node offers more than one provider, choose one under **Display
+  provider** before you turn the display on.
+
+Both changes need edit access to the subshell and an online node, and the node's
+own display settings still apply. One thing to remember: a program that was
+already running keeps pointing at the old display until you restart the subshell
+again.

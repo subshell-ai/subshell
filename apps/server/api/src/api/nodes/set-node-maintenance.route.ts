@@ -21,14 +21,16 @@ const MaintenanceBodySchema = t.Object({
  * `PUT /api/nodes/:id/maintenance` `{on}` — take one machine out of service,
  * or put it back (spec 2026-09-14 §5.4). Browser session or explicitly enabled system API key.
  *
- * **OWNER-only** (`gate.canManage`, with the seeded-`local` admin exception),
+ * **Manage band** (`gate.canManage`: owner or a `manage` grantee, with the
+ * seeded-`local` admin exception),
  * deliberately NOT the `nodeCanConfigure` gate the service verbs use. The act
  * is what decides it: turning maintenance on stops every subshell running on
  * that machine, including ones belonging to people the node's owner cannot
  * see — any node share lets a grantee launch there, and what they launch stays
  * private to them. An `edit` grantee may restart the agent or read its log;
  * ending everyone else's work on a machine they do not own is a different act,
- * and it sits on the same gate as delete and re-share for the same reason.
+ * and it sits on the same gate as re-share for the same reason (delete stands
+ * one rung wider, on the retire gate).
  *
  * The four steps (write the flag, stop what is running, tell the machine,
  * record it) all live in `setNodeMaintenance`, because the node's own CLI
@@ -81,7 +83,7 @@ export const setNodeMaintenanceRoute = new Elysia()
         operationId: "setNodeMaintenance",
         tags: ["nodes"],
         description:
-          "Take a node out of service or return it (owner only; admin on the control-plane host). Turning it on stops every subshell running there, whoever owns them.",
+          "Take a node out of service or return it (the node's owner or a Manage grantee; admin on the control-plane host). Turning it on stops every subshell running there, whoever owns them.",
       },
     },
   );

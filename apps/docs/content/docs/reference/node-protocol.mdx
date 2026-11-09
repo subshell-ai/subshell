@@ -173,7 +173,7 @@ The server applies two distinct gates to readiness:
 1. The node release must meet the server's minimum supported release version.
 2. Its protocol version must match the server's protocol exactly.
 
-The implemented protocol is **26**. Its number is independent of the package release version. Additive wire changes also require a protocol bump and coordinated rollout; there is no per-feature compatibility window.
+The implemented protocol is **27**. Its number is independent of the package release version. Additive wire changes also require a protocol bump and coordinated rollout; there is no per-feature compatibility window.
 
 A refused node can remain connected in a **held** state for updates while staying unavailable for launches and ordinary management commands. Only `update` can use that held connection. Older nodes on the legacy path receive that update command in its frozen plaintext recovery format; they aren't admitted for normal plaintext operation. Invalid credentials and disabled owners are authentication failures, not update holds.
 
@@ -209,6 +209,7 @@ runs the same preview primitives in process rather than sending node commands.
 | --- | --- |
 | `set_preview_enabled` | Apply server-owned preview permissions, the default `displayProvider`, the allowed `displayProviders` set, and the change timestamp. `on` enables the transport; optional `webPreviewsOn` and `displayOn` distinguish web-preview access from virtual displays. When omitted, each inherits `on` for compatibility. |
 | `preview_display_check` | Check an optional `provider` or the node default for support and unmet requirements before launch; this never allocates a display. |
+| `preview_display_close` | End a subshell's allocated virtual display without touching the pane; an unallocated pane answers `closed: false`. |
 | `preview_ports_get` | Report listeners under a subshell's process tree, its CDP port, and display metadata. |
 | `preview_open` | Start a loopback TCP forward or CDP screencast for a subshell, port, reference, and bounded lifetime. Forward lanes may include `service: { host, protocol }` for a saved HTTP(S) destination. |
 | `preview_data` | Carry capped base64 bytes toward the node (`in`) or server (`out`). |

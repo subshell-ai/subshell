@@ -1,5 +1,44 @@
 # @internal/docs
 
+## 0.11.10
+
+### Patch Changes
+
+- [#505](https://github.com/subshell-ai/subshell/pull/505) [`55b3644`](https://github.com/subshell-ai/subshell/commit/55b36448a46071b7dca9e92c32cc461cd53c8ade) Thanks [@theogravity](https://github.com/theogravity)! - Harness plugins can now interpret their own terminal title: `parsePaneTitle(raw)` strips the brand, run-state separator, or status glyph a harness writes around the session name. Oh My Pi uses it for `π <state> <label>`, and Claude Code for its cycling status glyph. The control plane keeps only the sanitising every title needs (escape sequences, control bytes, terminal-protocol payloads) instead of knowing either harness's title format.
+
+## 0.11.9
+
+### Patch Changes
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Cline harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Gemini CLI harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Open Interpreter harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the OpenClaw harness plugin: launch, detect, and install guidance ship now. The pane runs the embedded terminal UI (`openclaw chat`), and cross-subshell comms stay unwired until OpenClaw grows a per-session MCP registration path, since its registrations are Gateway-scoped.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the OpenHands harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Qwen Code harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+## 0.11.8
+
+### Patch Changes
+
+- [#495](https://github.com/subshell-ai/subshell/pull/495) [`2b99535`](https://github.com/subshell-ai/subshell/commit/2b995357ecd2bbe7d8d5d2e8344c92cf1cf46b2b) Thanks [@theogravity](https://github.com/theogravity)! - Public documentation for node ownership transfer: a new "Transfer a node" procedure covering the dashboard, the CLI verb, the API route, and the MCP tool; the sharing page now documents all three levels, Manage included; and the API-keys guide explains what `nodes:transfer` is for.
+
+## 0.11.7
+
+### Patch Changes
+
+- [#492](https://github.com/subshell-ai/subshell/pull/492) [`0f393a4`](https://github.com/subshell-ai/subshell/commit/0f393a4025093d878772aa2f7f3cd143a266574c) Thanks [@theogravity](https://github.com/theogravity)! - Turn a running subshell's virtual display on or off from the Web previews &
+  screens picker, or with the new set_subshell_display MCP tool. Turning a display
+  on restarts the subshell in place so its process starts on the new screen;
+  turning one off closes the screen immediately and frees the machine's memory
+  and CPU while the subshell keeps running. Nodes and the server must update
+  together (protocol 27).
+
 ## 0.11.6
 
 ### Patch Changes

@@ -1,13 +1,51 @@
+import type { Terminal } from "@xterm/xterm";
 import type { IDockviewPanelProps } from "dockview-react";
 import { useCallback, useEffect, useState } from "react";
 import { SubshellPane } from "@/components/subshell-pane";
 import type { SubshellTerminalHandles } from "@/components/subshell-terminal";
-import { useWorkspaceDockContext } from "@/components/workspace-dock/context";
+import { type PaneFocusOutcome, useWorkspaceDockContext } from "@/components/workspace-dock/context";
 
 /** Params dockview holds for a "subshell" panel; see `addPanel` in `workspace-dock.tsx`. */
 export interface DockedPaneParams {
   /** The pane this panel renders — looked up in the live detail on every render */
   paneId: string;
+}
+
+/**
+ * Focus a terminal whose pane just became active. Dockview keeps a fresh
+ * panel's render overlay at `visibility: hidden` for a frame while it is
+ * positioned, and a hidden textarea takes no focus — so retry until the
+ * textarea accepts it. `initial` is where focus was when the tab was clicked,
+ * so a click somewhere else during that wait wins. `settle` reports how the
+ * attempt ended: a terminal that left the DOM before accepting focus is not
+ * an answer, because activation rebuilt it and the replacement retries.
+ */
+function focusTerminal(
+  term: Terminal,
+  initial: Element | null,
+  settle: (outcome: PaneFocusOutcome) => void,
+  attempts = 20,
+): void {
+  const textarea = term.textarea;
+  if (!textarea?.isConnected) {
+    settle("retired");
+    return;
+  }
+  const current = document.activeElement;
+  if (current && current !== initial && current !== textarea && current !== document.body) {
+    settle("abandoned");
+    return;
+  }
+  term.focus();
+  if (document.activeElement === textarea) {
+    settle("focused");
+    return;
+  }
+  if (attempts <= 0) {
+    settle("abandoned");
+    return;
+  }
+  requestAnimationFrame(() => focusTerminal(term, initial, settle, attempts - 1));
 }
 
 /**
@@ -34,7 +72,7 @@ export interface DockedPaneParams {
  * per-group for its whole lifetime.
  */
 export function DockedPane(props: IDockviewPanelProps<DockedPaneParams>) {
-  const { detail, onRestart, onRemovePane, setSearchAddon } = useWorkspaceDockContext();
+  const { detail, onRestart, onRemovePane, setSearchAddon, setPaneFocusTarget } = useWorkspaceDockContext();
   const { paneId } = props.params;
 
   const [visible, setVisible] = useState(props.api.isVisible);
@@ -55,10 +93,19 @@ export function DockedPane(props: IDockviewPanelProps<DockedPaneParams>) {
   }, [props.api]);
 
   const handleTerminalReady = useCallback(
-    (handles: SubshellTerminalHandles) => setSearchAddon(paneId, handles.search),
-    [setSearchAddon, paneId],
+    (handles: SubshellTerminalHandles) => {
+      setSearchAddon(paneId, handles.search);
+      // A tab click asks for this pane's focus; when the click also made a
+      // background tab visible, the request arrives before the new terminal
+      // mounts and is held until this publish (see `requestPaneFocus`).
+      setPaneFocusTarget(paneId, (initial, settle) => focusTerminal(handles.term, initial, settle));
+    },
+    [setSearchAddon, setPaneFocusTarget, paneId],
   );
-  const handleTerminalDispose = useCallback(() => setSearchAddon(paneId, null), [setSearchAddon, paneId]);
+  const handleTerminalDispose = useCallback(() => {
+    setSearchAddon(paneId, null);
+    setPaneFocusTarget(paneId, null);
+  }, [setSearchAddon, setPaneFocusTarget, paneId]);
 
   const pane = detail.panes.find((p) => p.id === paneId);
   // An invalidation refetch can see a cascade (the subshell — and with it this

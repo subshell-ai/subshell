@@ -1,5 +1,44 @@
 # @internal/desktop-client
 
+## 1.5.8
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @internal/node@3.4.1
+
+## 1.5.7
+
+### Patch Changes
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Cline harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Gemini CLI harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Open Interpreter harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the OpenClaw harness plugin: launch, detect, and install guidance ship now. The pane runs the embedded terminal UI (`openclaw chat`), and cross-subshell comms stay unwired until OpenClaw grows a per-session MCP registration path, since its registrations are Gateway-scoped.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the OpenHands harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Qwen Code harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+- Updated dependencies [[`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332), [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332), [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332), [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332), [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332), [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332)]:
+  - @internal/node@3.4.0
+
+## 1.5.6
+
+### Patch Changes
+
+- Updated dependencies [[`2b99535`](https://github.com/subshell-ai/subshell/commit/2b995357ecd2bbe7d8d5d2e8344c92cf1cf46b2b)]:
+  - @internal/node@3.3.0
+
+## 1.5.5
+
+### Patch Changes
+
+- Updated dependencies [[`0f393a4`](https://github.com/subshell-ai/subshell/commit/0f393a4025093d878772aa2f7f3cd143a266574c)]:
+  - @internal/node@3.2.1
+
 ## 1.5.4
 
 ### Patch Changes

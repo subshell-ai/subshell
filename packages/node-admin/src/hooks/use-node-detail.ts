@@ -117,9 +117,9 @@ export function useSetNodeMaintenance(id: string) {
 /**
  * Replaces a node's directory allowlist — the complete set, never a delta.
  *
- * OWNER-only server-side (`canManage`); the card hides the controls for
- * everyone else, but the server is the gate. An empty array CLEARS the rules
- * and returns the node to unrestricted.
+ * Manage-band server-side (`canManage`: owner or a `manage` grantee, spec
+ * 2026-11-07); the card hides the controls below that, but the server is the
+ * gate. An empty array CLEARS the rules and returns the node to unrestricted.
  *
  * Not used at all by the node's own dashboard: the plane holds its own copy
  * of this list, enforces it at launch, and re-pushes on every `ready`, so the
@@ -220,8 +220,9 @@ export function useNodeLogSlice(id: string) {
 /**
  * Repoint a node at another control plane (`PATCH /api/nodes/:id/config`).
  *
- * On the plane this is OWNER-only: the node dials whatever address is named,
- * carrying the key this plane holds. On the node's own dashboard it is the
+ * On the plane this rides the manage band (owner or a `manage` grantee, spec
+ * 2026-11-07, enforced at the PATCH route): the node dials whatever address is
+ * named, carrying the key this plane holds. On the node's own dashboard it is the
  * same act the CLI's `configure` performs — the machine's own file, its own
  * credential — and the response has the same shape either way. The node
  * hot-reloads the new address on its next heartbeat beat, within about fifteen

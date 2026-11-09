@@ -3,7 +3,8 @@ import { ADMIN_STATE } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
-// The viewer can configure this node, but only its owner can share or stop it.
+// The viewer can configure this node, but sharing and the one-way service
+// verbs sit above `edit`, on the manage rung it does not hold (spec 2026-11-07).
 const node = {
   id: "disabled-controls",
   name: "Shared workstation",
@@ -18,6 +19,7 @@ const node = {
   access: "edit",
   canManage: false,
   canRetire: false,
+  canTransfer: false,
   canLaunch: true,
   allowedDirs: [],
   capabilities: [],
@@ -70,29 +72,37 @@ test("disabled node controls explain ownership on hover and keyboard focus", asy
   const share = page.getByRole("button", { name: "Share", exact: true });
   await expect(share).toBeDisabled();
   await share.hover();
-  await expect(page.getByRole("tooltip")).toHaveText("Only the node owner can change sharing for this node.");
+  await expect(page.getByRole("tooltip")).toHaveText("Only the node's owner or a Manage grantee can change sharing.");
   await page.mouse.move(0, 0);
   await share.focus();
   await expect(share).toBeFocused();
-  await expect(share).toHaveAccessibleDescription("Only the node owner can change sharing for this node.");
+  await expect(share).toHaveAccessibleDescription("Only the node's owner or a Manage grantee can change sharing.");
   await share.press("Enter");
   await share.press("Space");
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
-  await expect(page.getByText("Only the node owner can change these rules.")).toHaveClass(/text-warning/);
+  await expect(page.getByText("Only the node's owner or a Manage grantee can change these rules.")).toHaveClass(
+    /text-warning/,
+  );
   await page.goto(`/nodes/${node.id}/service`);
   const stop = page.getByRole("button", { name: "Stop", exact: true });
   await stop.focus();
-  await expect(page.getByRole("tooltip")).toHaveText("Only the node owner can stop this service.");
+  await expect(page.getByRole("tooltip")).toHaveText(
+    "Only the node's owner or a Manage grantee can stop this service.",
+  );
   await stop.press("Enter");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   const uninstall = page.getByRole("button", { name: "Uninstall service", exact: true });
   await uninstall.focus();
-  await expect(page.getByRole("tooltip")).toHaveText("Only the node owner can uninstall this service.");
+  await expect(page.getByRole("tooltip")).toHaveText(
+    "Only the node's owner or a Manage grantee can uninstall this service.",
+  );
   await uninstall.press("Space");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   expect(mutations).toEqual([]);
-  await expect(page.getByText("Only the node owner can stop or uninstall this service.")).toHaveClass(/text-warning/);
+  await expect(
+    page.getByText("Only the node's owner or a Manage grantee can stop or uninstall this service."),
+  ).toHaveClass(/text-warning/);
 });
 
 test.describe("touch explanations", () => {
@@ -108,7 +118,9 @@ test.describe("touch explanations", () => {
     expect(box).not.toBeNull();
     if (!box) throw new Error("Stop button has no bounds");
     await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-    await expect(page.getByRole("tooltip")).toHaveText("Only the node owner can stop this service.");
+    await expect(page.getByRole("tooltip")).toHaveText(
+      "Only the node's owner or a Manage grantee can stop this service.",
+    );
     await expect(page.getByRole("dialog")).toHaveCount(0);
     expect(mutations).toEqual([]);
   });

@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { RotateCcw, X } from "lucide-react";
 import { useState } from "react";
+import { PathTail } from "@/components/path-tail";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -205,7 +206,9 @@ export function SubshellManagerTable({
             </Link>
           </div>
         </td>
-        <td className="@lg:table-cell hidden h-8 max-w-0 truncate py-0 pr-4 text-muted-foreground">{s.workingDir}</td>
+        <td className="@lg:table-cell hidden h-8 max-w-0 py-0 pr-4 text-muted-foreground">
+          <PathTail path={s.workingDir} title={s.workingDir} className="block" />
+        </td>
         <td className="@sm:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
           {lastOutput === null ? "—" : lastOutput === "just now" ? lastOutput : `${lastOutput} ago`}
         </td>

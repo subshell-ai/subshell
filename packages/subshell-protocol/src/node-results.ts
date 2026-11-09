@@ -851,6 +851,22 @@ export function parseNodePreviewCloseResult(data: unknown): NodePreviewCloseResu
   return { ref: data.ref, closed: data.closed };
 }
 
+/** The `preview_display_close` answer: whether an allocated display was actually torn down.
+ *  False means there was none — an answer, not a failure (the close is idempotent). */
+export interface NodePreviewDisplayCloseResult {
+  closed: boolean;
+}
+
+/**
+ * Validates and narrows a `preview_display_close` answer.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed answer, or null when malformed
+ */
+export function parseNodePreviewDisplayCloseResult(data: unknown): NodePreviewDisplayCloseResult | null {
+  if (!isRecord(data) || !isBool(data.closed)) return null;
+  return { closed: data.closed };
+}
+
 export const PREVIEW_PAGE_TITLE_MAX_LENGTH = 200;
 
 /** One listening socket of the pane's process tree (spec §4's ports answer rows). */

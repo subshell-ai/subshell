@@ -13,8 +13,9 @@ import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
- * `PUT /api/nodes/:id/allowed-dirs` — OWNER-only by design, not the
- * `nodeCanConfigure` gate the harness toggles use. The reason is the whole
+ * `PUT /api/nodes/:id/allowed-dirs` — manage band by design (owner or a
+ * `manage` grantee, spec 2026-11-07), not the `nodeCanConfigure` gate the
+ * harness toggles use. The reason is the whole
  * point of the endpoint: any node share lets the grantee launch subshells
  * there, so an `edit` grantee who could widen the list would face no
  * restriction at all.

@@ -103,6 +103,28 @@ export const probeAllAlive: ScriptedHandler = (cmd) =>
     : new Error(`probeAllAlive: wrong cmd ${cmd.type}`);
 
 /**
+ * The command set an in-place restart actually drives on a scripted agent
+ * (the set `restart-prompt.route.test.ts` first pinned and the display-toggle
+ * suite later restated; one factory now, so the two suites cannot drift from
+ * what the restart path sends). `promptDelivered` answers the optional
+ * `prompt_deliver` round-trip; callers layer their own extra arms on top.
+ */
+export function restartLifecycleHandlers(promptDelivered = true): ScriptedHandlers {
+  return {
+    stat_dir: statDirEcho,
+    launch: ok,
+    terminate: ok,
+    kill: ok,
+    input: ok,
+    resize: ok,
+    probe: probeAllAlive,
+    prompt_deliver: () => ({ promptDelivered }),
+    path_exists: () => ({ exists: true }),
+    remove_paths: ok,
+  };
+}
+
+/**
  * Attach a scripted agent for `nodeId`.
  * @param nodeId - the node id to install under (a `nodes` row must exist for
  *   subshell FKs, but no node API key: this stands in for the dialing agent at

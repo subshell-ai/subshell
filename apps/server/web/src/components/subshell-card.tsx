@@ -1,4 +1,5 @@
 import { EntityCard } from "@/components/entity-card";
+import { PathTail } from "@/components/path-tail";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
 import { TerminalPreview } from "@/components/terminal-preview";
@@ -51,9 +52,11 @@ export function SubshellCard({ subshell }: { subshell: SubshellView }) {
       // purely about output. (The machine used to sit here as a pill; the
       // grid's section header carries that now.)
       headerExtra={
-        <p className="truncate font-mono text-detail text-muted-foreground" title={subshell.workingDir}>
-          {subshell.workingDir}
-        </p>
+        <PathTail
+          path={subshell.workingDir}
+          title={subshell.workingDir}
+          className="block font-mono text-detail text-muted-foreground"
+        />
       }
     >
       {/* Fixed height whatever the state, so cards in a row stay the

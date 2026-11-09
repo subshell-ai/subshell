@@ -123,7 +123,8 @@ export const nodeLogsRoute = new Elysia()
       detail: {
         operationId: "nodeLogs",
         tags: ["nodes"],
-        description: "Read a byte range of an enrolled node's own log (owner or edit; never the local node)",
+        description:
+          "Read a byte range of an enrolled node's own log (edit rank or above, manage included; never the local node)",
       },
     },
   );
