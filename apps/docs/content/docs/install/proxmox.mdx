@@ -38,7 +38,13 @@ After signing in as an administrator, open **Settings** → **Server Settings** 
 
 ## Maintain the installation
 
-Use the helper's update operation to pull the image and recreate the container. Don't replace the binary inside a running image with the server's CLI update command.
+Use the helper's update operation to pull the newest published image and recreate the container. Updates follow `latest` unless you pass a tag, which applies to that run:
+
+```bash
+SUBSHELL_VERSION=3.3.1 bash proxmox-server.sh update
+```
+
+Don't replace the binary inside a running image with the server's CLI update command.
 
 The helper also exposes backup, restore, and removal operations. Backups contain instance credentials and require protected storage.
 

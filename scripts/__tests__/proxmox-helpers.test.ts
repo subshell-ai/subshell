@@ -119,14 +119,19 @@ check_server_image
   }
 });
 
-describe("Proxmox server update reclaims disk around the pull", () => {
-  // The 2026-10-03 operator report: a routine update died mid-extraction with
+describe("Proxmox server update", () => {
+  // Disk reclaim - the 2026-10-03 operator report: a routine update died mid-extraction with
   // "no space left on device" at 6 G free, because every prior update left its
   // replaced image on disk and the pull needs room for old and new at full
   // unpacked size. update_app now prunes dangling images before the pull, and
   // again after the old container is gone, and a failed pull must say the
   // disk's state and both ways out instead of only docker's one word.
-  function runUpdate(pullFail: boolean, lowAvail = false) {
+  function runUpdate(
+    pullFail: boolean,
+    lowAvail = false,
+    recordedImage = "ghcr.io/subshell-ai/subshell:latest",
+    extraEnv: Record<string, string> = {},
+  ) {
     const source = readFileSync(join(import.meta.dir, "../../proxmox-server.sh"), "utf8").split(
       "# ---------- menu ----------",
     )[0];
@@ -134,7 +139,7 @@ describe("Proxmox server update reclaims disk around the pull", () => {
     const log = join(dir, "docker.log");
     writeFileSync(
       join(dir, "runenv"),
-      "IMAGE=ghcr.io/subshell-ai/subshell:latest\nNAME=subshell\nAPP_PORT=3080\nDATA=/var/lib/subshell\n",
+      `IMAGE=${recordedImage}\nNAME=subshell\nAPP_PORT=3080\nDATA=/var/lib/subshell\n`,
     );
     try {
       const result = Bun.spawnSync(
@@ -179,10 +184,16 @@ export LOG
 update_app
 `,
         ],
-        { env: { ...process.env, LOG: log } },
+        { env: { ...process.env, LOG: log, ...extraEnv } },
       );
       const calls = existsSync(log) ? readFileSync(log, "utf8").trimEnd().split("\n") : [];
-      return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString(), calls };
+      return {
+        code: result.exitCode,
+        out: result.stdout.toString(),
+        err: result.stderr.toString(),
+        calls,
+        record: readFileSync(join(dir, "runenv"), "utf8"),
+      };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -227,6 +238,27 @@ update_app
     expect(r.code).toBe(0); // a warning, never a refusal: the pull may still fit
     expect(r.err).toContain("WARN:");
     expect(r.err).toContain("headroom");
+  });
+
+  test("a plain update follows latest when the record names an older tag", () => {
+    const r = runUpdate(false, false, "ghcr.io/subshell-ai/subshell:3.0.7");
+    expect(r.code).toBe(0);
+    expect(r.calls).toContain("docker pull ghcr.io/subshell-ai/subshell:latest");
+    expect(r.calls).not.toContain("docker pull ghcr.io/subshell-ai/subshell:3.0.7");
+    expect(r.err).toContain(
+      "the record names ghcr.io/subshell-ai/subshell:3.0.7; this run uses ghcr.io/subshell-ai/subshell:latest",
+    );
+    // The record follows the run, so the next update starts from the truth.
+    expect(r.record).toContain("IMAGE=ghcr.io/subshell-ai/subshell:latest");
+  });
+
+  test("SUBSHELL_VERSION pins one update and is recorded", () => {
+    const r = runUpdate(false, false, "ghcr.io/subshell-ai/subshell:latest", {
+      SUBSHELL_VERSION: "3.3.1",
+    });
+    expect(r.code).toBe(0);
+    expect(r.calls).toContain("docker pull ghcr.io/subshell-ai/subshell:3.3.1");
+    expect(r.record).toContain("IMAGE=ghcr.io/subshell-ai/subshell:3.3.1");
   });
 });
 
