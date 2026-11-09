@@ -708,10 +708,10 @@ describe("NodeHarnessCard", () => {
       ],
     });
     try {
-      // `claude` and `hermes` are both "program not found" (an override that
+      // `claude` and `hermes` are both "not installed" (an override that
       // points at nothing is still a program that was not found); only
       // `pi`, which declares no program at all, reads ready.
-      expect(screen.getAllByText("program not found")).toHaveLength(2);
+      expect(screen.getAllByText("not installed")).toHaveLength(2);
       expect(screen.getByText(/environment variable overrides/i)).toBeDefined();
       expect(screen.getByText(/No separate program is needed here\./)).toBeDefined();
     } finally {
@@ -723,7 +723,7 @@ describe("NodeHarnessCard", () => {
     // The defect this closes: rows come from the INSTANCE catalog crossed
     // with the node's answer, so a plugin the node has never been asked about
     // arrives with neither `reason` nor `checkedAt` — and the card read that
-    // as "program not found", asserting a negative about a machine that may
+    // as "not installed", asserting a negative about a machine that may
     // well have the CLI. Every real miss carries a reason
     // (`binary-lookup.ts`), so its absence is exactly "nobody looked".
     const { restore } = await mount({
@@ -731,7 +731,7 @@ describe("NodeHarnessCard", () => {
     });
     try {
       expect(screen.getByText("not checked")).toBeDefined();
-      expect(screen.queryByText("program not found")).toBeNull();
+      expect(screen.queryByText("not installed")).toBeNull();
       expect(screen.getByText(/This plugin hasn't been checked on this machine yet/i)).toBeDefined();
     } finally {
       restore();
@@ -747,7 +747,7 @@ describe("NodeHarnessCard", () => {
     });
     try {
       expect(screen.getByText("check failed")).toBeDefined();
-      expect(screen.queryByText("program not found")).toBeNull();
+      expect(screen.queryByText("not installed")).toBeNull();
       expect(screen.getByText(/check didn't finish/i)).toBeDefined();
     } finally {
       restore();

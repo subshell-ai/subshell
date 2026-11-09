@@ -21,7 +21,7 @@ interface DetectionRow {
 
 /**
  * The row's one-word detection verdict — and one of the four is "we do not
- * know", which is NOT the same claim as "not found".
+ * know", which is NOT the same claim as "not installed".
  *
  * A row carries no `reason` only when nothing looked: either no detection has
  * covered this plugin on this node at all (no `checkedAt` either — a node
@@ -30,12 +30,12 @@ interface DetectionRow {
  * reason because "the probe failed" is different from "we looked and it was
  * not there". Every real miss travels with a reason (`binary-lookup.ts` gives
  * one on every `path: null` path), so reading its absence as a missing program
- * asserted a negative nothing had established — the card said "program not
- * found" about a machine that may well have the CLI.
+ * asserted a negative nothing had established — the card said the program was
+ * not installed about a machine that may well have the CLI.
  */
 function detectionLabel(h: DetectionRow): string {
   if (h.installed || h.reason === "no-binary") return "ready";
-  if (h.reason) return "program not found";
+  if (h.reason) return "not installed";
   return h.checkedAt ? "check failed" : "not checked";
 }
 
