@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.27
+
+### Patch Changes
+
+- [#505](https://github.com/subshell-ai/subshell/pull/505) [`55b3644`](https://github.com/subshell-ai/subshell/commit/55b36448a46071b7dca9e92c32cc461cd53c8ade) Thanks [@theogravity](https://github.com/theogravity)! - Republish after this release so the install and download pages carry the new release list.
+
 ## 0.2.26
 
 ### Patch Changes
