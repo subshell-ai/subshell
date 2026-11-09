@@ -4,10 +4,10 @@
 # community-scripts convention: run on the PROXMOX HOST as root. Creates an
 # unprivileged Debian container with Docker inside it, runs the official
 # Subshell image from GHCR, and updates it later with: bash /root/proxmox-server.sh
-# update (the install saves itself there; a copy you kept works too). Pin at
-# install with SUBSHELL_VERSION=<tag> (or set IMG); updates re-pull the tag the
-# install recorded in /etc/default/subshell-docker - repin by editing that
-# file's IMAGE= line (or reinstalling).
+# update (the install saves itself there; a copy you kept works too). Both
+# verbs use ghcr.io/subshell-ai/subshell:latest unless SUBSHELL_VERSION=<tag>
+# (or IMG) names a different ref for that run; the ref in use is recorded in
+# /etc/default/subshell-docker.
 #
 # Data (database, config.env with its minted secret, plugins, backups) lives on
 # the CT's /var/lib/subshell, so updates never touch it. Running panes do not
@@ -297,6 +297,7 @@ update_app() {
   preflight
   need_ct_id
   header "Pull the new image and recreate the container (running panes end; data survives)"
+  echo "Image: $IMG"
   # Trim from the HOST: FITRIM is refused "Operation not permitted" inside an
   # unprivileged container (the ioctl needs privilege in the host's namespace
   # - forum-confirmed, and measured on this helper's own CT class 2026-10-03),
@@ -306,11 +307,15 @@ update_app() {
   # (No -v: pct fstrim's only option is --timeout, and a stray flag makes the
   # whole call a usage error.)
   pct fstrim "$CT_ID" 2>/dev/null || true
-  pct exec "$CT_ID" -- bash -s -- "$CT_RUN_ENV" "$CT_ID" <<'REMOTE'
+  pct exec "$CT_ID" -- bash -s -- "$CT_RUN_ENV" "$CT_ID" "$IMG" <<'REMOTE'
     set -eu
     runenv="$1"
     ctid="$2"
     set -a; . "$runenv"; set +a
+    img="$3"
+    if [ "${IMAGE:-}" != "$img" ]; then
+      echo "note: the record names ${IMAGE:-no image}; this run uses $img" >&2
+    fi
     rollback() {
       docker rm -f "$NAME" >/dev/null 2>&1 || true
       docker rename "$NAME-old" "$NAME" >/dev/null 2>&1 || true
@@ -342,7 +347,7 @@ update_app() {
     # (review finding, operator ruling 2026-09-29). A full disk says exactly
     # that word in docker's own error and nothing else, so on failure the
     # script names the filesystem's state and the two ways out.
-    if ! docker pull "$IMAGE"; then
+    if ! docker pull "$img"; then
       df -h /var/lib/docker >&2 || true
       echo "pull failed: the running container was left alone" >&2
       echo "    if the filesystem above is close to full: 'docker image prune -a -f' inside CT $ctid" >&2
@@ -361,7 +366,7 @@ update_app() {
     docker rename "$NAME" "$NAME-old" || { echo "rename failed: the running container was left alone" >&2; exit 1; }
     docker stop "$NAME-old" >/dev/null || rollback
     docker run -d --name "$NAME" --restart unless-stopped -e SUBSHELL_CONTAINER_RESTART=1 \
-      -p "$APP_PORT:3080" -v "$DATA:/data" "$IMAGE" >/dev/null || rollback
+      -p "$APP_PORT:3080" -v "$DATA:/data" "$img" >/dev/null || rollback
     ok=""
     for _ in $(seq 1 60); do
       curl -sf "http://127.0.0.1:$APP_PORT/api/setup/status" >/dev/null && { ok=1; break; }
@@ -369,6 +374,15 @@ update_app() {
     done
     [[ -n "$ok" ]] || rollback
     docker rm -f "$NAME-old" >/dev/null 2>&1 || true
+    # This run chose the ref; the install's record may name an older tag.
+    # Keep the file truthful so the next reader sees what is actually running.
+    # Replace it atomically: a half-written record on a full disk would break
+    # the NEXT update, and this update has already succeeded.
+    if printf 'APP_PORT=%s\nIMAGE=%s\nDATA=%s\nNAME=%s\n' "$APP_PORT" "$img" "$DATA" "$NAME" > "$runenv.new" \
+       && mv "$runenv.new" "$runenv"; then :; else
+      rm -f "$runenv.new"
+      echo "WARN: the image is updated, but its ref could not be recorded in $runenv" >&2
+    fi
     # The re-pull untagged the image the old container was the last user of;
     # with that container gone it is dangling, and this is the moment the
     # NEXT update's headroom comes back.
