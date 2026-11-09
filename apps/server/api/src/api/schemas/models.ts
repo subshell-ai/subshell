@@ -79,6 +79,9 @@ export const SubshellSchema = t.Object({
   id: t.String({ description: "Subshell id" }),
   presetId: t.Nullable(t.String({ description: "Preset launched with (null = presetless launch)" })),
   harnessId: t.String({ description: "Harness plugin id" }),
+  harnessVersion: t.Nullable(
+    t.String({ description: "Harness CLI version this pane launched on; null when it could not be read" }),
+  ),
   nodeId: t.String({ description: "Node the subshell runs on ('local' = control-plane host)" }),
   name: t.String({ description: "Subshell display name" }),
   workingDir: t.String({ description: "Absolute working directory" }),
@@ -282,6 +285,13 @@ export const HarnessInfoSchema = t.Object({
   install: t.Object({
     command: t.String({ description: "Official install command" }),
     docsUrl: t.String({ description: "Installation documentation URL" }),
+  }),
+  update: t.Object({
+    command: t.String({
+      description:
+        "Shell line that updates the CLI in place, run on the node that holds it; empty when this plugin offers no update path",
+    }),
+    docsUrl: t.String({ description: "Update documentation URL; empty when this plugin offers no update path" }),
   }),
 });
 

@@ -184,6 +184,26 @@ because a file the operator named IS their decision. The `update` command's
 wire shape is FROZEN across protocol bumps. **Working on update or rollback:
 read `apps/node/agent/docs/update.md` first.**
 
+## Harness CLI updates (`src/commands/harness-update.ts`, protocol 28, issue #250)
+
+`harness_update` runs one harness CLI's own update line on this machine. The
+line arrives from the control plane (the manifest's `subshell.update.command`,
+or its `install.command` when that is idempotent), because the node has held
+no plugin manifests since the inversion. It runs through `sh -c` under
+`runBounded`: the allowlisted environment (never this process's secrets), the
+login-shell PATH, closed stdin, a ten-minute deadline with reader
+cancellation, and the 64 KiB cap per stream. A non-zero exit is the ANSWER
+(`ok:false` inside the result), never a command failure.
+It runs on its own serial chain (like terminal input), so a ten-minute
+package-manager run never holds launches, terminates, resizes or captures
+behind it; updates still queue among themselves.
+
+Protocol 28 also lets `launch` echo the RAW `<binary> --version` text it read
+for the binary it spawned, when the frame asks with `probeVersion` (the plane
+asks for agent harnesses only), so the plane can record the version each
+subshell launched on. Raw, because interpreting a banner is plugin code and
+lives on the plane.
+
 ## Maintenance (`src/maintenance.ts`, spec 2026-09-14)
 
 One flag, `<dataDir>/maintenance.json` = `{ on, changedAt }`: this machine

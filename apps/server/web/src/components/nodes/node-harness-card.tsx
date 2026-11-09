@@ -1,11 +1,12 @@
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, errMessage } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
-import { LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowUpCircle, LoaderCircle, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { PluginIcon } from "@/components/plugin-icon";
 import { useHarnesses, useNodeHarnesses } from "@/hooks/use-harnesses";
 import { useInstallAgent } from "@/hooks/use-install-agent";
 import { useRecheckNode } from "@/hooks/use-nodes";
+import { type HarnessUpdateResult, useUpdateHarness } from "@/hooks/use-update-harness";
 import type { HarnessInfo } from "@/types/harness";
 
 /** What a row of {@link NodeHarnessCard} knows about one program on this machine. */
@@ -58,6 +59,17 @@ function installableHere(info: HarnessInfo | undefined): boolean {
 }
 
 /**
+ * Whether this row offers an update on this machine: the CLI is actually
+ * here, and the plugin declares an update path (`update.command`, which the
+ * server resolves to the vendor's update line, or the installer when that is
+ * idempotent). A harness with no program — `terminal`, an ssh pane — has
+ * nothing to update, and a missing program's row offers Install instead.
+ */
+function updatableHere(info: HarnessInfo | undefined, installed: boolean): boolean {
+  return info !== undefined && installed && info.type === "agent-harness" && info.update.command.trim() !== "";
+}
+
+/**
  * Which harnesses this machine can RUN (spec 2026-09-10): detection output,
  * not a plugin manager. The rows are the node view's — one per plugin the
  * INSTANCE has installed and enabled, crossed with this machine's binary
@@ -72,19 +84,31 @@ function installableHere(info: HarnessInfo | undefined): boolean {
  * control-plane process, and the instance plugins page says so. Rendering
  * them here would attribute an instance failure to one node.
  *
- * The only control is Re-check, gated by the SAME rule the server's recheck
- * route applies — `nodeCanConfigure` (owner or `edit`;
+ * Two controls act on this machine. **Re-check** is gated by the SAME rule
+ * the server's recheck route applies — `nodeCanConfigure` (owner or `edit`;
  * `api/src/modules/nodes/access.ts`, and the security posture states it plainly:
  * "edit (or owner) additionally configures the node (re-checks)"). It is
  * deliberately NOT `canManage`: on an agent that flag is owner-or-admin-on-
  * local, narrower than what the route honours, and hiding a permitted action
  * is a capability regression. `access` is server-derived on the view (admins
  * resolve to `edit` there), so this mirrors the gate without re-deriving
- * admin identity client-side. `local` is excluded outright — its view probes
- * live on every read, and the recheck route answers it 400. Permission alone
- * does not light the button: detection needs a LIVE socket, and an offline or
- * HELD node answers nothing but `update`, so the button sits disabled with the
- * reason in its title rather than trading a press for a 409.
+ * admin identity client-side. `local` is excluded from Re-check outright —
+ * its view probes live on every read, and the recheck route answers it 400.
+ * Permission alone does not light Re-check: detection needs a LIVE socket,
+ * and an offline or HELD node answers nothing but `update`, so the button
+ * sits disabled with the reason in its title rather than trading a press for
+ * a 409.
+ *
+ * **Update and Update all** (issue 250) run each harness CLI's own update
+ * line on the machine that holds it: in this process for `local`, through
+ * the signed `harness_update` command for an enrolled node. The same
+ * `nodeCanConfigure` gate applies, and `local` IS allowed here — the server
+ * can update its own tools. A remote node must be live for the same reason
+ * Re-check must. The button exists only on a row whose CLI is installed AND
+ * whose plugin declares an update path (`update.command`, resolved by the
+ * server to the vendor's line, or to the installer when that is idempotent).
+ * Update all walks the same per-row action sequentially, so two package
+ * managers never run over one filesystem at once.
  *
  * **On `local`, and only there, a row that is missing its program also gets
  * an Install button on its own line** (spec 2026-09-15 § 5.3; the button
@@ -108,6 +132,13 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
   // form and the preset editor so a warm cache costs nothing, and gating it
   // would mean two copies of the row renderer below.
   const { data: registry } = useHarnesses();
+  const update = useUpdateHarness(nodeId);
+  /** Per-harness results and failures, so two rows can finish at different times. */
+  const [updateResults, setUpdateResults] = useState<Record<string, HarnessUpdateResult>>({});
+  const [updateErrors, setUpdateErrors] = useState<Record<string, string>>({});
+  /** Harness ids a run is in flight for, in order — "Update all" walks them one at a time. */
+  const [updatingIds, setUpdatingIds] = useState<string[]>([]);
+  const [updatingAll, setUpdatingAll] = useState(false);
   /** The installer's latest line, per plugin id — see the render below. */
   const [installLines, setInstallLines] = useState<Record<string, string>>({});
   const install = useInstallAgent((id, line) => {
@@ -165,6 +196,59 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
         }
       : undefined;
 
+  // The update action's gate is `nodeCanConfigure` on ANY node — unlike
+  // Re-check, `local` runs it too, so the `kind === "agent"` narrowing is not
+  // part of this predicate. A remote node must be live: the command travels
+  // the signed link, and a held socket answers none.
+  const canUpdate =
+    data !== undefined && (data.access === "owner" || data.access === "manage" || data.access === "edit");
+  const updateReachable = data?.kind === "local" || data?.status === "online";
+  const updatableIds = harnesses
+    .filter((h) =>
+      updatableHere(
+        registry?.find((r) => r.id === h.harnessId),
+        h.installed,
+      ),
+    )
+    .map((h) => h.harnessId);
+  const updateBusy = updatingIds.length > 0;
+
+  /**
+   * One harness, awaited. Everything is per-row: a row's own spinner, its own
+   * output on failure, and its own error line, so a failure on the fourth of
+   * five names the harness it belongs to.
+   */
+  async function runUpdate(id: string): Promise<void> {
+    setUpdatingIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    setUpdateErrors((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    try {
+      const result = await update.mutateAsync(id);
+      setUpdateResults((prev) => ({ ...prev, [id]: result }));
+    } catch (err) {
+      setUpdateErrors((prev) => ({ ...prev, [id]: errMessage(err, "Couldn't update this harness.") }));
+    } finally {
+      setUpdatingIds((prev) => prev.filter((x) => x !== id));
+    }
+  }
+
+  /**
+   * Every updatable harness, SEQUENTIALLY. Two package managers over one
+   * filesystem is a race, and one harness's failure must not stop the rest —
+   * so the loop carries on and each row reports itself.
+   */
+  async function runUpdateAll(): Promise<void> {
+    setUpdatingAll(true);
+    try {
+      for (const id of updatableIds) await runUpdate(id);
+    } finally {
+      setUpdatingAll(false);
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -179,24 +263,57 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {canRecheck && (
+        {(canRecheck || (canUpdate && updatableIds.length > 0)) && (
           <div className="flex flex-wrap items-center gap-3">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={recheck.isPending || !recheckReachable}
-              disabledReason={
-                !recheckReachable
-                  ? "The node is offline. Wait for it to reconnect before checking."
-                  : "Wait for the current check to finish."
-              }
-              onClick={() => recheck.mutate()}
-            >
-              <RefreshCw /> {recheck.isPending ? "Re-checking…" : "Re-check"}
-            </Button>
-            {recheck.isSuccess && (
-              <p className="text-detail text-success">Re-check sent. The harness list will refresh shortly.</p>
+            {/* Update all walks the same per-row action, one at a time: the
+                rows below show which harness is running right now. */}
+            {canUpdate && updatableIds.length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                // Same mutual exclusion as a row's Update button: an install
+                // is another package-manager run over this machine.
+                disabled={updateBusy || install.isPending || !updateReachable}
+                disabledReason={
+                  !updateReachable
+                    ? "The node is offline. Wait for it to reconnect before updating."
+                    : install.isPending
+                      ? "Wait for the current installation to finish."
+                      : "Wait for the current update to finish."
+                }
+                onClick={() => void runUpdateAll()}
+              >
+                <ArrowUpCircle /> {updatingAll ? "Updating…" : "Update all"}
+              </Button>
+            )}
+            {canRecheck && (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  // Detection probes binaries, so it waits while a package
+                  // manager is rewriting them: a mid-update or mid-install
+                  // probe would otherwise report a harness missing.
+                  disabled={recheck.isPending || updateBusy || install.isPending || !recheckReachable}
+                  disabledReason={
+                    !recheckReachable
+                      ? "The node is offline. Wait for it to reconnect before checking."
+                      : updateBusy
+                        ? "Wait for the current update to finish."
+                        : install.isPending
+                          ? "Wait for the current installation to finish."
+                          : "Wait for the current check to finish."
+                  }
+                  onClick={() => recheck.mutate()}
+                >
+                  <RefreshCw /> {recheck.isPending ? "Re-checking…" : "Re-check"}
+                </Button>
+                {recheck.isSuccess && (
+                  <p className="text-detail text-success">Re-check sent. The harness list will refresh shortly.</p>
+                )}
+              </>
             )}
           </div>
         )}
@@ -235,6 +352,10 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
             // nothing to install, and `installableHere` holds the route's own
             // two refusals.
             const offerInstall = canInstallHere && !h.installed && installableHere(info);
+            const offerUpdate = canUpdate && updatableHere(info, h.installed);
+            const updatingThis = updatingIds.includes(h.harnessId);
+            const updateResult = updateResults[h.harnessId];
+            const updateError = updateErrors[h.harnessId];
             return (
               <div key={h.harnessId} className="contents">
                 {/* Named by the node view itself: every row carries the display
@@ -263,15 +384,41 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                   <Button
                     type="button"
                     size="sm"
-                    // One at a time: the route answers a second concurrent
-                    // install 409, so a second button that could be pressed
-                    // would only produce a refusal.
-                    disabled={install.isPending}
-                    disabledReason={"Wait for installation to finish."}
+                    // One at a time, and never beside an update: both act on
+                    // this machine's filesystem, and the update route already
+                    // serializes its own runs.
+                    disabled={install.isPending || updateBusy}
+                    disabledReason={
+                      updateBusy ? "Wait for the current update to finish." : "Wait for installation to finish."
+                    }
                     onClick={() => install.mutate(h.harnessId)}
                   >
                     {installingId === h.harnessId && <LoaderCircle aria-hidden className="motion-safe:animate-spin" />}
                     {installingId === h.harnessId ? "Installing…" : "Install"}
+                  </Button>
+                ) : offerUpdate && info ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    // One at a time across the whole card: the update route
+                    // refuses a concurrent run on the same harness, and
+                    // "Update all" is a sequential walk of this same action.
+                    disabled={updateBusy || !updateReachable || install.isPending}
+                    disabledReason={
+                      !updateReachable
+                        ? "The node is offline. Wait for it to reconnect before updating."
+                        : install.isPending
+                          ? "Wait for the current installation to finish."
+                          : "Wait for the current update to finish."
+                    }
+                    // What the button runs, without a press: the line is the
+                    // vendor's own, and it is about to run on a machine.
+                    title={`Runs ${info.update.command}`}
+                    onClick={() => void runUpdate(h.harnessId)}
+                  >
+                    {updatingThis && <LoaderCircle aria-hidden className="motion-safe:animate-spin" />}
+                    {updatingThis ? "Updating…" : "Update"}
                   </Button>
                 ) : (
                   <span aria-hidden />
@@ -333,6 +480,45 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                     )}
                   </div>
                 )}
+                {updatingThis && (
+                  <p aria-live="polite" className="col-span-full truncate font-mono text-detail text-muted-foreground">
+                    {info ? `Running ${info.update.command}` : "Running the update…"}
+                  </p>
+                )}
+                {!updatingThis && updateError !== undefined && (
+                  <p role="alert" className="col-span-full text-destructive text-detail">
+                    {updateError}
+                  </p>
+                )}
+                {!updatingThis &&
+                  updateError === undefined &&
+                  updateResult !== undefined &&
+                  // A run that FAILED is the case worth showing, and the
+                  // installer rows' own precedent: the command's output is
+                  // the disclosure, so it rides a details block rather than
+                  // a bare error line. A success says so and lets the
+                  // refetched version speak for itself.
+                  (updateResult.ok ? (
+                    <p className="col-span-full text-detail text-success">Updated.</p>
+                  ) : (
+                    <div className="col-span-full space-y-1">
+                      <p className="text-destructive text-detail">
+                        {updateResult.timedOut
+                          ? "The update timed out. It may still be running."
+                          : updateResult.exitCode === null
+                            ? "The update command could not be started."
+                            : `The update exited with code ${updateResult.exitCode}.`}
+                      </p>
+                      {updateResult.output.trim() !== "" && (
+                        <details className="text-sm">
+                          <summary className="cursor-pointer text-detail text-muted-foreground">
+                            What the update printed
+                          </summary>
+                          <pre className="mt-1 max-h-48 overflow-auto text-detail">{updateResult.output}</pre>
+                        </details>
+                      )}
+                    </div>
+                  ))}
               </div>
             );
           })}

@@ -36,6 +36,11 @@ export interface HarnessInfo {
   installedHere: boolean;
   /** Official install instructions, shown when detection fails */
   install: { command: string; docsUrl: string };
+  /**
+   * How the CLI updates itself on the node that holds it. An empty command
+   * means this harness has no update path, so no Update button is offered.
+   */
+  update: { command: string; docsUrl: string };
 }
 
 /**

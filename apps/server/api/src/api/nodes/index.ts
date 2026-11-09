@@ -6,6 +6,7 @@ import { displayReadinessRoute } from "@/api/nodes/display-readiness.route.js";
 import { enrollRoute } from "@/api/nodes/enroll.route.js";
 import { getNodeRoute } from "@/api/nodes/get-node.route.js";
 import { getNodeSharesRoute } from "@/api/nodes/get-node-shares.route.js";
+import { harnessUpdateRoute } from "@/api/nodes/harness-update.route.js";
 import { listNodesRoute } from "@/api/nodes/list-nodes.route.js";
 import { listSetupKeyRoute } from "@/api/nodes/list-setup-keys.route.js";
 import { localSshIdentityRoute } from "@/api/nodes/local-ssh-identity.route.js";
@@ -67,6 +68,7 @@ const nodeOperationsRoutes = new Elysia()
   .use(transferNodeRoute)
   .use(reregisterNodeRoute)
   .use(recheckNodeRoute)
+  .use(harnessUpdateRoute)
   .use(serviceNodeRoute)
   .use(nodeLogsRoute)
   .use(nodeLoggingRoute)

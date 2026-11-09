@@ -75,6 +75,25 @@ describe("adaptPlugin: identity comes from the manifest", () => {
     const { install: _drop, ...noInstall } = MANIFEST;
     expect(adaptPlugin(noInstall, minimal()).installHint).toEqual({ command: "", docsUrl: "" });
   });
+
+  it("falls back to the installer as the update path, and prefers an explicit update block", () => {
+    // Every built-in's installer is idempotent, so "no update block" means
+    // re-running the install line, not "no update possible".
+    expect(adaptPlugin(MANIFEST, minimal()).updateHint).toEqual({
+      command: "install stubtool",
+      docsUrl: "https://example.invalid",
+    });
+    const explicit = adaptPlugin(
+      { ...MANIFEST, update: { command: "stubtool update", docsUrl: "https://update.invalid" } },
+      minimal(),
+    );
+    expect(explicit.updateHint).toEqual({ command: "stubtool update", docsUrl: "https://update.invalid" });
+  });
+
+  it("has no update hint at all when the manifest declares neither block", () => {
+    const { install: _install, ...noInstall } = MANIFEST;
+    expect(adaptPlugin(noInstall, minimal()).updateHint).toBeUndefined();
+  });
 });
 
 describe("adaptPlugin: optional members are present only when implemented", () => {

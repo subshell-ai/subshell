@@ -133,15 +133,17 @@ const SUB = "11111111-2222-4333-8444-555555555555";
 
 /**
  * Stub plugin for the wire-mapping tests: identity, a `buildCommand` whose
- * output the pinned frames can name, and a detect rule like a real manifest
- * carries. Tests that need the PLUGINS' own dialect (argv shape, MCP args/env)
- * take the real ones from `getHarness()` — the stub only maps the plan to the
- * frame.
+ * output the pinned frames can name, a detect rule like a real manifest
+ * carries, and (protocol 28) an agent type with a version parser. Tests that
+ * need the PLUGINS' own dialect (argv shape, MCP args/env) take the real ones
+ * from `getHarness()` — the stub only maps the plan to the frame.
  */
 const harness = {
   id: "claude-code",
+  type: "agent-harness",
   detectSpec: { binaryName: "claude", envOverride: "CLAUDE_PATH", knownPaths: [".claude/local/claude"] },
   buildCommand: (input: BuildCommandInput) => [input.binary, "--preset", input.preset.name],
+  parseVersion: (raw: string) => /^\d+\.\d+\.\d+/.exec(raw)?.[0] ?? null,
 } as unknown as HarnessPlugin;
 
 const testPreset: PresetDefinition = {
@@ -329,6 +331,7 @@ describe("launch", () => {
           harnessSession: undefined,
           subshellName: "s1",
           bestEffortLog: undefined,
+          probeVersion: true,
           // Inversion spec §5: the argv and the resolve rule ride with every
           // launch. The binary slot is the placeholder, never the plan's
           // resolved path — the node re-resolves at the moment of spawn.
@@ -338,6 +341,18 @@ describe("launch", () => {
         timeoutMs: 60_000,
       },
     ]);
+  });
+
+  it("parses the raw version the node read, and only for an agent harness", async () => {
+    const h = makeHarness();
+    h.answer("launch", { rawVersion: "2.1.0 (Claude Code)" });
+    expect(await h.launcher.launch(planBase())).toEqual({ harnessVersion: "2.1.0" });
+
+    // A terminal pane answers its own program's banner; recording that as the
+    // pane's harness version would describe the wrong thing.
+    const terminal = { ...harness, type: "terminal" } as unknown as HarnessPlugin;
+    h.answer("launch", { rawVersion: "OpenSSH_9.6p1" });
+    expect(await h.launcher.launch({ ...planBase(), harness: terminal })).toEqual({});
   });
 
   it("ships mcp as { path: mcpConfigPath, fileContent } and the flags that ride the wire", async () => {

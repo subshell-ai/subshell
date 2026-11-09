@@ -751,6 +751,15 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // half: even a duplicated keystroke arrives adjacent to its own first
   // write, never interleaved behind a later one.
   let inputChain: Promise<void> = Promise.resolve();
+  // The UPDATE fast path (protocol 28, issue #250): a harness CLI's own update
+  // line can run for ten minutes, and parking it on `execChain` would hold
+  // every launch, terminate, resize and capture behind it — long past their
+  // plane-side deadlines, so the plane would report a timeout and the queued
+  // command would still execute afterwards. Updates run on their own chain,
+  // in arrival order among themselves and CONCURRENTLY with pane effects.
+  // `harness_update` is one harness per command and the plane already refuses
+  // two on one node, so this chain is a backstop, not a queue users wait in.
+  let updateChain: Promise<void> = Promise.resolve();
 
   // Local-liveness lock for `subshell status` (fix wave 1). Best-effort: a home that
   // cannot hold the file degrades `status`, never the daemon.
@@ -1165,12 +1174,19 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     // whole daemon life, never interleaved (a slow `launch` cannot let a
     // `write_file` slip past it). The chain's catch keeps a surprise throw
     // from poisoning the queue; `execute` itself swallows everything.
-    // `input` alone takes the fast path above: it joins its own chain instead,
-    // which is what stops a keystroke from waiting out a capture ahead of it.
-    // Everything else, resize included (rare, and read-your-writes adjacent),
-    // keeps the main chain.
+    // Two commands take their own chains instead: `input` (above) and
+    // `harness_update` (protocol 28), whose ten-minute package-manager run
+    // would otherwise hold every pane effect behind it. Everything else,
+    // resize included (rare, and read-your-writes adjacent), keeps the main
+    // chain.
     if (outcome.claims.cmd.type === "input") {
       inputChain = inputChain
+        .then(() => execute(ws, outcome.claims))
+        .catch((err: unknown) => log(`command execution failed: ${String(err)}`));
+      return;
+    }
+    if (outcome.claims.cmd.type === "harness_update") {
+      updateChain = updateChain
         .then(() => execute(ws, outcome.claims))
         .catch((err: unknown) => log(`command execution failed: ${String(err)}`));
       return;

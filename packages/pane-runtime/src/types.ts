@@ -63,6 +63,21 @@ export interface InstallHint {
   docsUrl: string;
 }
 
+/**
+ * How to update the CLI this plugin drives.
+ *
+ * Present whenever the plugin declares an update path: its own
+ * `subshell.update` block when the vendor has a dedicated verb, else the
+ * installer line, which is idempotent for every built-in. A plugin with
+ * neither (a bare shell, an ssh pane) has no update to offer.
+ */
+export interface UpdateHint {
+  /** Shell line that updates the CLI in place. */
+  command: string;
+  /** Where the vendor documents it; absent when the install block carried none. */
+  docsUrl?: string;
+}
+
 /** Harness plugin interface implemented by every built-in harness. */
 export interface HarnessPlugin {
   /** Stable id, e.g. "claude-code" */
@@ -118,6 +133,12 @@ export interface HarnessPlugin {
   pickable?: false;
   /** Official install instructions, shown when detection fails */
   installHint: InstallHint;
+  /**
+   * How the CLI updates itself, when it can: the manifest's `update` block,
+   * or its `install` block as the fallback. Absent for a plugin that drives
+   * nothing updatable (a bare shell, an ssh pane).
+   */
+  updateHint?: UpdateHint;
   /** Whether the harness ships enabled out of the box */
   enabledByDefault: boolean;
   /** Whether the harness binary is currently installed/usable. */

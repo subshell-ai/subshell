@@ -19,6 +19,10 @@ const base: HarnessInfo = {
     command: "curl -fsSL https://claude.ai/install.sh | bash",
     docsUrl: "https://code.claude.com/docs/en/setup",
   },
+  update: {
+    command: "curl -fsSL https://claude.ai/install.sh | bash",
+    docsUrl: "https://code.claude.com/docs/en/setup",
+  },
 };
 
 describe("AgentRow", () => {

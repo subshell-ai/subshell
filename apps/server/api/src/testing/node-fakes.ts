@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { buildSshConfigPath } from "@internal/pane-runtime";
-import type { LaunchPlan, NodeLauncher } from "@/modules/nodes/node-launcher.js";
+import type { LaunchAck, LaunchPlan, NodeLauncher } from "@/modules/nodes/node-launcher.js";
 import { attachConnection, detachConnection, type NodeFacts, type NodeSocket } from "@/modules/nodes/node-registry.js";
 
 /**
@@ -44,9 +44,10 @@ export class FakeNodeLauncher implements NodeLauncher {
   async resolveBinary(): Promise<string | null> {
     return "/bin/stub";
   }
-  async launch(plan: LaunchPlan): Promise<void> {
+  async launch(plan: LaunchPlan): Promise<LaunchAck> {
     if (this.launchError) throw this.launchError;
     this.plans.push(plan);
+    return {};
   }
   async terminate(): Promise<void> {}
   async killSubshell(_socket: string, id: string): Promise<void> {

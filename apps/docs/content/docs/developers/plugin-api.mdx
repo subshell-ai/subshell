@@ -30,6 +30,7 @@ The package's `package.json` contains a `subshell` object:
 | `entry` | Path to the bundled ESM factory, relative to the package. |
 | `detect` | Binary name, environment override, and known paths used for manifest-driven detection. |
 | `install` | Optional unprivileged installation command and documentation link. This isn't a plugin package dependency installer. |
+| `update` | Optional unprivileged update command and documentation link, for a vendor that ships a dedicated verb. When absent, the node page's Update action runs `install.command`, so declare this where the vendor's install line isn't an updater. |
 | `hostEnv` | Optional names of execution-host environment values needed for path computation. |
 | `network` | Required for network plugins: supported platforms, exposure, login behavior, and optional privileged instructions. |
 

@@ -44,7 +44,7 @@ export function SubshellCard({ subshell }: { subshell: SubshellView }) {
       to="/subshells/$id"
       params={{ id: subshell.id }}
       title={subshell.name}
-      description={subshell.harnessId}
+      description={subshell.harnessVersion ? `${subshell.harnessId} ${subshell.harnessVersion}` : subshell.harnessId}
       menu={<SubshellActionsMenu subshell={subshell} />}
       accessory={<SubshellDot subshell={subshell} accessible className="mt-0" />}
       // A subshell is a process *somewhere*, so the directory rides in the

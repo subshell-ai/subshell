@@ -15,10 +15,10 @@ import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
  * The node page's harness card after the plugin inversion (spec 2026-09-10):
  * detection output, nothing more. One row per plugin the INSTANCE has
  * installed (the server's view already filters to that set), each carrying
- * this machine's binary answer, its version and the `checkedAt` stamp; a
- * manager's Re-check is the only control. No install, no remove, no
- * plugin-load notices — those are instance facts and live on
- * `/settings/plugins`.
+ * this machine's binary answer, its version and the `checkedAt` stamp. A
+ * manager's Re-check and Update controls act on this machine (issue 250); no
+ * install, no remove, no plugin-load notices — those are instance facts and
+ * live on `/settings/plugins`.
  *
  * The fetch mock models the PRODUCER, not the card's wishes: rows are what
  * `GET /api/nodes/:id` sent (`effectiveHarnessStates` builds them from the
@@ -58,6 +58,10 @@ interface CardOpts {
    * rendering is asserted without racing a close.
    */
   installFrames?: (string | null)[];
+  /** Status the POST to a harness update answers with (default 200). */
+  updateStatus?: number;
+  /** Body a harness update answers with; the default is a successful run. */
+  updateBody?: Record<string, unknown>;
 }
 
 /** A `HarnessInfo` as `/api/setup/harnesses` sends it. */
@@ -72,6 +76,7 @@ function info(over: Record<string, unknown> = {}): Record<string, unknown> {
     installed: false,
     installedHere: true,
     install: { command: "curl -fsSL https://example.test/install.sh | bash", docsUrl: "" },
+    update: { command: "curl -fsSL https://example.test/install.sh | bash", docsUrl: "" },
     ...over,
   };
 }
@@ -170,6 +175,28 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
           }),
           { headers: { "content-type": "application/x-ndjson" } },
         ),
+      );
+    }
+    const harnessUpdate = /^\/api\/nodes\/[^/]+\/harnesses\/([^/]+)\/update$/.exec(url.pathname);
+    if (harnessUpdate && method === "POST") {
+      const status = opts.updateStatus ?? 200;
+      if (status !== 200) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ errId: "e1", code: "NODE_OFFLINE", message: "node is offline" }), { status }),
+        );
+      }
+      const result = opts.updateBody ?? {
+        harnessId: harnessUpdate[1],
+        ok: true,
+        exitCode: 0,
+        output: "",
+        durationMs: 5,
+        timedOut: false,
+      };
+      return Promise.resolve(
+        new Response(`${JSON.stringify({ type: "done", ...result })}\n`, {
+          headers: { "content-type": "application/x-ndjson" },
+        }),
       );
     }
     return Promise.resolve(new Response(JSON.stringify({})));
@@ -437,6 +464,28 @@ describe("NodeHarnessCard", () => {
       }
     });
 
+    it("holds Update all while an install is running (one package manager at a time)", async () => {
+      const { restore } = await mount({
+        kind: "local",
+        canManage: true,
+        harnesses: [
+          { harnessId: "claude", name: "Claude", installed: true },
+          { harnessId: "codex", name: "Codex", installed: false, reason: "not-on-path" },
+        ],
+        infos: [info(), info({ id: "codex", name: "Codex", binary: "codex" })],
+        installFrames: [null],
+      });
+      try {
+        const install = await screen.findByRole("button", { name: "Install" });
+        fireEvent.click(install);
+        const updateAll = await screen.findByRole("button", { name: /update all/i });
+        await waitFor(() => expect(updateAll.matches(":disabled, [aria-disabled=true]")).toBe(true));
+        expect(updateAll.getAttribute("aria-description")).toContain("installation");
+      } finally {
+        restore();
+      }
+    });
+
     it("reports a run that failed under the row that failed, with what it printed", async () => {
       const { restore } = await mount({
         ...localOpts,
@@ -509,6 +558,140 @@ describe("NodeHarnessCard", () => {
       try {
         expect(await screen.findByText((c) => c === "Quiet")).toBeDefined();
         expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+  });
+
+  describe("Update (issue 250)", () => {
+    it("offers Update and Update all on an installed harness that declares an update path", async () => {
+      const { calls, restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info()],
+      });
+      try {
+        expect(await screen.findByText("ready")).toBeDefined();
+        const updateButton = screen.getByRole("button", { name: /^update$/i });
+        expect(screen.getByRole("button", { name: /update all/i })).toBeDefined();
+        fireEvent.click(updateButton);
+        await waitFor(() =>
+          expect(
+            calls.some((c) => c.method === "POST" && c.url === `/api/nodes/${NODE_ID}/harnesses/claude/update`),
+          ).toBe(true),
+        );
+        expect(await screen.findByText("Updated.")).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("reports a failed run under its own row, with the command's output", async () => {
+      const { restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info()],
+        updateBody: {
+          harnessId: "claude",
+          ok: false,
+          exitCode: 7,
+          output: "boom",
+          durationMs: 5,
+          timedOut: false,
+        },
+      });
+      try {
+        expect(await screen.findByText("ready")).toBeDefined();
+        fireEvent.click(screen.getByRole("button", { name: /^update$/i }));
+        expect(await screen.findByText(/exited with code 7/)).toBeDefined();
+        expect(screen.getByText("boom")).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("never offers it to a view grantee", async () => {
+      const { restore } = await mount({
+        access: "view",
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info()],
+      });
+      try {
+        expect(await screen.findByText("ready")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /^update$/i })).toBeNull();
+        expect(screen.queryByRole("button", { name: /update all/i })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("disables it on a disconnected agent node, with the reason", async () => {
+      const { calls, restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info()],
+        status: "offline",
+      });
+      try {
+        const btn = (await screen.findByRole("button", { name: /^update$/i })) as HTMLButtonElement;
+        expect(btn.matches(":disabled, [aria-disabled=true]")).toBe(true);
+        expect(btn.getAttribute("aria-description")).toContain("offline");
+        fireEvent.click(btn);
+        expect(
+          calls.some((c) => c.method === "POST" && c.url === `/api/nodes/${NODE_ID}/harnesses/claude/update`),
+        ).toBe(false);
+      } finally {
+        restore();
+      }
+    });
+
+    it("shows a refusal under the row instead of a success", async () => {
+      const { restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info()],
+        updateStatus: 409,
+      });
+      try {
+        expect(await screen.findByText("ready")).toBeDefined();
+        fireEvent.click(screen.getByRole("button", { name: /^update$/i }));
+        expect(await screen.findByText(/node is offline/)).toBeDefined();
+        expect(screen.queryByText("Updated.")).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("walks Update all one harness at a time, in the node's row order", async () => {
+      const { calls, restore } = await mount({
+        harnesses: [
+          { harnessId: "claude", name: "Claude", installed: true },
+          { harnessId: "codex", name: "Codex", installed: true },
+        ],
+        infos: [
+          info(),
+          info({ id: "codex", name: "Codex", binary: "codex", update: { command: "codex update", docsUrl: "" } }),
+        ],
+      });
+      try {
+        expect(await screen.findAllByText("ready")).toHaveLength(2);
+        fireEvent.click(screen.getByRole("button", { name: /update all/i }));
+        await waitFor(() => expect(calls.filter((c) => c.method === "POST")).toHaveLength(2));
+        expect(calls.filter((c) => c.method === "POST").map((c) => c.url)).toEqual([
+          `/api/nodes/${NODE_ID}/harnesses/claude/update`,
+          `/api/nodes/${NODE_ID}/harnesses/codex/update`,
+        ]);
+      } finally {
+        restore();
+      }
+    });
+
+    it("offers nothing for a harness whose plugin declares no update path", async () => {
+      const { restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info({ update: { command: "", docsUrl: "" } })],
+      });
+      try {
+        expect(await screen.findByText("ready")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /^update$/i })).toBeNull();
+        expect(screen.queryByRole("button", { name: /update all/i })).toBeNull();
       } finally {
         restore();
       }

@@ -29,6 +29,7 @@ import * as sshLaunchMigration from "@/db/migrations/0048-ssh-launch-and-saved-h
 import * as keyHomeMigration from "@/db/migrations/0052-subshell-key-home.js";
 import * as subshellParentMigration from "@/db/migrations/0060-subshell-parent.js";
 import * as presetEnabledMigration from "@/db/migrations/0068-preset-enabled.js";
+import * as harnessVersionMigration from "@/db/migrations/0073-subshell-harness-version.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -132,7 +133,11 @@ beforeAll(async () => {
   // enough for the tmux liveness assertions. This also stops the suite from
   // spawning the operator's actual agent.
   const harnessStub = join(testDir, "claude-stub");
-  writeFileSync(harnessStub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
+  // `--version` is the launcher's version probe (protocol 28): answer it
+  // immediately so a launch is not held for the probe's deadline.
+  writeFileSync(harnessStub, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "0.0.0"; exit 0; fi\nexec sleep 300\n`, {
+    mode: 0o755,
+  });
   previousClaudePath = process.env.CLAUDE_PATH;
   process.env.CLAUDE_PATH = harnessStub;
 
@@ -159,6 +164,7 @@ beforeAll(async () => {
   await sshLaunchMigration.up(db); // 0048 subshells.ssh — SubshellsRepository.create writes it on EVERY create now (null for a non-ssh pane), and the delete sweep reads it as the kind fact (plan-2 Task 7)
   await keyHomeMigration.up(db); // 0052 subshells.key_home_node_id - SubshellsRepository.create mirrors it on every insert (Task 14)
   await presetEnabledMigration.up(db); // presets.enabled (0068) - PresetsRepository.create mirrors it on every insert
+  await harnessVersionMigration.up(db); // 0073 subshells.harness_version — #reviveRow writes it on a restart
   presetsRepo = new PresetsRepository(db);
   subshellsRepo = new SubshellsRepository(db);
   subshellManager = new SubshellManagerService({
@@ -221,6 +227,9 @@ describe("SubshellManagerService", () => {
     expect(await paneAlive(created.tmuxSocket, created.id)).toBe(true);
     // A fresh subshell is stamped as just-started output (shows active).
     expect(row?.lastOutputAt).toBeTruthy();
+    // What the stub answered `<binary> --version` (protocol 28): the claude
+    // plugin declares no parser, so the trimmed raw text is the version.
+    expect(row?.harnessVersion).toBe("0.0.0");
 
     await subshellManager.terminateSubshell("u1", created.id);
     const after = await subshellsRepo.findById(created.id);
@@ -297,6 +306,9 @@ describe("SubshellManagerService restart", () => {
     expect(row?.backoffCount).toBe(0); // operator intent resets the ladder
     expect(row?.nextRestartAt).toBeNull();
     expect(row?.tmuxSocket).toBe(restarted.tmuxSocket);
+    // A revival rewrites the launched version too (protocol 28), so the row
+    // describes the pane that is running now.
+    expect(row?.harnessVersion).toBe("0.0.0");
 
     // A REAL tmux subshell was spawned — end it here or its server outlives
     // the suite with the stub pane still attached (regression guard: the old
@@ -1092,7 +1104,14 @@ describe("SubshellManagerService restart-resume", () => {
   }> {
     const argFile = join(testDir, `${name}-argv.txt`);
     const stub = join(testDir, `${name}-stub`);
-    writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" > '${argFile}'\nexec sleep 300\n`, { mode: 0o755 });
+    // `--version` is the launcher's version probe (protocol 28), not the
+    // pane's launch argv: answering it keeps the probe fast and leaves the
+    // recorded file to the real launch.
+    writeFileSync(
+      stub,
+      `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "0.0.0"; exit 0; fi\nprintf '%s\\n' "$@" > '${argFile}'\nexec sleep 300\n`,
+      { mode: 0o755 },
+    );
     const savedClaudePath = process.env.CLAUDE_PATH;
     const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
     const configDir = mkdtempSync(join(testDir, `${name}-claudecfg-`));

@@ -74,6 +74,13 @@ export interface SubshellTable {
    * row, non-resume harness, or nothing pinned yet). See migration 0013.
    */
   harnessSessionId: string | null;
+  /**
+   * The harness CLI version this pane was launched (or last revived) on,
+   * parsed from `<binary> --version` by the plugin on the control plane.
+   * NULL on rows that predate the column and on a launch whose version could
+   * not be read. See migration 0073.
+   */
+  harnessVersion: string | null;
   /** better-auth api-key id backing this subshell's MCP token (null = none yet) */
   apiKeyId: string | null;
   /** Node the subshell runs on ('local' = control-plane host) */
@@ -141,6 +148,7 @@ export type NewSubshell = Omit<
   | "apiKeyId"
   | "nameLocked"
   | "harnessSessionId"
+  | "harnessVersion"
   | "notify"
   | "waitingSince"
   | "lastPushUrgency"

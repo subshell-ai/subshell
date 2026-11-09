@@ -633,6 +633,8 @@ export class SubshellManagerService {
         : await this.#tokens.issue(id, userId, systemKeyPermissions);
 
     let promptDelivered = false;
+    /** What the spawn reported it launched on, recorded after the launch settles. */
+    let launchedHarnessVersion: string | undefined;
     try {
       // Register `subshell mcp` with the harness, in whatever dialect the plugin
       // speaks: claude gets --mcp-config argv, opencode a merged config layer
@@ -657,7 +659,7 @@ export class SubshellManagerService {
       // Command assembly happens INSIDE launch, which runs inside this try:
       // a rejected env key throws there, and the row + token must roll back
       // like any other spawn failure below.
-      await launcher.launch({
+      const ack = await launcher.launch({
         id,
         socket,
         harness,
@@ -677,6 +679,10 @@ export class SubshellManagerService {
         // no screen member at all, byte-identical to the pre-preview plan.
         ...(screen ? { screen } : {}),
       });
+      // What this pane launched on (protocol 28). Stashed here and written
+      // after the launch block, so a metadata write can never turn a live
+      // pane into a rolled-back one; absent stays NULL rather than a guess.
+      launchedHarnessVersion = ack.harnessVersion;
       if (prompt?.trim()) {
         promptDelivered = await this.#deliverPrompt(
           launcher,
@@ -711,6 +717,16 @@ export class SubshellManagerService {
       await this.#revokeTokenOrUnlink(id);
       publishLive({ kind: "subshell.changed", id });
       throw err;
+    }
+    // The version write, OUTSIDE the launch rollback: a live pane must not be
+    // killed because a metadata column refused. A miss here leaves NULL, which
+    // is the same honest answer as a machine that could not read one.
+    if (launchedHarnessVersion !== undefined) {
+      try {
+        await this.#subshells.update(id, { harnessVersion: launchedHarnessVersion });
+      } catch (err) {
+        logger.withError(err).debug(`subshell ${id}: could not record the launch harness version`);
+      }
     }
 
     // Post-spawn re-read, the create-path twin of `#reviveRow`'s conditional
@@ -1588,7 +1604,7 @@ export class SubshellManagerService {
     // (same method createSubshell uses; the pipe is re-attached even when
     // cleanup unlinked the log). bestEffortLog restores the pre-seam revive
     // semantics: a pane this live must not die over a lost replay-log pipe.
-    await launcher.launch({
+    const ack = await launcher.launch({
       id: row.id,
       socket,
       harness,
@@ -1630,6 +1646,11 @@ export class SubshellManagerService {
       // Persist the pinned id when this attempt re-pinned (mode "start");
       // a mode "resume" id equals the stored one, so this is a no-op write.
       ...(harnessSession ? { harnessSessionId: harnessSession.id } : {}),
+      // What this revive launched on (protocol 28). An absent answer writes
+      // NULL, not the previous value: the row describes the pane that is
+      // running NOW, and a version the machine could not read this time is an
+      // absent fact rather than the old pane's.
+      harnessVersion: ack.harnessVersion ?? null,
     });
     if (revived === 0) {
       logger.warn(`subshell ${row.id} terminated mid-restart; killing the orphan pane and revoking its token`);
@@ -2532,6 +2553,7 @@ export function toSubshellView(
     userId: string;
     presetId: string | null;
     harnessId: string;
+    harnessVersion?: string | null;
     nodeId: string;
     name: string;
     workingDir: string;
@@ -2580,6 +2602,9 @@ export function toSubshellView(
     virtualDisplay: status === "running" && row.alive === 1 ? virtualDisplay : null,
     presetId: row.presetId,
     harnessId: row.harnessId,
+    // What this pane launched on (protocol 28). Null when the machine could
+    // not read a version or the row predates the column.
+    harnessVersion: row.harnessVersion ?? null,
     nodeId: row.nodeId,
     name: row.name,
     workingDir: row.workingDir,

@@ -12,6 +12,7 @@ import {
   parseNodeEvent,
   parseNodeFileReadResult,
   parseNodeFsLsResult,
+  parseNodeHarnessUpdateResult,
   parseNodeLaunchResult,
   parseNodeLogReadResult,
   parseNodePaneCursorResult,
@@ -476,6 +477,32 @@ describe("preview results (protocol 23)", () => {
     expect(parseNodeLaunchResult({ screen: { display: ":1", viewer: { protocol: "vnc", port: 0 } } })).toBeNull();
     expect(parseNodeLaunchResult({ screen: "yes" })).toBeNull();
     expect(parseNodeLaunchResult("screen")).toBeNull();
+
+    // The protocol-28 echo: the node answers RAW text for the binary it
+    // spawned, so the plane parses it with the plugin.
+    expect(parseNodeLaunchResult({ rawVersion: "2.1.0 (Claude Code)" })).toEqual({
+      rawVersion: "2.1.0 (Claude Code)",
+    });
+    expect(parseNodeLaunchResult({ rawVersion: 7 })).toBeNull();
+  });
+
+  it("harness_update reports the run, not a transport failure", () => {
+    const answered = {
+      harnessId: "claude-code",
+      ok: false,
+      exitCode: 2,
+      output: "npm ERR!",
+      durationMs: 1200,
+      timedOut: false,
+    };
+    expect(parseNodeHarnessUpdateResult(answered)).toEqual(answered);
+    expect(parseNodeHarnessUpdateResult({ ...answered, exitCode: null })).toEqual({ ...answered, exitCode: null });
+    // Malformed answers are a node bug, never a silent success.
+    expect(parseNodeHarnessUpdateResult(undefined)).toBeNull();
+    expect(parseNodeHarnessUpdateResult({ ...answered, ok: "yes" })).toBeNull();
+    expect(parseNodeHarnessUpdateResult({ ...answered, output: 7 })).toBeNull();
+    expect(parseNodeHarnessUpdateResult({ ...answered, durationMs: "1s" })).toBeNull();
+    expect(parseNodeHarnessUpdateResult({ ...answered, timedOut: undefined })).toBeNull();
   });
 });
 

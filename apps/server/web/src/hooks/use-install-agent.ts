@@ -16,13 +16,17 @@ export interface AgentInstallResult {
 }
 
 /**
- * One NDJSON frame from the install stream.
+ * One NDJSON frame from an install-style stream (the agent installer, the
+ * tmux installer, and a harness update).
  *
- * `line` arrives while the installer runs; exactly one `done` or `error` ends
- * it. A stream that ends with NEITHER is a failure too — see below.
+ * `line` arrives while the command runs, `waiting` is the heartbeat that keeps
+ * a silent ten-minute update from reading as an idle connection, and exactly
+ * one `done` or `error` ends it. A stream that ends with NEITHER is a failure
+ * too — see below.
  */
 type InstallFrame<TDone> =
   | { type: "line"; text: string }
+  | { type: "waiting" }
   | ({ type: "done" } & TDone)
   | { type: "error"; message: string };
 
@@ -109,11 +113,14 @@ export const STALLED_MESSAGE =
  * @param body - The response body to read
  * @param onLine - Called with each `line` frame's text as it arrives
  * @param stallMs - Silence allowed before giving up
+ * @param messages - The failure wording for the surfaces that share this
+ *   protocol; install is the default because it was the first
  */
 export async function readInstallStream<TDone = AgentInstallResult>(
   body: ReadableStream<Uint8Array>,
   onLine?: (line: string) => void,
   stallMs: number = INSTALL_STALL_MS,
+  messages: { stalled?: string; ended?: string } = {},
 ): Promise<TDone> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -122,7 +129,9 @@ export async function readInstallStream<TDone = AgentInstallResult>(
   const handle = (frame: InstallFrame<TDone>) => {
     if (frame.type === "line") onLine?.(frame.text);
     else if (frame.type === "done") done = frame;
-    else throw new ApiError(500, frame.message);
+    else if (frame.type === "error") throw new ApiError(500, frame.message);
+    // `waiting` is a heartbeat: it exists to keep the connection alive, and
+    // has nothing to report.
   };
   try {
     for (;;) {
@@ -135,7 +144,7 @@ export async function readInstallStream<TDone = AgentInstallResult>(
       const chunk = await Promise.race([
         reader.read(),
         new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new ApiError(504, STALLED_MESSAGE)), stallMs);
+          timer = setTimeout(() => reject(new ApiError(504, messages.stalled ?? STALLED_MESSAGE)), stallMs);
         }),
       ]).finally(() => {
         if (timer !== undefined) clearTimeout(timer);
@@ -156,6 +165,6 @@ export async function readInstallStream<TDone = AgentInstallResult>(
   // with missing fields: the server died, or something between here and it cut
   // the body. Silently resolving would report an install that never finished
   // as one that worked.
-  if (!done) throw new ApiError(500, "The install ended without saying whether it worked.");
+  if (!done) throw new ApiError(500, messages.ended ?? "The install ended without saying whether it worked.");
   return done;
 }

@@ -1448,6 +1448,41 @@ test("a burst of frames in one turn is verified in ARRIVAL order, not signature-
   expect(h.plane.unparsed).toEqual([]);
 });
 
+test("a slow harness_update does not hold pane effects behind it", async () => {
+  // Protocol 28 puts harness_update on its own chain: a ten-minute
+  // package-manager run must not park launches, terminates or captures behind
+  // it, where their plane-side deadlines (seconds) would expire first and the
+  // command would still execute afterwards. The update below sleeps one
+  // second; an inventory sent after it must answer FIRST. On the main chain
+  // it answers second, which is the regression this pins.
+  const h = await startDaemon();
+  await waitFor(h, (e) => e.type === "inventory", "connect inventory push");
+  await signAndSend(
+    h,
+    { type: "harness_update", harnessId: "claude-code", command: "sleep 1; echo done" },
+    { jti: "upd-1", seq: 1 },
+  );
+  await signAndSend(h, { type: "inventory" }, { jti: "inv-1", seq: 2 });
+  const inv = await waitFor<Extract<NodeEvent, { type: "result" }>>(
+    h,
+    (e) => e.type === "result" && e.ref === "inv-1",
+    "inventory result",
+  );
+  expect(inv).toMatchObject({ ok: true });
+  const upd = await waitFor<Extract<NodeEvent, { type: "result" }>>(
+    h,
+    (e) => e.type === "result" && e.ref === "upd-1",
+    "harness update result",
+  );
+  expect(upd).toMatchObject({ ok: true });
+  // Both are in now; the inventory's answer is the earlier event.
+  expect(
+    eventsAs(h, "result")
+      .filter((e) => e.ref === "upd-1" || e.ref === "inv-1")
+      .map((e) => e.ref),
+  ).toEqual(["inv-1", "upd-1"]);
+});
+
 test("an oversize frame is dropped on ARRIVAL, not queued behind the chain", async () => {
   // The two byte guards are synchronous and cost nothing, so they run before
   // a frame joins the serialization chain. Behind it, a burst of oversize

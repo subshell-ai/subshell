@@ -26,7 +26,7 @@
  */
 
 import { normalizeLabel } from "./frames.js";
-import { BASE64_RE, isBool, isInt, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
+import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import { MAX_ARCHIVE_BYTES, MAX_MANIFEST_PAGE_ENTRIES } from "./node-frames.js";
 import { parseSshConnectionSnapshot } from "./ssh-config.js";
 import { isSshErrorCode } from "./ssh-errors.js";
@@ -399,6 +399,57 @@ export function parseNodeDetectResults(data: unknown): NodeDetectAnswer | null {
       return null;
   }
   return { rows: data.results as unknown as DetectResultWire[], env: data.env };
+}
+
+/* ------------------------------------------------------------------ */
+/* harness_update                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `harness_update`'s answer: one harness CLI's update command, run to
+ * completion on the node.
+ *
+ * Shaped like the installer's result (`AgentInstallResult`) because the same
+ * surfaces render it: `ok:false` is a run that FAILED (the command ran and
+ * said no), never a transport failure — the RPC's own rejection covers those.
+ * `output` joins stdout and stderr for the same reason the installer's does:
+ * it is a disclosure to the person who pressed the button, and a tool that
+ * explains itself on stderr while printing progress on stdout is the common
+ * case.
+ */
+export interface NodeHarnessUpdateResult {
+  /** Harness plugin id this run was for (echo of the command's `harnessId`) */
+  harnessId: string;
+  /** True when the command exited 0 inside its deadline */
+  ok: boolean;
+  /** Exit code, or null when it was signalled or never started */
+  exitCode: number | null;
+  /** Combined, ANSI-stripped, cap-bounded output */
+  output: string;
+  /** Wall-clock duration */
+  durationMs: number;
+  /** True when the deadline ended the run */
+  timedOut: boolean;
+}
+
+/**
+ * Validates and narrows a `harness_update` command's `result{data}`.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed result, or null when the payload is malformed
+ */
+export function parseNodeHarnessUpdateResult(data: unknown): NodeHarnessUpdateResult | null {
+  if (!isRecord(data)) return null;
+  if (!isStr(data.harnessId) || !isBool(data.ok)) return null;
+  if (data.exitCode !== null && !isInt(data.exitCode)) return null;
+  if (!isStr(data.output) || !isNum(data.durationMs) || !isBool(data.timedOut)) return null;
+  return {
+    harnessId: data.harnessId,
+    ok: data.ok,
+    exitCode: data.exitCode as number | null,
+    output: data.output,
+    durationMs: data.durationMs,
+    timedOut: data.timedOut,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -988,30 +1039,45 @@ export function parseNodePreviewPortsResult(data: unknown): NodePreviewPortsResu
 }
 
 /**
- * `launch`'s answer (protocol 23): the virtual display it allocated, when it
- * allocated one. The plane audits the display from the ack because a
- * post-ack `getPorts` would race the 5 s cache on a pane that just started
- * (spec §4). Validated on BOTH ends per this file's header contract.
+ * `launch`'s answer: the virtual display it allocated (protocol 23) and,
+ * when the launch asked with `probeVersion`, the RAW version text of the
+ * binary it spawned (protocol 28).
+ *
+ * The display is audited from the ack because a post-ack `getPorts` would
+ * race the 5 s cache on a pane that just started (spec §4). The version is
+ * raw for the same reason `detect` answers raw text: the node holds no plugin
+ * code, so the control plane runs the plugin's `parseVersion` and stores the
+ * result as the version the subshell launched on. Validated on BOTH ends per
+ * this file's header contract.
  */
 export interface NodeLaunchResult {
   /** The display the node started the pane on; absent means the launch asked for none (or was refused, which answers `ok:false`). */
   screen?: NodePreviewScreenWire;
+  /** UNPARSED `<binary> --version` output for the binary the node spawned; absent when no probe was asked for, or none could be read. */
+  rawVersion?: string;
 }
 
 /**
  * Validates and narrows a `launch` answer. Absent, null, and `{}` all read
- * the common case: no screen was asked for, so nothing echoes. A present
- * `screen` must be a complete pair, because the plane writes what it trusts.
+ * the common case: nothing echoed. Each present member must be well-formed,
+ * because the plane writes what it trusts.
  * @param data - the `data` member of a successful result frame
  * @returns the narrowed answer, or null when malformed
  */
 export function parseNodeLaunchResult(data: unknown): NodeLaunchResult | null {
   if (data === undefined || data === null) return {};
   if (!isRecord(data)) return null;
-  if (data.screen === undefined) return {};
-  const screen = parsePreviewScreenWire(data.screen);
-  if (screen === null) return null;
-  return { screen };
+  const result: NodeLaunchResult = {};
+  if (data.screen !== undefined) {
+    const screen = parsePreviewScreenWire(data.screen);
+    if (screen === null) return null;
+    result.screen = screen;
+  }
+  if (data.rawVersion !== undefined) {
+    if (!isStr(data.rawVersion)) return null;
+    result.rawVersion = data.rawVersion;
+  }
+  return result;
 }
 
 export interface PreviewDisplayReadiness {

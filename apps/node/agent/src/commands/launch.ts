@@ -8,6 +8,7 @@ import {
   findBinary,
   type PresetDefinition,
   paneEnvFor,
+  probeVersion,
 } from "@internal/pane-runtime";
 import { HARNESS_BINARY_PLACEHOLDER, NODE_RESULT_MAINTENANCE } from "@internal/subshell-protocol";
 import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allowed-dirs.js";
@@ -103,6 +104,8 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   // interim fail-closed guards of the v2 transition are gone — the parser
   // refuses those shapes before dispatch.
   let argv = cmd.argv;
+  /** Resolved binary path, when this launch's argv carried the placeholder. */
+  let resolvedBinary: string | undefined;
   if (argv.includes(HARNESS_BINARY_PLACEHOLDER)) {
     // The node's OWN lookup ladder (env override → PATH → known paths →
     // version managers → login shell), driven by the sent rule.
@@ -114,8 +117,15 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
       // the fallback itself is gone.)
       return { ok: false, error: `harness binary missing: ${cmd.harnessId}` };
     }
+    resolvedBinary = path;
     argv = argv.map((entry) => (entry === HARNESS_BINARY_PLACEHOLDER ? path : entry));
   }
+  // The version this pane launches on (protocol 28), when the plane asked for
+  // it: an agent harness's version is worth recording; a shell's or ssh's
+  // banner is not. Raw, because interpreting a banner is plugin code that
+  // lives on the control plane; started HERE and awaited at the end, so the
+  // spawn does not wait on it unless the probe is slower than the launch.
+  const versionProbe = cmd.probeVersion === true && resolvedBinary ? probeVersion(resolvedBinary) : undefined;
 
   // (3) MCP registration. The AGENT writes the file — its own path policy and
   // 0600 discipline are node controls, not plugin knowledge. The dialect is
@@ -318,9 +328,16 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   // relaunch having re-asserted its meta by the time a stale tick could
   // forget it. Do not sink startExitWatcher below a meta gap.
   startExitWatcher(ctx, cmd.subshellId, cmd.socket);
-  // The `screen` echo (Task 1's launch-result member): a screen pane's
-  // answer carries the allocated pair so the plane can open its Screen
-  // affordance without a `preview_ports_get` round trip; a plain launch
-  // answers exactly `{ ok: true }`, as it always did.
-  return screenHandle ? { ok: true, data: { screen: screenHandle } } : { ok: true };
+  // The echo members: a screen pane's answer carries the allocated pair so
+  // the plane can open its Screen affordance without a `preview_ports_get`
+  // round trip, and a launch that asked with `probeVersion` carries the RAW
+  // version text it read (protocol 28) so the plane can record what this pane
+  // is running. A launch with neither echo answers exactly `{ ok: true }`, as
+  // it always did.
+  const rawVersion = versionProbe ? await versionProbe : null;
+  const data = {
+    ...(screenHandle ? { screen: screenHandle } : {}),
+    ...(rawVersion ? { rawVersion } : {}),
+  };
+  return Object.keys(data).length > 0 ? { ok: true, data } : { ok: true };
 }

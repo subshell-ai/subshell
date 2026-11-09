@@ -237,7 +237,10 @@ describe("LocalLauncher.launch bestEffortLog (scripted tmux — no real spawn)",
     // throw after the spawn must not escape a revive either); pipePane is the
     // cheap throw seam that pins the region — the mkdir shares it by
     // construction, both sit inside the one try block.
-    await expect(launcher2.launch(plan(true))).resolves.toBeUndefined();
+    // Launch now answers the version ack (protocol 28); the point here is
+    // still that the guarded log-attach failure does not escape.
+    const ack = await launcher2.launch(plan(true));
+    expect(ack).toBeDefined();
     expect(scripted.spawns).toBe(1);
     expect(scripted.pipes).toBe(1); // attach was attempted…
   });
