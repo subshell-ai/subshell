@@ -20,6 +20,19 @@ interface DetectionRow {
 }
 
 /**
+ * Which section a detection row belongs in. "Installed" is the same set that
+ * reads ready — the program was found, or the plugin declares none — while a
+ * reason-bearing miss is "not installed". A row nothing probed is neither:
+ * claiming it were missing would assert a negative nothing established.
+ */
+type DetectionSection = "installed" | "missing" | "unknown";
+
+function detectionSection(h: DetectionRow): DetectionSection {
+  if (h.installed || h.reason === "no-binary") return "installed";
+  return h.reason ? "missing" : "unknown";
+}
+
+/**
  * The row's one-word detection verdict — and one of the four is "we do not
  * know", which is NOT the same claim as "not installed".
  *
@@ -34,8 +47,9 @@ interface DetectionRow {
  * not installed about a machine that may well have the CLI.
  */
 function detectionLabel(h: DetectionRow): string {
-  if (h.installed || h.reason === "no-binary") return "ready";
-  if (h.reason) return "not installed";
+  const section = detectionSection(h);
+  if (section === "installed") return "ready";
+  if (section === "missing") return "not installed";
   return h.checkedAt ? "check failed" : "not checked";
 }
 
@@ -214,6 +228,19 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
   const updateBusy = updatingIds.length > 0;
 
   /**
+   * The rows grouped by what detection established, so the programs that are
+   * here read as one list and the ones still to install don't interleave their
+   * command explanations through it. The unknown group renders only when a
+   * probe is genuinely outstanding — a fresh or offline node — because those
+   * rows belong to neither answer.
+   */
+  const sections = [
+    { key: "installed", title: "Installed", rows: harnesses.filter((h) => detectionSection(h) === "installed") },
+    { key: "missing", title: "Not installed", rows: harnesses.filter((h) => detectionSection(h) === "missing") },
+    { key: "unknown", title: "Not checked", rows: harnesses.filter((h) => detectionSection(h) === "unknown") },
+  ].filter((section) => section.rows.length > 0);
+
+  /**
    * One harness, awaited. Everything is per-row: a row's own spinner, its own
    * output on failure, and its own error line, so a failure on the fourth of
    * five names the harness it belongs to.
@@ -348,37 +375,47 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
             cell carries the detected version when there is one, so a healthy
             row doesn't spend a second cell saying "ready" and the number. */}
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
-          {harnesses.map((h) => {
-            const info = registry?.find((r) => r.id === h.harnessId);
-            // Only what is MISSING is offered: a program already here has
-            // nothing to install, and `installableHere` holds the route's own
-            // two refusals.
-            const offerInstall = canInstallHere && !h.installed && installableHere(info);
-            const offerUpdate = canUpdate && updatableHere(info, h.installed);
-            const updatingThis = updatingIds.includes(h.harnessId);
-            const updateResult = updateResults[h.harnessId];
-            const updateError = updateErrors[h.harnessId];
-            return (
-              <div key={h.harnessId} className="contents">
-                {/* Named by the node view itself: every row carries the display
+          {sections.flatMap((section) => [
+            // A full-width band inside the same grid: both sections keep the
+            // shared column tracks, so every action lands in the same place
+            // no matter which group its row is in.
+            <div
+              key={section.key}
+              className="col-span-full pt-2 font-strong text-detail text-muted-foreground first:pt-0"
+            >
+              {section.title}
+            </div>,
+            ...section.rows.map((h) => {
+              const info = registry?.find((r) => r.id === h.harnessId);
+              // Only what is MISSING is offered: a program already here has
+              // nothing to install, and `installableHere` holds the route's own
+              // two refusals.
+              const offerInstall = canInstallHere && !h.installed && installableHere(info);
+              const offerUpdate = canUpdate && updatableHere(info, h.installed);
+              const updatingThis = updatingIds.includes(h.harnessId);
+              const updateResult = updateResults[h.harnessId];
+              const updateError = updateErrors[h.harnessId];
+              return (
+                <div key={h.harnessId} className="contents">
+                  {/* Named by the node view itself: every row carries the display
                   name from the instance store's manifest (spec 2026-09-10
                   follow-ups), so the page needs no second registry read and a
                   registry-installed plugin is named exactly like a built-in. */}
-                <div className="flex min-w-0 items-center gap-3">
-                  <PluginIcon pluginId={h.harnessId} name={h.name} />
-                  <span className="truncate font-strong">{h.name}</span>
-                </div>
-                {/* The detection verdict, with the version standing in for
+                  <div className="flex min-w-0 items-center gap-3">
+                    <PluginIcon pluginId={h.harnessId} name={h.name} />
+                    <span className="truncate font-strong">{h.name}</span>
+                  </div>
+                  {/* The detection verdict, with the version standing in for
                   "ready" when detection found one: a version IS the ready
                   answer, and printing both spent a column on the word. */}
-                <span className="justify-self-start">
-                  {h.installed && h.version ? (
-                    <span className="font-mono text-detail text-muted-foreground">{h.version}</span>
-                  ) : (
-                    detectionLabel(h)
-                  )}
-                </span>
-                {/* The action cell, ALWAYS rendered — the grid rule above says
+                  <span className="justify-self-start">
+                    {h.installed && h.version ? (
+                      <span className="font-mono text-detail text-muted-foreground">{h.version}</span>
+                    ) : (
+                      detectionLabel(h)
+                    )}
+                  </span>
+                  {/* The action cell, ALWAYS rendered — the grid rule above says
                   a skipped cell slides the rest of the row one column left.
                   This is where the `checked …` stamp sat until 2026-09-22,
                   when the operator asked for the install button on the
@@ -386,148 +423,159 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                   data (the detection `checkedAt` still drives the unknown
                   states below, and Re-check still says when in its own
                   line). */}
-                {offerInstall && info ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    // One at a time, and never beside an update: both act on
-                    // this machine's filesystem, and the update route already
-                    // serializes its own runs.
-                    disabled={install.isPending || updateBusy}
-                    disabledReason={
-                      updateBusy ? "Wait for the current update to finish." : "Wait for installation to finish."
-                    }
-                    onClick={() => install.mutate(h.harnessId)}
-                  >
-                    {installingId === h.harnessId && <LoaderCircle aria-hidden className="motion-safe:animate-spin" />}
-                    {installingId === h.harnessId ? "Installing…" : "Install"}
-                  </Button>
-                ) : offerUpdate && info ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    // One at a time across the whole card: the update route
-                    // refuses a concurrent run on the same harness, and
-                    // "Update all" is a sequential walk of this same action.
-                    disabled={updateBusy || !updateReachable || install.isPending}
-                    disabledReason={
-                      !updateReachable
-                        ? "The node is offline. Wait for it to reconnect before updating."
-                        : install.isPending
-                          ? "Wait for the current installation to finish."
-                          : "Wait for the current update to finish."
-                    }
-                    // What the button runs, without a press: the line is the
-                    // vendor's own, and it is about to run on a machine.
-                    title={`Runs ${info.update.command}`}
-                    onClick={() => void runUpdate(h.harnessId)}
-                  >
-                    {updatingThis && <LoaderCircle aria-hidden className="motion-safe:animate-spin" />}
-                    {updatingThis ? "Updating…" : "Update"}
-                  </Button>
-                ) : (
-                  <span aria-hidden />
-                )}
-                {h.reason === "override-invalid" && (
-                  <p className="col-span-full text-detail text-muted-foreground">
-                    An environment variable overrides where this program is looked for, and it doesn't point at an
-                    executable file on this node.
-                  </p>
-                )}
-                {h.reason === "no-binary" && (
-                  <p className="col-span-full text-detail text-muted-foreground">No separate program is needed here.</p>
-                )}
-                {/* The unknown states, spelled out: neither says anything about
+                  {offerInstall && info ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      // One at a time, and never beside an update: both act on
+                      // this machine's filesystem, and the update route already
+                      // serializes its own runs.
+                      disabled={install.isPending || updateBusy}
+                      disabledReason={
+                        updateBusy ? "Wait for the current update to finish." : "Wait for installation to finish."
+                      }
+                      onClick={() => install.mutate(h.harnessId)}
+                    >
+                      {installingId === h.harnessId && (
+                        <LoaderCircle aria-hidden className="motion-safe:animate-spin" />
+                      )}
+                      {installingId === h.harnessId ? "Installing…" : "Install"}
+                    </Button>
+                  ) : offerUpdate && info ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      // One at a time across the whole card: the update route
+                      // refuses a concurrent run on the same harness, and
+                      // "Update all" is a sequential walk of this same action.
+                      disabled={updateBusy || !updateReachable || install.isPending}
+                      disabledReason={
+                        !updateReachable
+                          ? "The node is offline. Wait for it to reconnect before updating."
+                          : install.isPending
+                            ? "Wait for the current installation to finish."
+                            : "Wait for the current update to finish."
+                      }
+                      // What the button runs, without a press: the line is the
+                      // vendor's own, and it is about to run on a machine.
+                      title={`Runs ${info.update.command}`}
+                      onClick={() => void runUpdate(h.harnessId)}
+                    >
+                      {updatingThis && <LoaderCircle aria-hidden className="motion-safe:animate-spin" />}
+                      {updatingThis ? "Updating…" : "Update"}
+                    </Button>
+                  ) : (
+                    <span aria-hidden />
+                  )}
+                  {h.reason === "override-invalid" && (
+                    <p className="col-span-full text-detail text-muted-foreground">
+                      An environment variable overrides where this program is looked for, and it doesn't point at an
+                      executable file on this node.
+                    </p>
+                  )}
+                  {h.reason === "no-binary" && (
+                    <p className="col-span-full text-detail text-muted-foreground">
+                      No separate program is needed here.
+                    </p>
+                  )}
+                  {/* The unknown states, spelled out: neither says anything about
                   whether the program is here, because nothing established it. */}
-                {!h.installed && !h.reason && h.checkedAt === undefined && (
-                  <p className="col-span-full text-detail text-muted-foreground">
-                    This plugin hasn't been checked on this machine yet. Opening this page starts a check if the node is
-                    online.
-                  </p>
-                )}
-                {!h.installed && !h.reason && h.checkedAt !== undefined && (
-                  <p className="col-span-full text-detail text-muted-foreground">
-                    The check didn't finish. Try Re-check to see whether this program is installed.
-                  </p>
-                )}
-                {offerInstall && info && (
-                  /* What the button above will do, without a click. This runs
+                  {!h.installed && !h.reason && h.checkedAt === undefined && (
+                    <p className="col-span-full text-detail text-muted-foreground">
+                      This plugin hasn't been checked on this machine yet. Opening this page starts a check if the node
+                      is online.
+                    </p>
+                  )}
+                  {!h.installed && !h.reason && h.checkedAt !== undefined && (
+                    <p className="col-span-full text-detail text-muted-foreground">
+                      The check didn't finish. Try Re-check to see whether this program is installed.
+                    </p>
+                  )}
+                  {offerInstall && info && (
+                    /* What the button above will do, without a click. This runs
                     a vendor's script on the control-plane host as the
                     server's own user, which should not take a press to
                     find out. */
-                  <p className="col-span-full text-detail text-muted-foreground">
-                    Runs <code className="font-mono">{info.install.command}</code> on this machine, as the user the
-                    server runs as.
-                  </p>
-                )}
-                {installingId === h.harnessId && (
-                  // The installer's own words, one line, verbatim: there is no
-                  // percentage to derive from `curl … | bash`, and inventing
-                  // stages it does not report would be worse than showing what
-                  // it says.
-                  <p aria-live="polite" className="col-span-full truncate font-mono text-detail text-muted-foreground">
-                    {installLines[h.harnessId] ?? "Starting the installer…"}
-                  </p>
-                )}
-                {settledId === h.harnessId && installFailure && (
-                  // Under the row that failed, never under the list: a failure
-                  // on the fourth of five agents rendered at the bottom of the
-                  // card names none of them.
-                  <div className="col-span-full space-y-1">
-                    <p className="text-destructive text-detail">{installFailure.message}</p>
-                    {installFailure.output !== undefined && installFailure.output.trim() !== "" && (
-                      <details className="text-sm">
-                        <summary className="cursor-pointer text-detail text-muted-foreground">
-                          What the installer printed
-                        </summary>
-                        <pre className="mt-1 max-h-48 overflow-auto text-detail">{installFailure.output}</pre>
-                      </details>
-                    )}
-                  </div>
-                )}
-                {updatingThis && (
-                  <p aria-live="polite" className="col-span-full truncate font-mono text-detail text-muted-foreground">
-                    {info ? `Running ${info.update.command}` : "Running the update…"}
-                  </p>
-                )}
-                {!updatingThis && updateError !== undefined && (
-                  <p role="alert" className="col-span-full text-destructive text-detail">
-                    {updateError}
-                  </p>
-                )}
-                {!updatingThis &&
-                  updateError === undefined &&
-                  updateResult !== undefined &&
-                  // A run that FAILED is the case worth showing, and the
-                  // installer rows' own precedent: the command's output is
-                  // the disclosure, so it rides a details block rather than
-                  // a bare error line. A success says so and lets the
-                  // refetched version speak for itself.
-                  (updateResult.ok ? (
-                    <p className="col-span-full text-detail text-success">Updated.</p>
-                  ) : (
+                    <p className="col-span-full text-detail text-muted-foreground">
+                      Runs <code className="font-mono">{info.install.command}</code> on this machine, as the user the
+                      server runs as.
+                    </p>
+                  )}
+                  {installingId === h.harnessId && (
+                    // The installer's own words, one line, verbatim: there is no
+                    // percentage to derive from `curl … | bash`, and inventing
+                    // stages it does not report would be worse than showing what
+                    // it says.
+                    <p
+                      aria-live="polite"
+                      className="col-span-full truncate font-mono text-detail text-muted-foreground"
+                    >
+                      {installLines[h.harnessId] ?? "Starting the installer…"}
+                    </p>
+                  )}
+                  {settledId === h.harnessId && installFailure && (
+                    // Under the row that failed, never under the list: a failure
+                    // on the fourth of five agents rendered at the bottom of the
+                    // card names none of them.
                     <div className="col-span-full space-y-1">
-                      <p className="text-destructive text-detail">
-                        {updateResult.timedOut
-                          ? "The update timed out. It may still be running."
-                          : updateResult.exitCode === null
-                            ? "The update command could not be started."
-                            : `The update exited with code ${updateResult.exitCode}.`}
-                      </p>
-                      {updateResult.output.trim() !== "" && (
+                      <p className="text-destructive text-detail">{installFailure.message}</p>
+                      {installFailure.output !== undefined && installFailure.output.trim() !== "" && (
                         <details className="text-sm">
                           <summary className="cursor-pointer text-detail text-muted-foreground">
-                            What the update printed
+                            What the installer printed
                           </summary>
-                          <pre className="mt-1 max-h-48 overflow-auto text-detail">{updateResult.output}</pre>
+                          <pre className="mt-1 max-h-48 overflow-auto text-detail">{installFailure.output}</pre>
                         </details>
                       )}
                     </div>
-                  ))}
-              </div>
-            );
-          })}
+                  )}
+                  {updatingThis && (
+                    <p
+                      aria-live="polite"
+                      className="col-span-full truncate font-mono text-detail text-muted-foreground"
+                    >
+                      {info ? `Running ${info.update.command}` : "Running the update…"}
+                    </p>
+                  )}
+                  {!updatingThis && updateError !== undefined && (
+                    <p role="alert" className="col-span-full text-destructive text-detail">
+                      {updateError}
+                    </p>
+                  )}
+                  {!updatingThis &&
+                    updateError === undefined &&
+                    updateResult !== undefined &&
+                    // A run that FAILED is the case worth showing, and the
+                    // installer rows' own precedent: the command's output is
+                    // the disclosure, so it rides a details block rather than
+                    // a bare error line. A success says so and lets the
+                    // refetched version speak for itself.
+                    (updateResult.ok ? (
+                      <p className="col-span-full text-detail text-success">Updated.</p>
+                    ) : (
+                      <div className="col-span-full space-y-1">
+                        <p className="text-destructive text-detail">
+                          {updateResult.timedOut
+                            ? "The update timed out. It may still be running."
+                            : updateResult.exitCode === null
+                              ? "The update command could not be started."
+                              : `The update exited with code ${updateResult.exitCode}.`}
+                        </p>
+                        {updateResult.output.trim() !== "" && (
+                          <details className="text-sm">
+                            <summary className="cursor-pointer text-detail text-muted-foreground">
+                              What the update printed
+                            </summary>
+                            <pre className="mt-1 max-h-48 overflow-auto text-detail">{updateResult.output}</pre>
+                          </details>
+                        )}
+                      </div>
+                    ))}
+                </div>
+              );
+            }),
+          ])}
         </div>
       </CardContent>
     </Card>

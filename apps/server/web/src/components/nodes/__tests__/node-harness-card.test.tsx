@@ -264,6 +264,32 @@ describe("NodeHarnessCard", () => {
     }
   });
 
+  it("groups rows into installed and not installed, leaving unprobed rows out of both", async () => {
+    const { restore } = await mount({
+      harnesses: [
+        { harnessId: "claude", name: "Claude", installed: true, version: "1.2.3" },
+        { harnessId: "cline", name: "Cline", installed: false, reason: "not-on-path" },
+        { harnessId: "gemini", name: "Gemini", installed: false },
+      ],
+    });
+    try {
+      const installed = screen.getByText("Installed");
+      const missing = screen.getByText("Not installed");
+      const unknown = screen.getByText("Not checked");
+      // Every band brackets the rows it names: installed first, the misses
+      // next, then the rows nothing has probed.
+      const isBefore = (a: HTMLElement, b: HTMLElement) =>
+        (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+      expect(isBefore(installed, screen.getByText("Claude"))).toBe(true);
+      expect(isBefore(screen.getByText("Claude"), missing)).toBe(true);
+      expect(isBefore(missing, screen.getByText("Cline"))).toBe(true);
+      expect(isBefore(screen.getByText("Cline"), unknown)).toBe(true);
+      expect(isBefore(unknown, screen.getByText("Gemini"))).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
   it("Re-check issues exactly one detect", async () => {
     const { calls, restore } = await mount({ harnesses: [] });
     try {
