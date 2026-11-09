@@ -1777,15 +1777,15 @@ export class SubshellManagerService {
       // A healthy sweep (alive at sweep) proves the crash resolved itself;
       // reset the auto-restart backoff so the next crash restarts promptly.
       if (row.alive === 1 && row.backoffCount > 0) patch.backoffCount = 0;
-      // Auto-title mode: mirror the pane's OSC title (Claude Code titles
-      // itself after the current task) into the subshell name. Two untitled
+      // Auto-title mode: mirror the pane's OSC title (an agent titles itself
+      // after the current task) into the subshell name. Two untitled
       // defaults are rejected: a title still equal to the running command,
       // and tmux's initial title — the host name (verified against tmux
       // 3.6). Locked names (an operator renamed or pinned) are never
       // touched, and the read is skipped entirely so the sweep stays cheap.
       if (row.nameLocked !== 1) {
         const pane = await this.#localLauncher.paneTitle(row.tmuxSocket, row.id);
-        const title = pane ? normalizePaneTitle(pane.title) : "";
+        const title = pane ? normalizePaneTitle(pane.title, row.harnessId) : "";
         if (pane && title && title !== pane.command && title !== HOST_NAME && title !== row.name) {
           patch.name = title;
         }
@@ -2015,7 +2015,7 @@ export class SubshellManagerService {
     if (fresh.startedAt == null) patch.startedAt = now;
     if (fresh.alive === 1 && fresh.backoffCount > 0) patch.backoffCount = 0;
     if (fresh.nameLocked !== 1 && entry.title != null) {
-      const title = normalizePaneTitle(entry.title);
+      const title = normalizePaneTitle(entry.title, fresh.harnessId);
       if (title && title !== (entry.command ?? "") && title !== HOST_NAME && title !== fresh.name) {
         patch.name = title;
       }
@@ -2413,9 +2413,10 @@ const ESCAPE_SEQUENCE =
  * forms normalize to "", and `_Gi=31,…;AAAA` survives intact.
  *
  * That is why the earlier fix did not hold. Its comment blamed this function's
- * own laundering — the control pass deleting an `ESC` and the punctuation trim
- * eating the `_` — which was one true route, and closing it left the other
- * open: a payload that never had an introducer by the time we saw it.
+ * own laundering — the control pass deleting an `ESC` — which was one true
+ * route, and closing it left the other open: a payload that never had an
+ * introducer by the time we saw it. A lone leading `_` is part of the shape
+ * recognised below rather than a decoration an earlier pass removed.
  *
  * **The root cause upstream is NOT established.** Something between the agent
  * and `#{pane_title}` is putting an APC payload where a title belongs, and
@@ -2425,7 +2426,9 @@ const ESCAPE_SEQUENCE =
  *
  * **Narrow, and narrower than it first was** (review, 2026-09-19). The rule is:
  * at least TWO `key=value` pairs, no whitespace anywhere in a value, then `;`,
- * then at least four base64 characters. Nothing else in the string.
+ * then at least four base64 characters. At most one leading letter or `_` may
+ * precede the pairs (an introducer that survived decoding); nothing else in
+ * the string.
  *
  * Each clause bought back a class of real titles. The first version allowed one
  * pair, any non-`,;` value, and an EMPTY tail, which made it "a word, `=`,
@@ -2440,22 +2443,30 @@ const ESCAPE_SEQUENCE =
  * `-` and `_` are in the tail class because base64url spells the same payload
  * with them, which the first version missed.
  */
-const PROTOCOL_PAYLOAD = /^[A-Za-z]?(?:[A-Za-z]+=[^,;\s]*)(?:,[A-Za-z]+=[^,;\s]*)+;[A-Za-z0-9+/=_-]{4,}$/;
+const PROTOCOL_PAYLOAD = /^[A-Za-z_]?(?:[A-Za-z]+=[^,;\s]*)(?:,[A-Za-z]+=[^,;\s]*)+;[A-Za-z0-9+/=_-]{4,}$/;
 
 /**
- * Cleans a raw tmux `pane_title` for use as a subshell name: escape sequences
- * are removed whole, control residue collapses to single spaces, a leading
- * status decoration is dropped (Claude Code prefixes the title with a cycling
- * glyph — ✳/✻/· — that would otherwise churn the name between sweeps), and the
- * result is bounded like every other name the API accepts (120 chars). Returns
- * "" for a title that has nothing displayable in it.
+ * Cleans a raw tmux `pane_title` for use as a subshell name.
+ *
+ * The work is split where the vocabulary draws it. The HOST owns what must
+ * hold whatever wrote the title: escape sequences come out whole, control
+ * residue collapses to single spaces, a terminal-protocol payload is
+ * recognised and dropped (see {@link PROTOCOL_PAYLOAD}), and the result is
+ * bounded like every other name the API accepts (120 chars). The HARNESS
+ * PLUGIN owns what the title means to the harness that wrote it: its
+ * `parsePaneTitle` strips the brand, run-state separator or cycling status
+ * glyph that harness writes. A harness with nothing to strip leaves the member
+ * off, and the sanitized title is the name, which is right for a shell that
+ * titles itself with its directory. Returns "" for a title that has nothing
+ * displayable in it, or one the harness says is not a name; the caller keeps
+ * the name it already had.
  *
  * **Sequences go first, and that ORDER is the fix** (operator's screenshot,
  * 2026-09-18). This blanked control characters one at a time, which deleted
  * the `ESC` from an APC and left its payload behind as ordinary text — and the
- * leading-punctuation trim then ate the `_` introducer too, so a Kitty
- * graphics capability QUERY the agent emitted to probe for image support
- * arrived in the sidebar as a subshell named
+ * leading-punctuation trim that used to follow it ate the `_` introducer too,
+ * so a Kitty graphics capability QUERY the agent emitted to probe for image
+ * support arrived in the sidebar as a subshell named
  * `Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA`. Every step of that laundering was this
  * function's own: it removed exactly the two characters that identified the
  * text as not a title, then kept the rest.
@@ -2477,7 +2488,7 @@ const PROTOCOL_PAYLOAD = /^[A-Za-z]?(?:[A-Za-z]+=[^,;\s]*)(?:,[A-Za-z]+=[^,;\s]*
  * byte survived as a stray `(`: one character rather than a payload, but it is
  * the class this function claims to close (review, 2026-09-18).
  */
-function normalizePaneTitle(raw: string): string {
+function normalizePaneTitle(raw: string, harnessId?: string): string {
   const withoutSequences = raw.replace(ESCAPE_SEQUENCE, " ");
   // Intentional: whatever control characters survive a sequence sweep are
   // stray bytes, not structure.
@@ -2490,11 +2501,28 @@ function normalizePaneTitle(raw: string): string {
   // sweep does not cover and a title has no business carrying one.
   // biome-ignore lint/suspicious/noControlCharactersInRegex: sanitizing terminal output
   const cleaned = withoutSequences.replace(/[\x00-\x1f\x7f-\x9f]+/g, " ").trim();
-  const trimmed = cleaned.replace(/^[^\p{L}\p{N}]+/u, "").trim();
+  // What the title adds around the session name is the harness's business:
+  // its plugin strips whatever that harness writes there. A harness with no
+  // hook — a shell, an uninstalled plugin — leaves the sanitized title as the
+  // name.
+  let parsed: string | undefined;
+  if (harnessId) {
+    try {
+      const answer: unknown = getHarness(harnessId)?.parsePaneTitle?.(cleaned);
+      if (typeof answer === "string") parsed = answer;
+    } catch (err) {
+      // A plugin's parser is third-party code: one throw must not take the
+      // sweep (and every row after this one) or boot down with it.
+      logger.withError(err).debug(`harness "${harnessId}" threw while parsing a pane title`);
+    }
+  }
+  const title = (parsed ?? cleaned).trim();
   // A payload whose introducer never reached us is still not a title — see
-  // PROTOCOL_PAYLOAD. "" makes the caller keep the name it already had.
-  if (PROTOCOL_PAYLOAD.test(trimmed)) return "";
-  return trimmed.slice(0, 120);
+  // PROTOCOL_PAYLOAD. A decoration in front of it that no parser removed (a
+  // terminal pane running an agent that prefixes a glyph) must not hide the
+  // shape either. "" makes the caller keep the name it already had.
+  if (PROTOCOL_PAYLOAD.test(title) || PROTOCOL_PAYLOAD.test(title.replace(/^[^\p{L}\p{N}]+/u, ""))) return "";
+  return title.slice(0, 120);
 }
 
 export function toSubshellView(

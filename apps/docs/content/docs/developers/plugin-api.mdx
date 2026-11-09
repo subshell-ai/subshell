@@ -97,7 +97,9 @@ Resume support supplies `allocateHarnessSessionId()` and `resumePath(id, cwd, ho
 
 Attention hooks require `supportsAttentionHooks: true` and actual reporting hooks in the launch. Build those from `reporter.command` and `reporter.args`; omit hooks when it is absent. Don't assume the execution machine has Bun or the server's binary path.
 
-Other optional members include `parseVersion`, `exitStatus`, `presetSettings`, `suggestedEnv`, and `suggestedFlags`. See the [exported types](https://github.com/subshell-ai/subshell/blob/main/packages/plugin-api/src/types.ts) for complete field definitions.
+Other optional members include `parseVersion`, `parsePaneTitle`, `exitStatus`, `presetSettings`, `suggestedEnv`, and `suggestedFlags`. See the [exported types](https://github.com/subshell-ai/subshell/blob/main/packages/plugin-api/src/types.ts) for complete field definitions.
+
+When a harness titles its terminal with something other than the name the host supplied, implement `parsePaneTitle(raw)`. The host removes escape sequences and control bytes and trims the result before calling it; strip the harness's own brand, run-state separator, or status glyph and return the session name, or `""` when the title names nothing. Omit it when the title is the name itself.
 
 ## Required network members
 

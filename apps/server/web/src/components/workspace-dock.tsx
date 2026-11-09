@@ -21,7 +21,9 @@ import { type WorkspaceDockContextValue, WorkspaceDockProvider } from "@/compone
 import { DockedPane, type DockedPaneParams } from "@/components/workspace-dock/docked-pane";
 import { DockedPreview, type DockedPreviewParams } from "@/components/workspace-dock/docked-preview";
 import { GroupHeaderActions } from "@/components/workspace-dock/group-header-actions";
+import { createPaneFocusRegistry } from "@/components/workspace-dock/pane-focus";
 import { SubshellTab } from "@/components/workspace-dock/subshell-tab";
+import { wireTabFocus } from "@/components/workspace-dock/tab-focus";
 import { useCloseSubshellLanding } from "@/hooks/use-close-subshell-landing";
 import { useDebouncedSave } from "@/hooks/use-debounced-save";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
@@ -270,6 +272,10 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     });
   }, []);
 
+  /** The dock's pane focus handoff; see `pane-focus.ts` for its lifetime. */
+  const [paneFocus] = useState(createPaneFocusRegistry);
+  const { publish: setPaneFocusTarget, request: requestPaneFocus, drop: dropPaneFocus } = paneFocus;
+
   const save = useDebouncedSave<unknown>(
     (layout, signal) =>
       apiFetch(`/api/workspaces/${detail.workspace.id}/layout`, {
@@ -502,6 +508,9 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
 
   const handleRemovePane = useCallback(
     async (paneId: string) => {
+      // A pane leaving the dock cannot answer a click that never reached its
+      // terminal; drop the request rather than holding it forever.
+      dropPaneFocus(paneId);
       if (previewParentId(paneId)) {
         apiRef.current?.getPanel(paneId)?.api.close();
         publishFocus();
@@ -532,7 +541,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       apiRef.current?.getPanel(paneId)?.api.close();
       void onRefetch();
     },
-    [removePane, onRefetch, detail.panes, navigate, publishFocus],
+    [removePane, onRefetch, detail.panes, navigate, publishFocus, dropPaneFocus],
   );
 
   const handleCloseSubshell = useCallback(
@@ -730,16 +739,35 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     onDrop: (id) => attachDroppedSubshell(id),
   });
 
+  // A dockview tab click lands keyboard focus on its wrapper (padding ring
+  // included), not our renderer, so the dock hands focus back to the pane's
+  // terminal from its own root.
+  useEffect(() => {
+    const root = dockEl.current;
+    return root ? wireTabFocus(root, requestPaneFocus) : undefined;
+  }, [requestPaneFocus]);
+
   const contextValue = useMemo<WorkspaceDockContextValue>(
     () => ({
       detail,
       searchAddons,
       setSearchAddon,
+      setPaneFocusTarget,
+      requestPaneFocus,
       onRestart: (subshellId) => void handleRestart(subshellId),
       onRemovePane: (paneId) => void handleRemovePane(paneId),
       onCloseSubshell: (subshellId) => void handleCloseSubshell(subshellId),
     }),
-    [detail, searchAddons, setSearchAddon, handleRestart, handleRemovePane, handleCloseSubshell],
+    [
+      detail,
+      searchAddons,
+      setSearchAddon,
+      setPaneFocusTarget,
+      requestPaneFocus,
+      handleRestart,
+      handleRemovePane,
+      handleCloseSubshell,
+    ],
   );
 
   return (

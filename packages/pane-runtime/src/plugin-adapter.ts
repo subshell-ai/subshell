@@ -133,6 +133,10 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
   // node side answers unparsed text, and the control plane maps it HERE.
   const parse = plugin.parseVersion?.bind(plugin);
   if (parse) adapted.parseVersion = (raw: string): string | null => parse(raw);
+  // The pane-title half of the same split: the sweep owns the terminal
+  // sanitation, the plugin owns what its harness writes around the name.
+  const title = plugin.parsePaneTitle?.bind(plugin);
+  if (title) adapted.parsePaneTitle = (raw: string): string => title(raw);
 
   return adapted;
 }
