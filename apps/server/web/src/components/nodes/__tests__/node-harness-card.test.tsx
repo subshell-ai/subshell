@@ -254,7 +254,8 @@ describe("NodeHarnessCard", () => {
       expect(screen.getByText((content) => content === "Pi")).toBeDefined();
       expect(screen.queryByText((content) => content === "pi")).toBeNull();
       expect(screen.getByText(/1\.2\.3/)).toBeDefined();
-      expect(screen.getByText("ready")).toBeDefined();
+      // A version stands in for "ready": one cell, not two.
+      expect(screen.queryByText("ready")).toBeNull();
       // The `checked … ago` stamp came off 2026-09-22 so the install button
       // shares the row; a fresh scan must not resurrect it.
       expect(screen.queryByText(/checked/i)).toBeNull();

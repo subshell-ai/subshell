@@ -329,10 +329,10 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
           </p>
         )}
 
-        {/* A headerless table: ONE grid for every row, so the four columns
-            share their tracks and line up down the card. Each row was its own
-            flex before, where the name took the slack and pushed the rest
-            right — which put every row's badge at a different place, since the
+        {/* A headerless table: ONE grid for every row, so the columns share
+            their tracks and line up down the card. Each row was its own flex
+            before, where the name took the slack and pushed the rest right —
+            which put every row's badge at a different place, since the
             version strings are different widths. `auto` tracks size to the
             widest cell, which is the alignment a table gives and a row of
             flex items cannot.
@@ -343,9 +343,11 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
             empty — a skipped cell would slide the rest of that row one column
             left.
 
-            Two columns below `sm`, four above: version and the action cell
-            fall to a second line on a phone rather than crushing the name. */}
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
+            Two columns below `sm`, three above: the action cell falls to a
+            second line on a phone rather than crushing the name. The verdict
+            cell carries the detected version when there is one, so a healthy
+            row doesn't spend a second cell saying "ready" and the number. */}
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
           {harnesses.map((h) => {
             const info = registry?.find((r) => r.id === h.harnessId);
             // Only what is MISSING is offered: a program already here has
@@ -366,12 +368,16 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                   <PluginIcon pluginId={h.harnessId} name={h.name} />
                   <span className="truncate font-strong">{h.name}</span>
                 </div>
-                {/* The text is the detection answer: whether the program this
-                  plugin drives was found on this machine. `no-binary` reads
-                  ready because a plugin that declares no program is not one
-                  whose program is missing. */}
-                <span className="justify-self-start">{detectionLabel(h)}</span>
-                <span className="font-mono text-detail text-muted-foreground">{h.version ?? ""}</span>
+                {/* The detection verdict, with the version standing in for
+                  "ready" when detection found one: a version IS the ready
+                  answer, and printing both spent a column on the word. */}
+                <span className="justify-self-start">
+                  {h.installed && h.version ? (
+                    <span className="font-mono text-detail text-muted-foreground">{h.version}</span>
+                  ) : (
+                    detectionLabel(h)
+                  )}
+                </span>
                 {/* The action cell, ALWAYS rendered — the grid rule above says
                   a skipped cell slides the rest of the row one column left.
                   This is where the `checked …` stamp sat until 2026-09-22,
