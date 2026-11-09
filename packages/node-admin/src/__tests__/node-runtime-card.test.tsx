@@ -25,6 +25,7 @@ const base: NodeDetail = {
   access: "owner",
   canManage: true,
   canRetire: true,
+  canTransfer: false,
   canLaunch: true,
   allowedDirs: [],
   capabilities: [],

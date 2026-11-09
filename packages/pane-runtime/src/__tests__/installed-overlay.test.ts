@@ -30,7 +30,23 @@ import type { PresetDefinition } from "../types.js";
  * built-in-only without any code in it saying so).
  */
 
-const BUILT_IN_IDS = ["claude-code", "codex", "grok-build", "hermes", "oh-my-pi", "opencode", "pi", "ssh", "terminal"];
+const BUILT_IN_IDS = [
+  "claude-code",
+  "cline",
+  "codex",
+  "gemini",
+  "grok-build",
+  "hermes",
+  "oh-my-pi",
+  "open-interpreter",
+  "openclaw",
+  "opencode",
+  "openhands",
+  "pi",
+  "qwen-code",
+  "ssh",
+  "terminal",
+];
 
 /** Minimal complete preset for `buildCommand` calls in these tests. */
 const PRESET: PresetDefinition = { name: "p", env: {}, flags: [], settings: null, configIsolation: false };

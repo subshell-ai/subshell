@@ -110,8 +110,8 @@ export function SshMachineSetup({
                 {machine.node.kind === "local"
                   ? "Ask an admin to enable it."
                   : machine.ownerLabel
-                    ? `Ask this node’s owner (${machine.ownerLabel}) to enable it.`
-                    : "Ask this node’s owner to enable it."}
+                    ? `Ask this node's owner or a Manage grantee (${machine.ownerLabel}) to enable it.`
+                    : "Ask this node's owner or a Manage grantee to enable it."}
               </>
             )}
           </p>

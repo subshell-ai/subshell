@@ -52,6 +52,8 @@ function renderTab(panes: WorkspacePaneRow[], removed: string[], split: SplitCal
     detail,
     searchAddons: new Map(),
     setSearchAddon: () => {},
+    setPaneFocusTarget: () => {},
+    requestPaneFocus: () => {},
     onRestart: () => {},
     onRemovePane: (paneId) => removed.push(paneId),
     onCloseSubshell: () => {},

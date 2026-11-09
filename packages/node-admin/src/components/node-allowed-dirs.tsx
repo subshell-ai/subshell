@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
  * The node's directory allowlist — which directories subshells may be created
  * under on this machine (spec 2026-09-05).
  *
- * Owner-only to edit (`canManage`, the server's gate too). The controls
+ * Manage-band to edit (`canManage`, the server's gate too). The controls
  * do not render for anyone else, but READ-visible to everyone who can see the
  * node: a "directory not allowed" refusal is unexplainable without the rules
  * that caused it.
@@ -70,16 +70,16 @@ export function NodeAllowedDirs({
             ? canEdit
               ? "All directories are allowed. Subshells can start anywhere the user running the node can access. Add a directory to limit where subshells can start."
               : "All directories are allowed. Subshells can start anywhere the user running the node can access."
-            : "New subshells and restarts are limited to the directories below and their subdirectories. Subshells already running aren’t affected."}
+            : "New subshells and restarts are limited to the directories below and their subdirectories. Subshells already running aren't affected."}
           {readOnly ? (
             <p className="text-detail text-muted-foreground">
-              To change these rules, open this node’s page in the control plane.
+              To change these rules, open this node's page in the control plane.
             </p>
           ) : !node.canManage ? (
             <p className="text-detail text-warning">
               {node.kind === "local"
                 ? "Only a server admin can change these rules."
-                : "Only the node owner can change these rules."}
+                : "Only the node's owner or a Manage grantee can change these rules."}
             </p>
           ) : null}
         </CardDescription>

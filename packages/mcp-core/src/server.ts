@@ -41,6 +41,8 @@ import {
   restartSubshell,
   sendToSubshell,
   terminateSubshell,
+  transferNode,
+  TransferNodeToolSchema,
 } from "./subshell-tools.js";
 import {
   getNode,
@@ -50,6 +52,8 @@ import {
   openSubshellView,
   OpenSubshellViewSchema,
   ScreenSchema,
+  setSubshellDisplay,
+  SetSubshellDisplaySchema,
   watchSubshellBrowser,
   WatchSubshellBrowserSchema,
 } from "./view-tools.js";
@@ -210,6 +214,16 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
       inputSchema: WatchSubshellBrowserSchema,
     },
     guard((args: z.infer<typeof WatchSubshellBrowserSchema>) => watchSubshellBrowser(deps, args)),
+  );
+  server.registerTool(
+    "set_subshell_display",
+    {
+      title: "Set subshell display",
+      description:
+        "Turn a live subshell's virtual display on or off without recreating it. Pass screen {width,height,provider?} to enable: the subshell restarts in place (same id and history; resuming harnesses continue the conversation) because a running process cannot be handed a new DISPLAY. Pass screen:null to disable: the display closes immediately and the pane keeps running, though processes started before this call keep a stale DISPLAY until the next restart. Enabling your OWN pane ends this tool call with the restart, like restart_subshell. Check get_node first for provider readiness. Both flips refuse while the node is offline. If a 409 says a restart is already running, your enable request was kept: call the tool again once that restart settles and it applies.",
+      inputSchema: SetSubshellDisplaySchema,
+    },
+    guard((args: z.infer<typeof SetSubshellDisplaySchema>) => setSubshellDisplay(deps, args)),
   );
   server.registerTool(
     "list_presets",
@@ -484,6 +498,20 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
       inputSchema: DeletePromptToolSchema,
     },
     guard(({ id }: { id: string }) => deletePrompt(deps, { id })),
+  );
+
+  // --- node ownership (spec 2026-11-07) ---
+  server.registerTool(
+    "transfer_node",
+    {
+      title: "Transfer node ownership",
+      description:
+        "Hand a node this pane's account owns to another account, in one audited transaction. Needs a credential carrying the nodes:transfer grant (a scoped automation key, or a pane derived from one), plus nodes:read: the machine is looked up by id or name through the node list before the handover; an ordinary pane token is refused. The machine's connection, running subshells, and other shares are unaffected; setup keys minted for it but never used stop working. By default the giving account stays a Manage grantee; pass retain_access_as_manager false to leave nothing behind.",
+      inputSchema: TransferNodeToolSchema,
+    },
+    guard((args: { node_id: string; to_user_id: string; retain_access_as_manager?: boolean }) =>
+      transferNode(deps, args),
+    ),
   );
 }
 

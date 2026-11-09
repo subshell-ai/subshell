@@ -96,6 +96,7 @@ function view(over: Partial<NodeDetail>): NodeDetail {
     access: "owner",
     canManage: true,
     canRetire: true,
+    canTransfer: false,
     canLaunch: true,
     capabilities: [],
     allowedDirs: [],
@@ -390,6 +391,7 @@ describe("NodeHarnessCard", () => {
       kind: "local" as const,
       canManage: true,
       canRetire: true,
+      canTransfer: false,
       harnesses: [{ harnessId: "claude", name: "Claude", installed: false, reason: "not-on-path" as const }],
       infos: [info()],
     };

@@ -61,7 +61,7 @@ function spentLine(agent: HarnessSubagentView): string {
  */
 function AgentRowText({ agent, showActivity }: { agent: HarnessSubagent; showActivity: boolean }) {
   return (
-    <span className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-1.5 text-left">
+    <span className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 text-left">
       <AgentStatusDot agent={agent} className="size-1.5" />
       <span className="truncate">{agent.name}</span>
       {showActivity && agent.activity && (
@@ -115,11 +115,14 @@ function SwitchAgentError() {
  */
 export function HarnessSubagentRows({
   id,
+  parentName,
   alive,
   branchWorkspaceId,
   harnessId,
 }: {
   id: string;
+  /** The live parent's display name; names this group the way the sibling sections name theirs. */
+  parentName: string;
   alive: boolean;
   branchWorkspaceId?: string;
   harnessId?: string;
@@ -136,23 +139,25 @@ export function HarnessSubagentRows({
   // them here makes the sidebar look stale even when reports arrive correctly.
   const showActivity = harnessId !== "claude-code";
   return (
-    <div className="relative -mt-1 ml-4 flex min-w-0 flex-col pt-1 before:absolute before:top-0 before:left-0 before:h-1 before:border-border before:border-l">
-      {data.agents.map((agent, index) => (
-        <div key={agent.id} className="relative min-w-0 pl-3">
-          <span
-            aria-hidden="true"
-            className={cn(
-              "pointer-events-none absolute top-0 left-0 border-border border-l",
-              index === data.agents.length - 1 ? "h-3.5" : "h-full",
-            )}
-          />
-          <span aria-hidden="true" className="pointer-events-none absolute top-3.5 left-0 w-3 border-border border-t" />
+    // The tree geometry a helper-subshell section uses (ml-5 border-l pl-2,
+    // plus a per-child -left-2 connector). The tick rides top-3.5 rather than
+    // the section child's top-4 because these rows are single-line and 3.5 is
+    // their center; changing it to "match" would offset the tick from the dot.
+    // When a pane reports both kinds of child, both must hang off the one rail
+    // at the one x, and the section carries a name the way each visual twin
+    // does, reusing the title badge's "of {parent}" phrasing.
+    <section aria-label={`Subagents of ${parentName}`} className="-mt-1 ml-5 flex min-w-0 flex-col border-l pt-1 pl-2">
+      {data.agents.map((agent) => (
+        <div
+          key={agent.id}
+          className="relative min-w-0 before:pointer-events-none before:absolute before:top-3.5 before:-left-2 before:w-2 before:border-border before:border-t"
+        >
           {blocked ? (
             <Button
               variant="ghost"
               size="sm"
               className={cn(
-                "h-auto min-h-7 w-full justify-start gap-1.5 px-2 py-1 font-regular text-detail [&_svg]:size-3",
+                "h-auto min-h-7 w-full justify-start py-1 pr-2 pl-3 font-regular text-detail [&_svg]:size-3",
                 data.selectedId === agent.id && "bg-accent",
               )}
               disabled
@@ -170,7 +175,7 @@ export function HarnessSubagentRows({
                       variant="ghost"
                       size="sm"
                       className={cn(
-                        "h-auto min-h-7 w-full justify-start gap-1.5 px-2 py-1 font-regular text-detail [&_svg]:size-3",
+                        "h-auto min-h-7 w-full justify-start py-1 pr-2 pl-3 font-regular text-detail [&_svg]:size-3",
                         data.selectedId === agent.id && "bg-accent",
                       )}
                       onClick={() =>
@@ -201,7 +206,7 @@ export function HarnessSubagentRows({
         </div>
       ))}
       {select.isError && <SwitchAgentError />}
-    </div>
+    </section>
   );
 }
 

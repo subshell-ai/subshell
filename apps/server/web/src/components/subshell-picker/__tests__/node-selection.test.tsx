@@ -29,6 +29,7 @@ function node(id: string, overrides: Partial<Node> = {}): Node {
     canLaunch: true,
     canManage: true,
     canRetire: true,
+    canTransfer: false,
     access: "owner",
     maintenance: false,
     harnesses: [installed("claude-code"), installed("terminal")],

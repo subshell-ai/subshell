@@ -102,8 +102,8 @@ export function sshLaunchRefusal(
           return {
             text:
               machine.kind === "local"
-                ? "Outgoing SSH is disabled on this node. An admin can enable it in this node’s settings."
-                : "Outgoing SSH is disabled on this node. Ask this node’s owner to enable it.",
+                ? "Outgoing SSH is disabled on this node. An admin can enable it in this node's settings."
+                : "Outgoing SSH is disabled on this node. Ask this node's owner or a Manage grantee to enable it.",
             field: "machine",
           };
         }

@@ -39,6 +39,7 @@ type View = {
   ownerLabel?: string;
   canManage: boolean;
   canRetire: boolean;
+  canTransfer: boolean;
   canLaunch: boolean;
   capabilities: string[];
   harnesses: { harnessId: string; installed: boolean; version?: string }[];
@@ -420,6 +421,28 @@ describe("/api/nodes registry CRUD", () => {
     expect(((await (await req("GET", "/local", { cookie: aliceCookie })).json()) as View).canManage).toBe(false);
   });
 
+  it("canTransfer: the owner's row true; manage grantee, foreign admin, and `local` all false", async () => {
+    // The rendered flag is what gates the Transfer control; the server is the
+    // only one who can see the rank, so the flags must agree with the route.
+    const n = await mkNode(aliceId, `ct-${crypto.randomUUID().slice(0, 8)}`);
+    await nodeShares.replaceForNode(n.id, [{ granteeUserId: bobId, permission: "manage" }], aliceId);
+
+    expect((await list(aliceCookie)).find((x) => x.id === n.id)?.canTransfer).toBe(true);
+    expect(((await (await req("GET", `/${n.id}`, { cookie: aliceCookie })).json()) as View).canTransfer).toBe(true);
+
+    // manage opens every other owner door and stops at ownership — and the
+    // foreign admin is where canRetire and canTransfer finally split: they
+    // retire the machine they can see, they never take it over.
+    expect((await list(bobCookie)).find((x) => x.id === n.id)?.canTransfer).toBe(false);
+    const adminRow = (await list(adminCookie)).find((x) => x.id === n.id);
+    expect(adminRow?.canTransfer).toBe(false);
+    expect(adminRow?.canRetire).toBe(true);
+
+    // `local` is nobody's to hand over, admin or not.
+    expect((await list(aliceCookie)).find((x) => x.id === "local")?.canTransfer).toBe(false);
+    expect(((await (await req("GET", "/local", { cookie: adminCookie })).json()) as View).canTransfer).toBe(false);
+  });
+
   /**
    * `local` never sends `ready`, so its row can hold null os/arch (the seed
    * pre-fills them today, but never repairs an edited/reset row) — the control-
@@ -556,7 +579,8 @@ describe("/api/nodes registry CRUD", () => {
 
     await nodeShares.replaceForNode(a.id, [{ granteeUserId: bobId, permission: "view" }], aliceId);
     expect((await req("PATCH", `/${a.id}`, { cookie: bobCookie, body: { name: "hijack" } })).status).toBe(403);
-    // Admins hold effective edit — rename on an AGENT node is still owner-only.
+    // Admins hold effective edit — rename on an AGENT node stays on its
+    // manage band (owner or a manage grantee), where an admin's boost is not.
     expect((await req("PATCH", `/${a.id}`, { cookie: adminCookie, body: { name: "admin-hijack" } })).status).toBe(403);
   });
 

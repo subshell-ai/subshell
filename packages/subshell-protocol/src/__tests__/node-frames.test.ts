@@ -427,7 +427,11 @@ describe("parseNodeCommandBody", () => {
     // page's `title`, and only ports the document probe accepts are listed at
     // all. An older node answers the pre-26 shape, and the same pane would
     // offer a different picker depending on which host ran it.
-    expect(NODE_PROTOCOL_VERSION).toBe(26);
+    // 27 is the live display toggle: `preview_display_close` ends a pane's
+    // allocated virtual display without touching the pane itself. An older
+    // node answers `unsupported`, and the exact-match gate refuses one before
+    // the toggle is ever offered.
+    expect(NODE_PROTOCOL_VERSION).toBe(27);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -1940,11 +1944,12 @@ describe("preview lanes (arrived at protocol 23)", () => {
     expect([...PREVIEW_COMMAND_TYPES].sort()).toEqual([
       "preview_close",
       "preview_display_check",
+      "preview_display_close",
       "preview_open",
       "preview_ports_get",
       "set_preview_enabled",
     ]);
-    expect(PREVIEW_COMMAND_TYPES).toHaveLength(5);
+    expect(PREVIEW_COMMAND_TYPES).toHaveLength(6);
     for (const type of PREVIEW_COMMAND_TYPES) {
       const body =
         type === "preview_open"
@@ -1955,9 +1960,26 @@ describe("preview lanes (arrived at protocol 23)", () => {
               ? { type, paneId: "p1" }
               : type === "preview_display_check"
                 ? { type }
-                : { type, on: true, changedAt: "2026-10-22T00:00:00.000Z" };
+                : type === "preview_display_close"
+                  ? { type, paneId: "p1" }
+                  : { type, on: true, changedAt: "2026-10-22T00:00:00.000Z" };
       expect(parseNodeCommandBody(JSON.stringify(body))).not.toBeNull();
     }
+  });
+
+  it("preview_display_close parses a paneId and rebuilds without stray members", () => {
+    expect(parseNodeCommandBody({ type: "preview_display_close", paneId: "pane-1" })).toEqual({
+      type: "preview_display_close",
+      paneId: "pane-1",
+    });
+    // An empty paneId names no pane; a teardown addressed to nothing is refused,
+    // not silently broadcast (the ports scan predates this rule).
+    expect(parseNodeCommandBody({ type: "preview_display_close", paneId: "" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "preview_display_close" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "preview_display_close", paneId: "p", extra: 1 })).toEqual({
+      type: "preview_display_close",
+      paneId: "p",
+    });
   });
 
   it("pins the numbers both ends quote", () => {

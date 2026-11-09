@@ -83,7 +83,7 @@ LAN hints are re-verified on every use. Read `docs/repointing.md` before changin
 `src/route-selection.ts` or the daemon's dialing path.
 
 The plane-driven half of a repoint is the signed `set_server_url` command:
-repointing is owner-only and a real widening, because the machine then dials
+repointing is manage-band (owner or a `manage` grantee) and a real widening, because the machine then dials
 the named host with the node key, a key valid on THIS plane. Loopback is
 refused outright; addresses are validated by component and stored
 canonicalized; the audit names the NEW value only. The running daemon
@@ -244,7 +244,11 @@ answers `preview-ports-unsupported` BEFORE touching the filesystem; the
 branches by `kind`: `forward` registers a lane synchronously and its ack
 precedes any socket activity, exactly `ssh-relay-exec.ts`'s off-the-chain A
 contract, because the executor chain serializes every command; `screencast`
-awaits `startBridge`), `preview_close`, `set_preview_enabled` (the switch
+awaits `startBridge`), `preview_close`, `preview_display_close` (spec
+2026-11-06: takes the pane's display down while the pane keeps running, and
+deliberately NOT policy-gated, the `preview_close` doctrine: refusing a
+teardown at a switched-off node would strand Xvfb/x11vnc; an unallocated pane
+answers the success `closed: false`), `set_preview_enabled` (the switch
 mirror, which SUCCEEDS everywhere including mac), and the display gate inside
 `launch` (3c/5a: platform, then switch, then the registry; the allocation
 precedes tmux so the refusal fails the launch with its named reason).

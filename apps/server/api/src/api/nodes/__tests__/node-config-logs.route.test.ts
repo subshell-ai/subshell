@@ -147,7 +147,7 @@ describe("/api/nodes logs + config gates", () => {
    * takes the machine out of this instance — an `edit` grantee is trusted to
    * interrupt a machine, not to make it someone else's.
    */
-  it("config: owner only — an edit grantee is refused", async () => {
+  it("config: an edit grantee sits below the manage band and is refused", async () => {
     const id = await mkNode();
     await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "edit" }], aliceId);
     const res = await req("PATCH", `/api/nodes/${id}/config`, {
@@ -161,6 +161,23 @@ describe("/api/nodes logs + config gates", () => {
     const id = await mkNode();
     const res = await req("PATCH", `/api/nodes/${id}/config`, {
       cookie: aliceCookie,
+      body: { serverUrl: "https://plane.example.com" },
+    });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { code: string }).code).toBe("NODE_OFFLINE");
+  });
+
+  /**
+   * `manage` (spec 2026-11-07) joined the owner at this gate: whoever may
+   * re-share and rotate the machine may also point it at another plane —
+   * that was the operator's ceiling call, band and all. Ownership transfer
+   * and the retire gate stayed above it, pinned in their own suites.
+   */
+  it("config: a manage grantee gets past the gate too", async () => {
+    const id = await mkNode();
+    await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "manage" }], aliceId);
+    const res = await req("PATCH", `/api/nodes/${id}/config`, {
+      cookie: carolCookie,
       body: { serverUrl: "https://plane.example.com" },
     });
     expect(res.status).toBe(409);

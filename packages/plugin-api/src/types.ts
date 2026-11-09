@@ -461,6 +461,19 @@ export interface SubshellPlugin {
    * used as-is, which is right for every harness that prints just a version.
    */
   parseVersion?(raw: string): string | null;
+  /**
+   * Turns the harness's own terminal title into the subshell name the rail
+   * shows.
+   *
+   * The host removes escape sequences and control bytes and trims the result
+   * before calling this, so `raw` is safe text. Interpret what the title adds
+   * around the session name — a brand, a run-state separator, a cycling
+   * status glyph — and return the name behind it. Return "" when the title
+   * names nothing, and the caller keeps the name the pane already had. Omit
+   * the member when the harness titles its pane with the name the host
+   * supplied, which needs no interpretation.
+   */
+  parsePaneTitle?(raw: string): string;
   /** Overrides manifest-driven detection. Almost no plugin needs this. */
   detect?(): Promise<DetectionResult>;
   /** Restart-resume support. Declare the `resume` capability with it. */

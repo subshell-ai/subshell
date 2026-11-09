@@ -1,0 +1,43 @@
+---
+title: "Qwen Code"
+description: "Install and launch Qwen Code with Subshell, including its MCP and session behavior."
+---
+
+Run Qwen Code as a Subshell agent.
+
+## Before you start
+
+Install `qwen` using the [vendor instructions](https://github.com/QwenLM/qwen-code) and authenticate it under the execution account. Ask an administrator to enable the harness under **Settings** → **Server Settings** → **Plugins** in the server dashboard's sidebar. Follow [Install an agent CLI](/agents/install-cli) to confirm detection on the target node.
+
+## Launch
+
+1. Open the new-subshell form using [Launch a subshell](/guides/launch), then choose **Qwen Code** under **Agent or terminal**.
+2. Select a saved preset if you want a custom model or workflow mode. Configure those settings under **Settings** → **Presets** before launching.
+3. Choose the target node and an existing project directory.
+4. Launch and confirm that the CLI opens normally.
+
+The plugin launches `qwen` bare, which opens its interactive TUI, and maps preset model and workflow mode to the `--model` and `--workflow-mode` flags. It detects `qwen` through PATH and its known locations. `QWEN_PATH` can identify the binary explicitly in the execution environment. Before changing that override, see [Files and paths](/reference/paths) for configuration locations and service-environment guidance.
+
+## MCP and session behavior
+
+Register Subshell once under the OS account where Qwen Code runs. In the server dashboard's sidebar, choose **Settings** → **Presets** → **New preset** → **New agent preset**, select **Qwen Code**, and use the commands under **Cross-subshell comms**. Those commands use the MCP executable configured for your installation.
+
+For a node with `subshell` on PATH, registration looks like this:
+
+```bash
+qwen mcp add subshell subshell mcp
+```
+
+`qwen mcp add` writes to user scope by default, so the command carries no scope flag. Like its Gemini parent, its parser rejects a `--` separator there, so the server name and command follow the options directly.
+
+If your preset sets `QWEN_HOME`, Qwen Code reads its settings, including MCP registrations, from that directory instead of `~/.qwen`. Run the registration command with that same value on the execution machine so the registration lands where launch will read it, and use the same override when signing in or removing the registration. See [Files and paths](/reference/paths) for environment configuration guidance.
+
+The registration stores the command, not Subshell credentials. Qwen Code's MCP child inherits them from the subshell where it runs, so one pane's identity stays inside that pane.
+
+Presets support model and workflow mode. Workflow mode (`on` or `off`) sets the persistent Workflow guidance mode for the session. The plugin doesn't provide automatic conversation resumption, attention hooks, or subagent tracking. Chat history is recorded by default, so `--resume` can continue a previous session unless recording was turned off (with `--no-chat-recording` or in settings).
+
+Subshell runs the real CLI rather than proxying its provider API. Provider configuration, usage limits, and CLI-specific permissions remain the agent's own settings.
+
+## Next steps
+
+Read [MCP configuration](/mcp/configure), [Presets](/presets), and [Agent and launch errors](/troubleshooting/agents).

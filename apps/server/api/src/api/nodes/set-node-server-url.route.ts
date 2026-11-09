@@ -69,7 +69,8 @@ export function validateNodeServerUrl(value: string): { url: string } | { error:
  * `PATCH /api/nodes/:id/config` — repoint an enrolled node at another control
  * plane (spec 2026-09-12, node half § 5).
  *
- * **OWNER ONLY, and that is the one gate in this group that is not
+ * **MANAGE BAND (owner or a `manage` grantee, admin on `local`; spec
+ * 2026-11-07), and that is the one gate in this group that is not
  * `nodeCanConfigure`.** `docs/security.md` calls `subshell configure --server`
  * deliberately unprivileged, and locally it is: it edits a 0600 file the local
  * user already owns. Doing it REMOTELY is a different act. The node then dials
@@ -118,7 +119,10 @@ export const setNodeServerUrlRoute = new Elysia()
           }),
         );
       }
-      if (gate.access !== "owner") throw new ForbiddenError();
+      // Repointing rides the management band: owner, or a `manage` grantee
+      // (spec 2026-11-07). `canManage` IS that band here because `local` is
+      // refused above, before this line.
+      if (!gate.canManage) throw new ForbiddenError();
 
       const checked = validateNodeServerUrl(body.serverUrl);
       if ("error" in checked) {
@@ -174,7 +178,7 @@ export const setNodeServerUrlRoute = new Elysia()
         operationId: "setNodeServerUrl",
         tags: ["nodes"],
         description:
-          "Repoint an enrolled node at another control plane (owner only; never the local node; the node applies it on its next heartbeat beat, without a restart)",
+          "Repoint an enrolled node at another control plane (the node's owner or a Manage grantee; never the local node; the node applies it on its next heartbeat beat, without a restart)",
       },
     },
   );

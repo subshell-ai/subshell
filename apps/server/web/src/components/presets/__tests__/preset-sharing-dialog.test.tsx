@@ -1,7 +1,7 @@
 import { afterEach, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { SharingDialogCore } from "@/components/sharing-dialog-core";
+import { BASIC_SHARE_LEVELS, SharingDialogCore } from "@/components/sharing-dialog-core";
 import { PresetSharingDialog } from "../preset-sharing-dialog";
 
 const original = globalThis.fetch;
@@ -53,6 +53,7 @@ it("keeps sharing open and disables edits until a pending save finishes", async 
     <SharingDialogCore
       open
       onOpenChange={(open) => closed.push(open)}
+      levels={BASIC_SHARE_LEVELS}
       title="Share preset"
       description="Share settings"
       isLoading={false}

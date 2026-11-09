@@ -194,7 +194,8 @@ function refusalFor(
  * updating — the one this server cannot otherwise talk to at all — is reachable
  * from a browser rather than only from a shell on it.
  *
- * Gate: cookie only, owner or `edit` (`nodeCanConfigure`) — the same gate
+ * Gate: cookie only, edit rank or above (`nodeCanConfigure`, manage
+ * included) — the same gate
  * `service restart` carries, because that is what this is: a restart with a
  * file swap in front of it. The honest note is about AVAILABILITY rather than
  * confidentiality, and it is the restart route's note verbatim: an `edit`

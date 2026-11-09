@@ -128,6 +128,21 @@ describe("SharingDialog", () => {
     }
   });
 
+  it("never offers Manage: the third rung belongs to nodes only (spec 2026-11-07)", async () => {
+    // The core dialog is shared; widening the NODE ladder must not leak a
+    // Manage rung into subshell sharing, where no such level exists.
+    const { restore } = mockFetch([]);
+    try {
+      renderDialog();
+      await screen.findByText("Not shared with anyone yet.");
+      fireEvent.click(screen.getByRole("combobox", { name: "Access level to grant" }));
+      await screen.findByRole("option", { name: "View + edit" });
+      expect(screen.queryByRole("option", { name: "Manage" }) === null).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
   it("removing a grant PUTs the set without it", async () => {
     const { calls, restore } = mockFetch([{ granteeUserId: null, permission: "view" }]);
     try {

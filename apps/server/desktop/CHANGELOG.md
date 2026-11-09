@@ -1,5 +1,44 @@
 # @internal/desktop-server
 
+## 1.7.9
+
+### Patch Changes
+
+- Updated dependencies [[`9032140`](https://github.com/subshell-ai/subshell/commit/9032140d1ab798e1ada54324cdafa5fc6ca945a3), [`f2026f6`](https://github.com/subshell-ai/subshell/commit/f2026f6f16942a1c1af578e6dddd043197e4aaa6), [`55b3644`](https://github.com/subshell-ai/subshell/commit/55b36448a46071b7dca9e92c32cc461cd53c8ade), [`6034b4e`](https://github.com/subshell-ai/subshell/commit/6034b4e821fcb0443cf1743102bacd08a61f98aa), [`9032140`](https://github.com/subshell-ai/subshell/commit/9032140d1ab798e1ada54324cdafa5fc6ca945a3)]:
+  - @internal/server@3.3.1
+
+## 1.7.8
+
+### Patch Changes
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Cline harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Gemini CLI harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Open Interpreter harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the OpenClaw harness plugin: launch, detect, and install guidance ship now. The pane runs the embedded terminal UI (`openclaw chat`), and cross-subshell comms stay unwired until OpenClaw grows a per-session MCP registration path, since its registrations are Gateway-scoped.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the OpenHands harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+
+- [#500](https://github.com/subshell-ai/subshell/pull/500) [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332) Thanks [@theogravity](https://github.com/theogravity)! - Add the Qwen Code harness plugin: launch, detect, and install guidance ship now, with Subshell MCP as a one-time host registration.
+- Updated dependencies [[`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332), [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332), [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332), [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332), [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332), [`829ccb2`](https://github.com/subshell-ai/subshell/commit/829ccb2b3f0f61c2abb3545e715bb2d899e42332)]:
+  - @internal/server@3.3.0
+
+## 1.7.7
+
+### Patch Changes
+
+- Updated dependencies [[`2b99535`](https://github.com/subshell-ai/subshell/commit/2b995357ecd2bbe7d8d5d2e8344c92cf1cf46b2b)]:
+  - @internal/server@3.2.0
+
+## 1.7.6
+
+### Patch Changes
+
+- Updated dependencies [[`c90dee0`](https://github.com/subshell-ai/subshell/commit/c90dee0da29e148f0d4d084f7cf0d3d8d78da916), [`0f393a4`](https://github.com/subshell-ai/subshell/commit/0f393a4025093d878772aa2f7f3cd143a266574c)]:
+  - @internal/server@3.1.0
+
 ## 1.7.5
 
 ### Patch Changes
