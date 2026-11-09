@@ -266,8 +266,15 @@ describe("normalizePaneTitle", () => {
    */
   it("drops a Kitty payload whose introducer never reached us", () => {
     expect(norm("_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA")).toBe("");
-    // And with the `_` gone too, which is what the punctuation trim leaves.
+    // The bare form, with the `_` introducer already gone.
     expect(norm("Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA")).toBe("");
+  });
+
+  it("drops a payload behind a decoration no parser removed", () => {
+    // A terminal pane running an agent that prefixes a glyph has no harness
+    // parser to strip it, so payload recognition looks past the decoration.
+    expect(norm("✳ _Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA")).toBe("");
+    expect(norm("✳ _Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA", "claude-code")).toBe("");
   });
 
   /**
@@ -334,9 +341,19 @@ describe("normalizePaneTitle", () => {
     expect(norm("\x1b]0;hello\x07")).toBe("");
   });
 
-  // The behaviour that already existed and must survive the reordering.
-  it("still strips the harness's cycling status glyph", () => {
-    expect(norm("✳ Building the thing")).toBe("Building the thing");
+  /**
+   * A harness's own title conventions belong to its plugin, not this
+   * function: the `π <state>` brand is oh-my-pi's and the cycling glyph is
+   * Claude Code's. The host strips only what every title carries, so the same
+   * string keeps its decoration for a harness that never asked for it.
+   */
+  it("leaves harness-specific decoration to the harness plugin", () => {
+    expect(norm("✳ Building the thing", "claude-code")).toBe("Building the thing");
+    expect(norm("✳ Building the thing")).toBe("✳ Building the thing");
+    expect(norm("π > hmn-vm", "oh-my-pi")).toBe("hmn-vm");
+    expect(norm("π ⠋ 🚌 SLASH: Fix the stuck overlay", "oh-my-pi")).toBe("🚌 SLASH: Fix the stuck overlay");
+    expect(norm("π ⠋ 🚌 SLASH: Fix the stuck overlay", "claude-code")).toBe("π ⠋ 🚌 SLASH: Fix the stuck overlay");
+    expect(norm("π ⠋", "oh-my-pi")).toBe("");
   });
 
   it("still passes an ordinary title through, and still bounds it", () => {

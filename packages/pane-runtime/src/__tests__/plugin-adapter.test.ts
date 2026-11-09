@@ -175,6 +175,21 @@ describe("adaptPlugin carries parseVersion for the detect command's server-side 
   });
 });
 
+describe("adaptPlugin carries parsePaneTitle for the sweep's harness-specific half", () => {
+  it("attaches the plugin's parser when it has one", () => {
+    const a = adaptPlugin(MANIFEST, minimal({ parsePaneTitle: (raw) => raw.replace(/^π /, "") }));
+    expect(a.parsePaneTitle?.("π Fix auth")).toBe("Fix auth");
+  });
+
+  it("has no parsePaneTitle key when the plugin declares none", () => {
+    // A plain shell titles its pane with its directory, which needs no
+    // interpretation: the sweep uses the sanitized title as the name.
+    const a = adaptPlugin(MANIFEST, minimal());
+    expect("parsePaneTitle" in a).toBe(false);
+    expect(a.parsePaneTitle).toBeUndefined();
+  });
+});
+
 describe("versionOf: the host probes, the plugin interprets", () => {
   /** A fake harness that prints exactly `output` for any argument. */
   async function fakeBinary(output: string): Promise<string> {

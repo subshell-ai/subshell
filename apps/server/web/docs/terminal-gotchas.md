@@ -17,6 +17,35 @@ covers the promise. After any `dockview-react` upgrade, re-run the probe:
 
 If one does, the upgrade is not safe: pin back to the last known-good version.
 
+### A tab click parks focus on the tab, and the fresh panel is briefly hidden
+
+A dockview tab is focusable, so clicking one moves keyboard focus off the
+terminal: the harness never sees the next Esc or keystroke. The docked
+`/mcp list` report that would not close while the turn streamed (operator
+report, 2026-11-09) was this, not a render fault. The dock's tab-focus
+handoff (`workspace-dock/tab-focus.ts`) listens on the dock root, because the
+focusable wrapper is dockview's and its padding ring is painted as part of the
+tab. It hands focus back when a click's press began on the tab's content (not
+on its close control), including a click on the ACTIVE tab, where dockview
+fires no activation event at all. A release that merely lands on a tab (a drag
+or selection from another pane) is not a click and asks for nothing. That is a
+mouse or pen gesture only: a touch tap on a tab leaves focus alone, because
+focusing the textarea would raise the soft keyboard, and asking for it is the
+pane's own tap gate's job (see Touch below), not a tab tap made to switch
+panes.
+
+`renderer: "always"` keeps a panel's DOM, not its live xterm: a background
+tab's terminal is disposed and rebuilt when the tab becomes visible. A
+click's focus request can therefore resolve the old terminal a frame before
+activation replaces it, or wait for the new one; either way the request is
+kept until a publish answers it. Dockview keeps a fresh panel's render
+overlay at `visibility: hidden` for a frame while it is positioned, and a
+hidden textarea takes no focus, so `focusTerminal` in `docked-pane.tsx`
+retries until the textarea accepts focus. It gives up if focus moved
+somewhere other than where it was when the tab was clicked, the terminal, or
+the body, and a terminal that left the DOM is `retired` rather than
+consumed, so the replacement's publish retries the same click.
+
 ### Touch: tap types, swipe reads, and BOTH halves are ours
 
 `lib/terminal-touch-scroll.ts`'s `gateTouchKeyboard` decides whether a touch

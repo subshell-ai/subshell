@@ -18,12 +18,38 @@ const SETTINGS: SettingsField[] = [
 ];
 
 /**
+ * omp composes its terminal title from a brand, one column of run state, and
+ * the session label (title-generator's `buildTerminalTitleWithState`):
+ * `π > label` while idle, `π <spinner> label` while working, `π ! label` when
+ * blocked, and `π : label` when the working separator is pinned to the static
+ * colon (WSL, or a spinner pinned off); with titles disabled the form is
+ * `π: label`. The brand and the state separator describe the terminal, not the
+ * session, and mirroring the whole string read `π ⠋ 🚌 Fix the thing` in the
+ * rail — a stuck-looking spinner in front of every name (operator screenshot,
+ * 2026-11-09). The label keeps its emoji: the generator starts the session
+ * name with one.
+ *
+ * The whitespace is required where the generator writes one (brand, space,
+ * separator), and the disabled form's colon is followed by a space, so a label
+ * that merely starts with the brand — `π-calculus`, `π/2`, `π:notes` — keeps
+ * it. A bare brand appears for a moment before the session name lands; it
+ * parses to nothing, and the caller keeps the name it already had. The spinner
+ * set covers every style omp ships: braille frames (U+2801–U+28FF, which holds
+ * the activity and dots sets), the pulse moon, and the plain-ASCII line
+ * frames.
+ */
+const TITLE_PREFIX = /^π(?:$|\s+(?:[>!:]|[⠁-⣿]|[◔◑◕○●]|[-\\/|])|:(?=\s|$))\s*/u;
+
+/**
  * Oh My Pi uses its own executable and native MCP discovery, independently of
  * pi. An explicit extension directory contributes mcp.json without redirecting
  * the user's config or credentials. Verified against omp 18.12.6.
  */
 const createPlugin: HarnessPluginFactory = () => ({
   capabilities: () => ["mcp", "settings"],
+
+  /** `π <state> <label>`: the label behind the brand and run state is the name. */
+  parsePaneTitle: (raw) => raw.replace(TITLE_PREFIX, "").trim(),
 
   buildCommand({ binary, preset, extraFlags, mcp }) {
     const args = [binary, ...(mcp?.args ?? [])];
