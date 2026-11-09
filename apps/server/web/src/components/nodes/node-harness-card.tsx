@@ -311,7 +311,8 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                 }
                 onClick={() => void runUpdateAll()}
               >
-                <ArrowUpCircle /> {updatingAll ? "Updating…" : "Update all"}
+                {updatingAll ? <LoaderCircle aria-hidden className="motion-safe:animate-spin" /> : <ArrowUpCircle />}
+                {updatingAll ? "Updating…" : "Update all"}
               </Button>
             )}
             {canRecheck && (
@@ -507,10 +508,7 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                     // percentage to derive from `curl … | bash`, and inventing
                     // stages it does not report would be worse than showing what
                     // it says.
-                    <p
-                      aria-live="polite"
-                      className="col-span-full truncate font-mono text-detail text-muted-foreground"
-                    >
+                    <p role="status" className="col-span-full truncate font-mono text-detail text-muted-foreground">
                       {installLines[h.harnessId] ?? "Starting the installer…"}
                     </p>
                   )}
@@ -531,10 +529,7 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                     </div>
                   )}
                   {updatingThis && (
-                    <p
-                      aria-live="polite"
-                      className="col-span-full truncate font-mono text-detail text-muted-foreground"
-                    >
+                    <p role="status" className="col-span-full truncate font-mono text-detail text-muted-foreground">
                       {info ? `Running ${info.update.command}` : "Running the update…"}
                     </p>
                   )}
@@ -552,7 +547,9 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                     // a bare error line. A success says so and lets the
                     // refetched version speak for itself.
                     (updateResult.ok ? (
-                      <p className="col-span-full text-detail text-success">Updated.</p>
+                      <p role="status" className="col-span-full text-detail text-success">
+                        Updated.
+                      </p>
                     ) : (
                       <div className="col-span-full space-y-1">
                         <p className="text-destructive text-detail">

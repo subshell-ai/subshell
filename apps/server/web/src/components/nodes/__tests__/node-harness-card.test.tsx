@@ -62,6 +62,8 @@ interface CardOpts {
   updateStatus?: number;
   /** Body a harness update answers with; the default is a successful run. */
   updateBody?: Record<string, unknown>;
+  /** Hold the update stream open to assert the in-flight rendering. */
+  updateHold?: boolean;
 }
 
 /** A `HarnessInfo` as `/api/setup/harnesses` sends it. */
@@ -183,6 +185,13 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
       if (status !== 200) {
         return Promise.resolve(
           new Response(JSON.stringify({ errId: "e1", code: "NODE_OFFLINE", message: "node is offline" }), { status }),
+        );
+      }
+      if (opts.updateHold) {
+        return Promise.resolve(
+          new Response(new ReadableStream<Uint8Array>({ start() {} }), {
+            headers: { "content-type": "application/x-ndjson" },
+          }),
         );
       }
       const result = opts.updateBody ?? {
@@ -478,13 +487,16 @@ describe("NodeHarnessCard", () => {
       }
     });
 
-    it("shows the installer's own last line while it runs", async () => {
+    it("disables Install, spins, and shows the installer's own last line while it runs", async () => {
       const { restore } = await mount({
         ...localOpts,
         installFrames: [`${JSON.stringify({ type: "line", text: "downloading claude" })}\n`, null],
       });
       try {
         fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+        const button = await screen.findByRole("button", { name: /installing/i });
+        expect(button.matches(":disabled, [aria-disabled=true]")).toBe(true);
+        expect(button.querySelector("svg")).not.toBeNull();
         expect(await screen.findByText("downloading claude")).toBeDefined();
       } finally {
         restore();
@@ -608,6 +620,52 @@ describe("NodeHarnessCard", () => {
           ).toBe(true),
         );
         expect(await screen.findByText("Updated.")).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("disables Update, spins, and names the command while it runs", async () => {
+      const { restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info()],
+        updateHold: true,
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: /^update$/i }));
+        const button = await screen.findByRole("button", { name: /updating/i });
+        expect(button.matches(":disabled, [aria-disabled=true]")).toBe(true);
+        expect(button.querySelector("svg")).not.toBeNull();
+        expect(screen.getByText(/Running curl -fsSL/)).toBeDefined();
+        expect(screen.getByRole("button", { name: /update all/i }).matches(":disabled, [aria-disabled=true]")).toBe(
+          true,
+        );
+      } finally {
+        restore();
+      }
+    });
+
+    it("shows a spinner on Update all while it walks the rows", async () => {
+      const { restore } = await mount({
+        harnesses: [
+          { harnessId: "claude", name: "Claude", installed: true },
+          { harnessId: "codex", name: "Codex", installed: true },
+        ],
+        infos: [
+          info(),
+          info({ id: "codex", name: "Codex", binary: "codex", update: { command: "codex update", docsUrl: "" } }),
+        ],
+        updateHold: true,
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: /update all/i }));
+        // The card's own button and the row it is working on, both spinning.
+        const running = await screen.findAllByRole("button", { name: /updating/i });
+        expect(running).toHaveLength(2);
+        for (const button of running) {
+          expect(button.matches(":disabled, [aria-disabled=true]")).toBe(true);
+          expect(button.querySelector("svg")).not.toBeNull();
+        }
       } finally {
         restore();
       }
