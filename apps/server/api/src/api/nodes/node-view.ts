@@ -87,7 +87,7 @@ export const NodeHarnessViewSchema = t.Object({
     t.Object({
       command: t.String({
         description:
-          "Shell line that updates this harness CLI on this node. Present only for an agent harness with an update path, and only to the viewer the update route accepts: configure on an agent node, admin on the control-plane host",
+          "Shell line that updates this harness CLI on this node. Present only for an agent harness with an update path, and only to a browser-session viewer the update route accepts: configure on an agent node, admin on the control-plane host. Machine credentials never receive it",
       }),
       docsUrl: t.Optional(t.String({ description: "Update documentation URL, when the plugin declares one" })),
     }),
@@ -555,9 +555,10 @@ export async function toNodeView(
   access: NodeViewableAccess,
   isAdmin: boolean,
   granted: NodeAccess,
+  exposeUpdate = false,
 ): Promise<NodeView> {
   const { harnesses, stale } = await effectiveHarnessStates(row);
-  const visibleHarnesses = harnessRowsFor(row.kind, access, isAdmin, harnesses);
+  const visibleHarnesses = harnessRowsFor(row.kind, access, isAdmin, exposeUpdate, harnesses);
   const allowedDirs = await new NodeAllowedDirsRepository(db).listForNode(row.id);
   // The switch only ever speaks about the control-plane host, so only that
   // row pays the read.
@@ -582,7 +583,13 @@ export async function toNodeView(
  * disk pass, not one per row).
  */
 export async function toNodeViews(
-  entries: { row: NodeTable; access: NodeViewableAccess; isAdmin: boolean; granted: NodeAccess }[],
+  entries: {
+    row: NodeTable;
+    access: NodeViewableAccess;
+    isAdmin: boolean;
+    granted: NodeAccess;
+    exposeUpdate?: boolean;
+  }[],
 ): Promise<NodeView[]> {
   let localReport: EffectiveHarnessReport | undefined;
   const out: NodeView[] = [];
@@ -603,7 +610,7 @@ export async function toNodeViews(
   const ownerLabels = await new UsersRepository(db).displayNamesByIds([
     ...new Set(entries.filter((e) => e.isAdmin).map((e) => e.row.ownerUserId)),
   ]);
-  for (const { row, access, isAdmin, granted } of entries) {
+  for (const { row, access, isAdmin, granted, exposeUpdate = false } of entries) {
     const allowedDirs = dirsBy.get(row.id) ?? [];
     const ownerLabel = isAdmin ? (ownerLabels.get(row.ownerUserId) ?? row.ownerUserId) : undefined;
     if (row.kind === "local") {
@@ -611,14 +618,14 @@ export async function toNodeViews(
       serverAsNode ??= await serverSubshellsEnabled(db);
       out.push({
         ...nodeViewBase(row, access, isAdmin, allowedDirs, granted, serverAsNode, ownerLabel),
-        harnesses: harnessRowsFor(row.kind, access, isAdmin, localReport.harnesses),
+        harnesses: harnessRowsFor(row.kind, access, isAdmin, exposeUpdate, localReport.harnesses),
         inventoryStale: localReport.stale,
       });
     } else {
       const { harnesses, stale } = await effectiveHarnessStates(row, installed);
       out.push({
         ...nodeViewBase(row, access, isAdmin, allowedDirs, granted, true, ownerLabel),
-        harnesses: harnessRowsFor(row.kind, access, isAdmin, harnesses),
+        harnesses: harnessRowsFor(row.kind, access, isAdmin, exposeUpdate, harnesses),
         inventoryStale: stale,
       });
     }
@@ -631,17 +638,23 @@ export async function toNodeViews(
  * `nodeCanConfigure` on an agent node, and ADMIN on `local` because that line
  * runs in the server's process. `local` gives every member an Everyone/edit
  * grant, so asking `nodeCanConfigure` alone would hand the line to people the
- * route refuses. The rest of the row is unchanged; `update` is optional, so
- * dropping it keeps the wire shape valid for every viewer.
+ * route refuses. A machine credential also gets none: its list/detail right
+ * is disclosure-only unless its key carries `nodes:configure`, and the field
+ * exists for the browser card, not an API client. The rest of the row is
+ * unchanged; `update` is optional, so dropping it keeps the wire shape valid
+ * for every viewer.
  */
 function harnessRowsFor(
   kind: NodeTable["kind"],
   access: NodeViewableAccess,
   isAdmin: boolean,
+  exposeUpdate: boolean,
   rows: EffectiveHarnessState[],
 ): EffectiveHarnessState[] {
+  const strip = () => rows.map(({ update: _update, ...row }) => row);
+  if (!exposeUpdate) return strip();
   if (kind === "local" ? isAdmin : nodeCanConfigure(access)) return rows;
-  return rows.map(({ update: _update, ...row }) => row);
+  return strip();
 }
 
 /** Share rows → wire shape with grantee display names resolved (subshell-shares mirror). */

@@ -3346,12 +3346,13 @@ variable:
   process).
 - **On `local` it is admin-cookie only.** The line runs in the server process
   as the server's OS user, so it follows the agent installer's gate, not the
-  node's Everybody/edit grant. The view sends the line only to the same
-  audience the route accepts; `view` grantees and ordinary members do not
-  receive it. On an enrolled node the gate is `nodeCanConfigure`
-  (`owner`/`manage`/`edit`), because the command travels the signed link and
-  the node acts on its own machine. Bearer keys reach only an agent node their
-  own user owns.
+  node's Everybody/edit grant. The BROWSER node view sends the line only to
+  the same audience the route accepts; machine credentials never receive it,
+  even when their key carries `nodes:configure` (the field powers the card, not
+  an API client). `view` grantees and ordinary members do not receive it. On
+  an enrolled node the gate is `nodeCanConfigure` (`owner`/`manage`/`edit`),
+  because the command travels the signed link and the node acts on its own
+  machine. Bearer keys reach only an agent node their own user owns.
 - **The run is bounded like an installer**: the shared `runBounded` allowlisted
   environment, login-shell PATH, closed stdin, ten-minute deadline and 64 KiB
   per-stream capture. Output goes to the caller's browser (it can carry a

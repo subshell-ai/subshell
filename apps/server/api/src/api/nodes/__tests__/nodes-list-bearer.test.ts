@@ -134,7 +134,7 @@ describe("GET /api/nodes bearer visibility (enumerate-ok / act-denied)", () => {
     access: string;
     canLaunch: boolean;
     status: string;
-    harnesses: { harnessId: string; installed: boolean }[];
+    harnesses: { harnessId: string; installed: boolean; update?: { command: string } }[];
   };
 
   it("validates node search length and select filters", async () => {
@@ -187,6 +187,9 @@ describe("GET /api/nodes bearer visibility (enumerate-ok / act-denied)", () => {
     expect(row?.canLaunch).toBe(true);
     expect(row?.harnesses.length).toBeGreaterThan(0);
     expect(row?.harnesses.every((h) => typeof h.harnessId === "string" && typeof h.installed === "boolean")).toBe(true);
+    // The list is disclosure-only: a machine credential that may not run the
+    // update route (no `nodes:configure`) does not receive its shell line.
+    expect(row?.harnesses.every((h) => h.update === undefined)).toBe(true);
   });
 
   it("invisibility: foreign nodes are ABSENT for the bearer, shares included, never a 403", async () => {

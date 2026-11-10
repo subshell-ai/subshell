@@ -68,7 +68,7 @@ export const setNodeSshEnabledRoute = new Elysia()
       // the row, and the view must render what is stored, not what this
       // handler believes it asked for.
       const row = (await new NodesRepository(db).findById(gate.row.id)) ?? gate.row;
-      return await toNodeView(row, gate.access, gate.isAdmin, gate.granted);
+      return await toNodeView(row, gate.access, gate.isAdmin, gate.granted, actor === "cookie");
     },
     {
       params: t.Object({ id: t.String({ description: "Node id" }) }),
@@ -107,7 +107,7 @@ export const setNodeSshEnabledRoute = new Elysia()
       await setNodeSshWideForwards({ nodeId: gate.row.id, on: body.on, actorUserId: user.id });
       // The same re-read rule as the switch above: the view renders the row.
       const row = (await new NodesRepository(db).findById(gate.row.id)) ?? gate.row;
-      return await toNodeView(row, gate.access, gate.isAdmin, gate.granted);
+      return await toNodeView(row, gate.access, gate.isAdmin, gate.granted, actor === "cookie");
     },
     {
       params: t.Object({ id: t.String({ description: "Node id" }) }),
