@@ -129,7 +129,7 @@ export function AllSubshellsSection({
       ) : results.isLoading ? (
         <p className="px-1 text-detail text-muted-foreground">Loading subshells…</p>
       ) : roots.length ? (
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pb-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-0.5 pb-2">
           {sections.map((section) => (
             <div key={section.key}>
               {section.label && (

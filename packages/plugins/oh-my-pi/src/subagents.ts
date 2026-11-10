@@ -16,6 +16,10 @@
  * per session. Each binding keeps its own roster, and `session_start` tells a
  * child binding apart from the pane's main agent: only the main agent's roster
  * is the set of children the sidebar should hang under the subshell.
+ *
+ * The roster repeats every two seconds while it is non-empty: the control
+ * plane keeps it in memory, so a restart has nothing until the harness reports
+ * again, and an idle child produces no other frames.
  */
 export const SUBAGENT_BRIDGE = `
 export default function (pi) {
@@ -24,13 +28,17 @@ export default function (pi) {
   const MAX_AGENTS = 256;
   const MAX_TEXT = 160;
   const REPORT_DELAY_MS = 1000;
+  // A live child keeps reporting, so a control-plane restart (which forgets
+  // every roster) gets the set back without waiting for the next tool event.
+  const HEARTBEAT_MS = 2000;
 
   const agents = new Map();
   let role = 'main';
   let timer = null;
   let reporting = false;
   let queued = false;
-
+  let heartbeat = null;
+  let warned = false;
   const label = value => {
     if (typeof value !== 'string') return undefined;
     const trimmed = value.trim().slice(0, MAX_TEXT);
@@ -45,14 +53,18 @@ export default function (pi) {
     if (!key || role !== 'main') return false;
     if (!agents.has(key) && agents.size >= MAX_AGENTS) return false;
     const previous = agents.get(key);
-    const next = { id: key, name: key, status };
+    // The report schema caps the name field at 160 while the id may run to
+    // 256; an over-long name would fail validation for the whole snapshot.
+    const next = { id: key, name: key.slice(0, MAX_TEXT), status };
     const words = activity || previous?.activity;
     if (words) next.activity = words;
     agents.set(key, next);
+    if (heartbeat === null) heartbeat = setInterval(beat, HEARTBEAT_MS);
     return true;
   };
 
   const drop = id => {
+    if (role !== 'main') return false;
     const key = validId(id);
     return key ? agents.delete(key) : false;
   };
@@ -65,10 +77,16 @@ export default function (pi) {
     const base = process.env.SUBSHELL_BASE_URL;
     const token = process.env.SUBSHELL_API_KEY;
     const id = process.env.SUBSHELL_ID;
-    if (!base || !token || !id) return;
+    if (!base || !token || !id) {
+      if (!warned) {
+        warned = true;
+        pi.logger?.debug?.('subshell subagent report skipped: the pane identity environment is missing');
+      }
+      return;
+    }
     reporting = true;
     try {
-      await fetch(base + '/api/subshells/' + id + '/subagents/report', {
+      const response = await fetch(base + '/api/subshells/' + encodeURIComponent(id) + '/subagents/report', {
         method: 'POST',
         headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -79,6 +97,10 @@ export default function (pi) {
         }),
         signal: AbortSignal.timeout(2000),
       });
+      if (!response.ok && !warned) {
+        warned = true;
+        pi.logger?.debug?.('subshell subagent report failed', { status: response.status });
+      }
     } catch {
       // A failed report is not fatal: the next frame reports again, and a pane
       // without the identity variables above has no endpoint to reach.
@@ -99,11 +121,22 @@ export default function (pi) {
     }, REPORT_DELAY_MS);
   };
 
+  const beat = () => {
+    if (role !== 'main' || agents.size === 0) {
+      if (heartbeat !== null) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
+      return;
+    }
+    void report();
+  };
+
   pi.events.on(LIFECYCLE, frame => {
     if (!frame || typeof frame !== 'object' || typeof frame.status !== 'string') return;
     if (frame.status === 'started') {
-      if (put(frame.id, 'running', label(frame.description) || label(frame.agent))) void report();
-    } else if (drop(frame.id)) void report();
+      if (put(frame.id, 'running', label(frame.description) || label(frame.agent))) schedule();
+    } else if (drop(frame.id)) schedule();
   });
 
   pi.events.on(PROGRESS, frame => {
@@ -113,28 +146,40 @@ export default function (pi) {
     const status = statusFor(progress.status);
     if (status) {
       if (put(progress.id ?? frame.id, status, label(progress.description) || label(progress.lastIntent))) schedule();
-    } else if (drop(progress.id ?? frame.id)) schedule();
+    } else if (progress.status === 'completed' || progress.status === 'failed' || progress.status === 'aborted') {
+      if (drop(progress.id ?? frame.id)) schedule();
+    }
   });
+
+  const reset = () => {
+    agents.clear();
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (heartbeat !== null) {
+      clearInterval(heartbeat);
+      heartbeat = null;
+    }
+    return report();
+  };
 
   pi.on('session_start', (_event, ctx) => {
     role = ctx && ctx.agent && ctx.agent.kind === 'sub' ? 'sub' : 'main';
     if (role !== 'main') return;
-    agents.clear();
-    if (timer !== null) {
-      clearTimeout(timer);
-      timer = null;
-    }
-    return report();
+    return reset();
+  });
+
+  // A switch (resume, fork, new) replaces the conversation the roster belonged
+  // to; its children are no longer this session's children.
+  pi.on('session_switch', () => {
+    if (role !== 'main') return;
+    return reset();
   });
 
   pi.on('session_shutdown', () => {
     if (role !== 'main') return;
-    agents.clear();
-    if (timer !== null) {
-      clearTimeout(timer);
-      timer = null;
-    }
-    return report();
+    return reset();
   });
 }
 `;

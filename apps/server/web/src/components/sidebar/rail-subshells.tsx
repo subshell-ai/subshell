@@ -338,7 +338,7 @@ export function RailSubshells({
         <>
           {attentionRows.length > 0 && (
             <section aria-label="Needs Attention" className="mb-1">
-              <div className="flex w-full items-center gap-2 py-1 pr-2 pl-3 text-detail text-muted-foreground">
+              <div className="flex w-full items-center gap-2 py-1 pr-2 pl-1 text-detail text-muted-foreground">
                 <span className="min-w-0 flex-1 truncate font-strong">Needs Attention</span>
                 <span className="shrink-0 tabular-nums opacity-70">{attentionRows.length}</span>
               </div>
@@ -425,7 +425,7 @@ export function RailSubshells({
         <>
           {attentionRows.length > 0 && (
             <section aria-label="Needs Attention" className="mb-1">
-              <div className="flex w-full items-center gap-2 py-1 pr-2 pl-3 text-detail text-muted-foreground">
+              <div className="flex w-full items-center gap-2 py-1 pr-2 pl-1 text-detail text-muted-foreground">
                 <span className="min-w-0 flex-1 truncate font-strong">Needs Attention</span>
                 <span className="shrink-0 tabular-nums opacity-70">{attentionRows.length}</span>
               </div>

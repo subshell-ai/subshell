@@ -104,7 +104,7 @@ const createPlugin: HarnessPluginFactory = () => ({
     return {
       mode: "auto",
       summary:
-        "Subshell registers its MCP server through a per-launch Oh My Pi extension. Your existing configuration stays in place.",
+        "Subshell registers its MCP server and reports the pane's subagents through a per-launch Oh My Pi extension. Your existing configuration stays in place.",
     };
   },
 

@@ -159,7 +159,7 @@ export function WorkspaceBranch({
       {collapsible && (
         <div
           className={cn(
-            "flex w-full items-center gap-2 rounded-md py-1 pr-2 pl-3 text-detail transition-colors",
+            "flex w-full items-center gap-2 rounded-md py-1 pr-2 pl-1 text-detail transition-colors",
             active
               ? "bg-accent text-accent-foreground"
               : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
