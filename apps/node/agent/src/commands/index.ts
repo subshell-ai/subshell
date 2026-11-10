@@ -22,6 +22,7 @@ import {
 import type { CommandContext, CommandResult } from "./context.js";
 import { execFileRead } from "./file-read.js";
 import { execFsLs } from "./fs-ls.js";
+import { execHarnessInstall } from "./harness-install.js";
 import { execHarnessUpdate } from "./harness-update.js";
 import { execLaunch } from "./launch.js";
 import { execPreviewClose } from "./preview-close-exec.js";
@@ -89,10 +90,12 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * re-delivers; deliberately UNGATED like `ssh_register_identity`, because it
  * is a trust-record act on this machine's own store and the recovery must
  * reach a machine whose pairing is blocked; deep public-only key validation
- * before any write, audit stays plane-side), and the protocol-28
+ * before any write, audit stays plane-side), the protocol-28
  * `harness_update` (issue #250 - runs one harness CLI's own update line,
  * from the plane's manifest as data, in the same bounded runner every
- * installer uses).
+ * installer uses), and the protocol-29 `harness_install` (the built-in
+ * manifest's installer line through that same runner; installs and updates
+ * share one chain so neither holds pane effects).
  * Any
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
@@ -126,6 +129,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execDetect(ctx, cmd);
       case "harness_update":
         return await execHarnessUpdate(ctx, cmd);
+      case "harness_install":
+        return await execHarnessInstall(ctx, cmd);
       case "terminate":
         return await execTerminate(ctx, cmd);
       case "kill":

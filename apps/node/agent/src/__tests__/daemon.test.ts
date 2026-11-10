@@ -1483,6 +1483,34 @@ test("a slow harness_update does not hold pane effects behind it", async () => {
   ).toEqual(["inv-1", "upd-1"]);
 });
 
+test("harness_install queues behind harness_update on the same chain", async () => {
+  // They share a filesystem and a package manager. The chain is the node's
+  // backstop, so a fast install sent second must still answer second.
+  const h = await startDaemon();
+  await waitFor(h, (e) => e.type === "inventory", "connect inventory push");
+  await signAndSend(
+    h,
+    { type: "harness_update", harnessId: "claude-code", command: "sleep 1; echo done" },
+    { jti: "upd-shared", seq: 1 },
+  );
+  await signAndSend(
+    h,
+    { type: "harness_install", harnessId: "codex", command: "echo installed" },
+    { jti: "ins-shared", seq: 2 },
+  );
+  const ins = await waitFor<Extract<NodeEvent, { type: "result" }>>(
+    h,
+    (e) => e.type === "result" && e.ref === "ins-shared",
+    "harness install result",
+  );
+  expect(ins).toMatchObject({ ok: true });
+  expect(
+    eventsAs(h, "result")
+      .filter((e) => e.ref === "upd-shared" || e.ref === "ins-shared")
+      .map((e) => e.ref),
+  ).toEqual(["upd-shared", "ins-shared"]);
+});
+
 test("an oversize frame is dropped on ARRIVAL, not queued behind the chain", async () => {
   // The two byte guards are synchronous and cost nothing, so they run before
   // a frame joins the serialization chain. Behind it, a burst of oversize

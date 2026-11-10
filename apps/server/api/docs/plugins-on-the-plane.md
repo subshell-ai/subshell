@@ -48,7 +48,7 @@ ten-minute deadline, output cap). A non-zero exit is a reported RESULT, not an
 HTTP error. After a remote run the node's cached detection is refreshed so its
 version row catches up.
 
-One update runs per node at a time (`claimHarnessUpdate`), because two CLIs
+One harness run per node at a time (`claimHarnessRun`), because two CLIs
 can share a package manager; a racing press answers 409 before the stream
 opens. On an enrolled node the command rides its own serial chain, so the run
 never holds pane effects behind it.
@@ -58,6 +58,41 @@ migration 0073): a launch that asks with `probeVersion` (agent harnesses only)
 makes the node answer RAW `<binary> --version` text on the ack, and the plane
 parses it with the plugin. This is informational; nothing restarts a running
 pane on a version change, by operator ruling.
+
+## Installing a harness CLI on an enrolled node (issue #250)
+
+`POST /api/nodes/:id/harnesses/:pluginId/install` installs the CLI a plugin
+drives on the machine that will run it, through the signed `harness_install`
+command (protocol 29). The control-plane host does not use it: its install is
+the setup screen's in-process installer
+(`POST /api/setup/agents/:pluginId/install`, admin cookie), and this route
+answers 400 for `local` rather than opening a second gate onto that line.
+
+Only a BUILT-IN plugin can be installed here. The installer line travels from
+the manifest compiled into this binary, so what may run is changed by editing
+this repo, never by anything a request sends; a registry plugin is refused even
+when the instance offers it. The route is a browser-session act at the configure
+band (`nodeCanConfigure`: owner, `manage`, or `edit`), the same band the
+harness-update and node-update routes carry. The install verb and its audit are
+distinct; the band is not isolation from the installer, because Update remains
+an `edit`-level configure act and falls back to the same line when a harness
+declares no updater. The built-in-only rule is what bounds what may run. The
+refusals are settled before the NDJSON body opens: unknown plugin 404,
+non-built-in or no installer line 400, built-in not offered by this instance
+404, offline node 409, a harness run already on the node 409.
+
+The run is bounded like the update's (the node's `runBounded`: allowlisted
+environment, login-shell PATH, closed stdin, ten-minute deadline, output cap),
+and the answer streams an NDJSON heartbeat every five seconds, then one
+terminal `done` or `error`; node error text is capped at 4,096 characters.
+Installs and updates share one harness-run slot per node, so a racing press
+answers 409 before the stream opens. After a run that returned before its
+deadline the node's cached detection is refreshed, best-effort, so its version
+row catches up; a timed-out run skips that refresh, since the vendor pipeline
+may still be installing and the next page load or periodic pass repairs the
+cache. Audited as `node.harness.install`, with
+`node.harness.install.unknown` only when a timeout or a dropped socket leaves
+it unknowable whether the installer ran; neither row carries output.
 
 ## Registering the MCP dialect per harness (moved from AGENTS.md "Architecture")
 

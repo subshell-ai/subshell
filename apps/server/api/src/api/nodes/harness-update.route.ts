@@ -2,18 +2,15 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
 import { apiErrorBody } from "@/api/api-error.js";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
+import { HARNESS_RUN_ERROR_MAX, HARNESS_RUN_HEARTBEAT_MS } from "@/api/nodes/harness-run-frames.js";
 import { apiModels } from "@/api/schemas/index.js";
 import { audit } from "@/modules/audit.js";
 import { nodeCanConfigure } from "@/modules/nodes/access.js";
 import { loadNodeGate } from "@/modules/nodes/gate.js";
 import { getLive } from "@/modules/nodes/node-registry.js";
 import { NodeRpcError } from "@/modules/nodes/node-rpc.js";
-import {
-  claimHarnessUpdate,
-  HarnessUpdateRefused,
-  refuseHarnessUpdate,
-  updateHarness,
-} from "@/modules/plugins/harness-update.service.js";
+import { claimHarnessRun, HarnessRunRefused } from "@/modules/plugins/harness-run-lock.js";
+import { refuseHarnessUpdate, updateHarness } from "@/modules/plugins/harness-update.service.js";
 import { ForbiddenError } from "@/shared/errors.js";
 
 /** The wire code a refusal's carried status maps to (same pair as the install route). */
@@ -22,19 +19,6 @@ function codeForRefusalStatus(status: 400 | 404 | 409): BackendErrorCodes {
   if (status === 404) return BackendErrorCodes.NOT_FOUND_ERROR;
   return BackendErrorCodes.INPUT_VALIDATION_ERROR;
 }
-
-/**
- * How often a silent update says something. A remote run sends no line frames
- * (its output arrives in the one terminal answer), and Bun closes a response
- * that writes nothing for 10 s — measured against Bun 1.4.4, which answers a
- * 12 s gap with ECONNRESET. Proxies have their own idle deadlines too, so the
- * beat is half Bun's window: two of them per close, without turning the
- * stream into chatter.
- */
-const UPDATE_HEARTBEAT_MS = 5_000;
-
-/** Bound on node-provided error text relayed to the page; a wire frame can carry 1 MiB. */
-const UPDATE_ERROR_MAX = 4096;
 
 /**
  * `POST /api/nodes/:id/harnesses/:pluginId/update` — run one harness CLI's own
@@ -105,8 +89,8 @@ export const harnessUpdateRoute = new Elysia()
       // Reserve the node's one update slot HERE, for the same reason: a
       // second press that lost the race inside the stream could only answer
       // an `error` frame over a 200. `updateHarness` releases this claim.
-      const claim = claimHarnessUpdate(gate.row.id, params.pluginId);
-      if (claim instanceof HarnessUpdateRefused) {
+      const claim = claimHarnessRun(gate.row.id, params.pluginId, "update");
+      if (claim instanceof HarnessRunRefused) {
         return status(409, apiErrorBody({ code: BackendErrorCodes.EXISTS_ERROR, message: claim.message }));
       }
 
@@ -123,7 +107,7 @@ export const harnessUpdateRoute = new Elysia()
               // watching would leave a half-installed CLI either way.
             }
           };
-          const heartbeat = setInterval(() => send({ type: "waiting" }), UPDATE_HEARTBEAT_MS);
+          const heartbeat = setInterval(() => send({ type: "waiting" }), HARNESS_RUN_HEARTBEAT_MS);
           heartbeat.unref?.();
           try {
             const result = await updateHarness(
@@ -152,21 +136,21 @@ export const harnessUpdateRoute = new Elysia()
             // frame; a client that sees neither `done` nor `error` treats an
             // ended body as a failure too.
             const message =
-              err instanceof HarnessUpdateRefused
+              err instanceof HarnessRunRefused
                 ? err.message
                 : err instanceof Error
                   ? err.message
                   : "The update failed.";
             const boundedMessage =
-              message.length > UPDATE_ERROR_MAX ? `${message.slice(0, UPDATE_ERROR_MAX)}…` : message;
+              message.length > HARNESS_RUN_ERROR_MAX ? `${message.slice(0, HARNESS_RUN_ERROR_MAX)}…` : message;
             send({ type: "error", message: boundedMessage });
             // Mirrors `/api/nodes/:id/update`'s unknown branch: a timeout or a
-            // dropped socket may have happened after the node received the
-            // command, and the node's own ten-minute budget keeps it running.
-            // A spoken refusal (`failed`, `unsupported`) or a malformed answer
-            // is not ambiguity about whether it ran, so only these two write
-            // the unknown row. A pre-run refusal did nothing.
-            if (err instanceof NodeRpcError && (err.code === "timeout" || err.code === "offline")) {
+            // dropped socket after the command was sent may have happened once
+            // the node received it, and the node's own ten-minute budget keeps
+            // it running. A spoken refusal (`failed`, `unsupported`), a
+            // malformed answer, or a pre-send refusal is not that ambiguity;
+            // `err.sent` distinguishes them.
+            if (err instanceof NodeRpcError && err.sent && (err.code === "timeout" || err.code === "offline")) {
               await audit({
                 actorUserId: user.id,
                 action: "node.harness.update.unknown",

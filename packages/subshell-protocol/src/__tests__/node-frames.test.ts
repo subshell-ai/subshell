@@ -170,6 +170,19 @@ describe("parseNodeCommandBody", () => {
     expect(parseNodeCommandBody({ type: "harness_update", harnessId: "", command: "claude update" })).toBeNull();
     expect(parseNodeCommandBody({ type: "harness_update", harnessId: "claude-code", command: "  " })).toBeNull();
     expect(parseNodeCommandBody({ type: "harness_update", harnessId: "claude-code" })).toBeNull();
+    // harness_install: the same shape as an update — the plane sends the
+    // built-in manifest's installer line; there is nothing to run without
+    // both.
+    expect(
+      parseNodeCommandBody({
+        type: "harness_install",
+        harnessId: "claude-code",
+        command: "curl -fsSL https://example.test/i | sh",
+      }),
+    ).toEqual({ type: "harness_install", harnessId: "claude-code", command: "curl -fsSL https://example.test/i | sh" });
+    expect(parseNodeCommandBody({ type: "harness_install", harnessId: "", command: "true" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "harness_install", harnessId: "claude-code", command: "  " })).toBeNull();
+    expect(parseNodeCommandBody({ type: "harness_install", harnessId: "claude-code" })).toBeNull();
   });
 
   it("rejects launch with a malformed preset (env value not a string)", () => {
@@ -444,7 +457,11 @@ describe("parseNodeCommandBody", () => {
     // RAW `<binary> --version` text for the binary it spawned. An older node
     // understands neither the command nor the echo, and the exact-match gate
     // refuses it before either is sent.
-    expect(NODE_PROTOCOL_VERSION).toBe(28);
+    // 29 is harness installs: `harness_install` runs a built-in manifest's
+    // installer line on the node that holds the harness. An older node
+    // answers `unsupported`, so the exact-match handshake refuses it before
+    // it is sent.
+    expect(NODE_PROTOCOL_VERSION).toBe(29);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {

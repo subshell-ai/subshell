@@ -16,7 +16,7 @@ import {
   releaseHeld,
   resetNodeRegistryForTests,
 } from "../node-registry.js";
-import { sendCommand } from "../node-rpc.js";
+import { NodeRpcError, sendCommand } from "../node-rpc.js";
 
 /**
  * The held map (spec 2026-09-15 §5.3): sockets the plane refuses for
@@ -191,6 +191,38 @@ describe("held connections", () => {
     update.catch(() => undefined); // the URL is a dead port; delivery is the assertion
     await until(() => ws.sent.length > 0, "the update frame");
     expect(ws.sent).toHaveLength(1);
+  });
+
+  it("refuses a command that moves to HELD while it is queued, before any frame is sent", async () => {
+    // A socket can be live when sendCommand selects it and held by the time the
+    // queued step signs the frame. The re-check treats a connection that moved
+    // to held as still ours — correct for `update`, wrong for everything else.
+    // `harness_install` is the newest non-update command, and a protocol-28
+    // agent would answer it `malformed` while the plane waited out the RPC.
+    const ws = fakeSocket();
+    const conn = attachConnection("n1", ws);
+    const pending = sendCommand("n1", {
+      type: "harness_install",
+      harnessId: "claude-code",
+      command: "true",
+    });
+    pending.catch(() => undefined);
+
+    // Move it while the step is queued: the hold lands before the signing await.
+    holdConnection("n1", conn, holdInput());
+
+    const outcome = await Promise.race([
+      pending.then(
+        () => null,
+        (err: unknown) => err,
+      ),
+      until(() => ws.sent.length > 0, "a frame").then(() => "sent"),
+    ]);
+
+    expect(outcome).toBeInstanceOf(NodeRpcError);
+    expect((outcome as NodeRpcError).code).toBe("offline");
+    expect((outcome as NodeRpcError).sent).toBe(false);
+    expect(ws.sent).toHaveLength(0);
   });
 
   it("`only` evicts the held record it names — a re-ask whose socket got held mid-await still reaches it", async () => {

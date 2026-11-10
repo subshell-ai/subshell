@@ -265,6 +265,13 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
 
   const memberArea = (
     <WorkspaceSidebarDropArea kind="add" className="flex max-h-[45%] shrink-0 flex-col">
+      {!workspaces.isLoading && !workspaces.isError && !active && !standalone && (
+        <p className="px-1 text-detail text-muted-foreground">
+          {workspaceIdFromPath(location.pathname)
+            ? "This workspace is no longer available."
+            : "Select a workspace or drag a subshell here to get started."}
+        </p>
+      )}
       <div className="min-h-0 overflow-y-auto px-0.5 pb-1">
         {active && (
           <WorkspaceActionsMenu workspace={active}>
@@ -283,13 +290,6 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
           </WorkspaceActionsMenu>
         )}
         {standalone && <SubshellRecentRow subshell={standalone} focused {...labelsFor(standalone)} />}
-        {!workspaces.isLoading && !workspaces.isError && !active && !standalone && (
-          <p className="px-3 text-detail text-muted-foreground">
-            {workspaceIdFromPath(location.pathname)
-              ? "This workspace is no longer available."
-              : "Select a workspace or drag a subshell here to get started."}
-          </p>
-        )}
         {subshells.isError && (
           <ListLoadError message="Couldn’t load subshells." retry={subshells.refetch} busy={subshells.isFetching} />
         )}

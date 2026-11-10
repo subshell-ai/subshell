@@ -402,11 +402,11 @@ export function parseNodeDetectResults(data: unknown): NodeDetectAnswer | null {
 }
 
 /* ------------------------------------------------------------------ */
-/* harness_update                                                      */
+/* harness command results                                            */
 /* ------------------------------------------------------------------ */
 
 /**
- * `harness_update`'s answer: one harness CLI's update command, run to
+ * A harness command run: one harness CLI's update or install line, run to
  * completion on the node.
  *
  * Shaped like the installer's result (`AgentInstallResult`) because the same
@@ -447,7 +447,8 @@ const HARNESS_UPDATE_ID_MAX = 128;
 const HARNESS_UPDATE_OUTPUT_MAX = 256 * 1024;
 
 /**
- * Validates and narrows a `harness_update` command's `result{data}`.
+ * Validates and narrows a harness command's `result{data}`, whichever command
+ * ran.
  * @param data - the `data` member of a successful result frame
  * @returns the narrowed result, or null when the payload is malformed
  */

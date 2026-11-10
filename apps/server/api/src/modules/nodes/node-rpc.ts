@@ -45,13 +45,24 @@ export class NodeRpcError extends Error {
    * for anything they do not recognize.
    */
   readonly detail: string | undefined;
+  /**
+   * Whether the command frame was handed to the socket before this rejection.
+   *
+   * Pre-send refusals (no connection, detached while queued, an unestablished
+   * link, a live socket held during signing, or a socket whose `send` threw)
+   * did nothing on the node, so an audit row must not call the outcome unknown.
+   * Timeouts, agent answers, and `failConnPendings` all happen after the send
+   * and carry `true`.
+   */
+  readonly sent: boolean;
 
-  constructor(code: NodeRpcErrorCode, message: string, nodeId: string, detail?: string) {
+  constructor(code: NodeRpcErrorCode, message: string, nodeId: string, detail?: string, sent = false) {
     super(message);
     this.name = "NodeRpcError";
     this.code = code;
     this.nodeId = nodeId;
     this.detail = detail;
+    this.sent = sent;
   }
 }
 
@@ -197,6 +208,16 @@ export function sendCommand(nodeId: string, cmd: NodeCommandBody, options: SendC
     const seq = ++conn.seq;
     const jws = await signCommand(privateJwk, { nodeId, jti, seq, cmd });
 
+    // The held fallback at selection is frozen to `update` ONLY. A socket can
+    // be live when this call selected it and held by the time the queued step
+    // signs the frame; the re-check above treats that moved connection as
+    // still ours, which is right for the frozen rescue and wrong for every
+    // other command. Check immediately before registering and sending, after
+    // the signing awaits, so a hold that lands during them is caught too.
+    if (cmd.type !== "update" && getHeld(nodeId)?.conn === conn) {
+      throw new NodeRpcError("offline", `node "${nodeId}" was held before the command was sent`, nodeId);
+    }
+
     // From here the command is in flight: arm the deadline and register the
     // correlation entry BEFORE the frame can be answered, then emit. `send`
     // stays the step's last statement so a thrown socket error never leaves
@@ -208,6 +229,8 @@ export function sendCommand(nodeId: string, cmd: NodeCommandBody, options: SendC
             "timeout",
             `command "${cmd.type}" to node "${nodeId}" timed out after ${timeoutMs}ms`,
             nodeId,
+            undefined,
+            true,
           ),
         );
       }
@@ -273,10 +296,18 @@ export function resolveResult(conn: NodeConnection, event: NodeResultEvent): boo
   if (event.ok) {
     pending.resolve(event.data);
   } else if (event.error === "unsupported") {
-    pending.reject(new NodeRpcError("unsupported", `node "${conn.nodeId}" does not support this command`, conn.nodeId));
+    pending.reject(
+      new NodeRpcError(
+        "unsupported",
+        `node "${conn.nodeId}" does not support this command`,
+        conn.nodeId,
+        undefined,
+        true,
+      ),
+    );
   } else {
     pending.reject(
-      new NodeRpcError("failed", `node "${conn.nodeId}" reported: ${event.error}`, conn.nodeId, event.error),
+      new NodeRpcError("failed", `node "${conn.nodeId}" reported: ${event.error}`, conn.nodeId, event.error, true),
     );
   }
   return true;
@@ -298,7 +329,7 @@ export function failConnPendings(conn: NodeConnection, code: NodeRpcErrorCode = 
   const fallback = `node "${conn.nodeId}" connection closed with ${entries.length} in-flight command(s)`;
   for (const pending of entries) {
     clearTimeout(pending.timer);
-    pending.reject(new NodeRpcError(code, message ?? fallback, conn.nodeId));
+    pending.reject(new NodeRpcError(code, message ?? fallback, conn.nodeId, undefined, true));
   }
   return entries.length;
 }

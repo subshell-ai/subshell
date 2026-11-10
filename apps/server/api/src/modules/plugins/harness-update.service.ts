@@ -3,7 +3,7 @@ import { type NodeHarnessUpdateResult, parseNodeHarnessUpdateResult } from "@int
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { detectOnNode } from "@/modules/nodes/inventory.js";
 import { sendCommand } from "@/modules/nodes/node-rpc.js";
-import { claimLocalRun, localRunHolder } from "@/modules/plugins/local-run-lock.js";
+import { claimHarnessRun, type HarnessRunClaim, HarnessRunRefused } from "@/modules/plugins/harness-run-lock.js";
 import { logger } from "@/shared/logger.js";
 import { enabledHarnessPlugins } from "./store.js";
 
@@ -42,62 +42,6 @@ export class HarnessUpdateRefused extends Error {
 }
 
 /**
- * One update per NODE at a time, whatever harness it is for.
- *
- * The plane-side half of the serialization: two CLIs can share one package
- * manager (`npm i -g` is the common case), so two harnesses updating at once
- * can still race over the same files. The value is the harness id, so a
- * refusal can say what is already running. The node also queues updates among
- * themselves, but that is a backstop; this guard is what turns a double press
- * into a 409 before a byte is streamed.
- */
-const inFlight = new Map<string, string>();
-
-/** A reserved update slot; releasing it twice is harmless. */
-export interface HarnessUpdateClaim {
-  release(): void;
-}
-
-/**
- * Reserve this node's update slot, or explain why not.
- *
- * Called by the route BEFORE the response body opens, because a refusal that
- * loses a race after that point can only arrive as an `error` frame with a
- * 200 status. `updateHarness` claims for itself when its caller has not.
- * @param nodeId - the machine the update runs on
- * @param id - the harness about to run
- */
-export function claimHarnessUpdate(nodeId: string, id: string): HarnessUpdateClaim | HarnessUpdateRefused {
-  const running = inFlight.get(nodeId);
-  if (running !== undefined) {
-    return new HarnessUpdateRefused(`"${running}" is already being updated on this node.`, 409);
-  }
-  // The control-plane host's installers share this filesystem too, and their
-  // lock is per plugin id, so an update has to take the host slot as well.
-  let releaseHost: (() => void) | undefined;
-  if (nodeId === LOCAL_NODE_ID) {
-    const holder = localRunHolder();
-    releaseHost = holder === undefined ? claimLocalRun(`update "${id}"`) : undefined;
-    if (!releaseHost) {
-      return new HarnessUpdateRefused(
-        `The control-plane host is busy with ${holder ?? "another install"}; try again when it finishes.`,
-        409,
-      );
-    }
-  }
-  inFlight.set(nodeId, id);
-  let released = false;
-  return {
-    release() {
-      if (released) return;
-      released = true;
-      if (inFlight.get(nodeId) === id) inFlight.delete(nodeId);
-      releaseHost?.();
-    },
-  };
-}
-
-/**
  * The shell line that updates one harness, or undefined when it offers none.
  *
  * Only an agent harness: a plain shell or an ssh pane drives no CLI whose
@@ -116,7 +60,7 @@ export function harnessUpdateCommand(id: string): string | undefined {
  * be real status codes: an unknown plugin, one this instance does not offer,
  * and one with no update path. `updateHarness` re-reads the line for itself
  * (the registry can change between the check and the run); serialization is
- * {@link claimHarnessUpdate}'s job and is deliberately absent here, so a
+ * {@link claimHarnessRun}'s job and is deliberately absent here, so a
  * refusal about the plugin never depends on whether another run holds the
  * slot.
  */
@@ -145,10 +89,10 @@ export async function updateHarness(
   nodeId: string,
   id: string,
   onLine?: (line: string) => void,
-  claim?: HarnessUpdateClaim,
+  claim?: HarnessRunClaim,
 ): Promise<NodeHarnessUpdateResult> {
-  const owned = claim ?? claimHarnessUpdate(nodeId, id);
-  if (owned instanceof HarnessUpdateRefused) throw owned;
+  const owned = claim ?? claimHarnessRun(nodeId, id, "update");
+  if (owned instanceof HarnessRunRefused) throw owned;
   try {
     const command = harnessUpdateCommand(id);
     if (command === undefined) throw new HarnessUpdateRefused(`"${id}" doesn't offer an update.`, 400);

@@ -55,15 +55,18 @@ function detectionLabel(h: DetectionRow): string {
 
 /**
  * Whether this row's program can be installed from here — the client half of
- * `POST /api/setup/agents/:pluginId/install`'s own refusals.
+ * the two install routes' shared refusals: `POST /api/setup/agents/:pluginId/
+ * install` for the control-plane host, and `POST /api/nodes/:nodeId/harnesses/
+ * :pluginId/install` for an enrolled node.
  *
  * It needs the HARNESS REGISTRY, not the node view, and that is the whole
  * reason this card reads a second endpoint: a node's row carries detection
  * (is the program here?) and no manifest, so the install COMMAND and the
- * agent/terminal type live only on `GET /api/setup/harnesses`. Both of the
- * route's pre-stream refusals are mirrored — `terminal` drives no program, and
- * an empty command 400s — because a button that always fails is worse than no
- * button.
+ * agent/terminal type live only on `GET /api/setup/harnesses`. The refusals
+ * both routes settle before streaming are mirrored — `terminal` drives no
+ * program, and an empty command 400s — because a button that always fails is
+ * worse than no button. Whether a plugin is BUILT-IN is the one refusal the
+ * registry row cannot answer; the route settles that one.
  *
  * @param info - the registry row for this plugin, absent when the registry has
  *   no such id (a registry-installed plugin the built-in catalog never lists)
@@ -131,18 +134,24 @@ function updateCommandFor(h: { update?: { command: string } }, info: HarnessInfo
  * action sequentially, so two package managers never run over one filesystem
  * at once.
  *
- * **On `local`, and only there, a row that is missing its program also gets
- * an Install button on its own line** (spec 2026-09-15 § 5.3; the button
- * reads just "Install" since the card is already about THIS machine). This is not the plugin
- * management that left with Task 9 — it installs the CLI a plugin drives, not
- * the plugin — and it exists because `POST /api/setup/agents/:id/install` had
- * exactly one entrance, the first-run wizard's step 2: skip that screen and
- * there was no path back to it, ever. The gate is `canManage`, which on
- * `local` is the SERVER's own word for "an admin" and is the same gate the
- * route applies; an enrolled node never offers it, because the route can only
- * install on the control-plane host (installing on a remote node is out of
- * scope, spec 2026-09-11 § 11) and a button naming the wrong machine is worse
- * than no button.
+ * **A row that is missing its program also gets an Install button on its own
+ * line** (spec 2026-09-15 § 5.3; the button reads just "Install" since the
+ * card is already about THIS machine). This is not the plugin management that
+ * left with Task 9 — it installs the CLI a plugin drives, not the plugin — and
+ * it exists because `POST /api/setup/agents/:id/install` had exactly one
+ * entrance, the first-run wizard's step 2: skip that screen and there was no
+ * path back to it, ever. Spec 2026-11-09 then made the act follow the row's
+ * MACHINE: `local` still runs the installer in the server's process, through
+ * its admin-only route, while an enrolled node runs the same line through the
+ * signed `harness_install` command (`POST /api/nodes/:nodeId/harnesses/:id/
+ * install`). The gate follows the route each machine answers: on `local` it is
+ * `canManage`, the SERVER's own word for "an admin"; on an enrolled node it is
+ * the same configure band the route applies to updates — owner, `manage`, or
+ * `edit` — because Update already falls back to the same installer line at
+ * `edit`, so a narrower band here would not keep an edit grantee from running
+ * it. A remote run also needs a live socket (a HELD one predates the command),
+ * so the button sits disabled with the reason rather than trading a press for
+ * a 409.
  */
 export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
   const { harnesses, data, isLoading } = useNodeHarnesses(nodeId);
@@ -162,11 +171,14 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
   const [updatingAll, setUpdatingAll] = useState(false);
   /** The installer's latest line, per plugin id — see the render below. */
   const [installLines, setInstallLines] = useState<Record<string, string>>({});
+  // The route follows the machine the row is about: an enrolled node installs
+  // through its own signed command, `local` in this process.
+  const installNodeId = data?.kind === "agent" ? nodeId : undefined;
   const install = useInstallAgent((id, line) => {
     // A blank line is spacing in an installer's output, not progress; showing
     // one would blank the only thing on screen that is saying anything.
     if (line.trim() !== "") setInstallLines((prev) => ({ ...prev, [id]: line }));
-  });
+  }, installNodeId);
 
   if (isLoading) return <p className="text-muted-foreground text-sm">Loading…</p>;
 
@@ -189,9 +201,19 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
   // state set is exactly `online` — same split the Update card draws from the
   // server's own `canUpdate` rule, with the held half landing the other way.
   const recheckReachable = data?.status === "online";
-  // `canManage` is server-derived and, on `local`, resolves to admin — the
-  // same answer the install route's own cookie gate gives.
-  const canInstallHere = data?.kind === "local" && data.canManage;
+  // `canManage` on `local` is server-derived and resolves to admin — the same
+  // answer the setup route's own cookie gate gives. An enrolled node's install
+  // route gates on the configure band, the same one Update uses.
+  const canInstallHere =
+    data !== undefined &&
+    (data.kind === "local"
+      ? data.canManage
+      : data.access === "owner" || data.access === "manage" || data.access === "edit");
+  // Permission is only half of it: a remote install travels the signed link,
+  // so the node must be online and not HELD (a held socket answers `update`
+  // only, and a held row is projected offline). `local` runs here, where there
+  // is no socket to wait for.
+  const installReachable = data?.kind === "local" || (data?.status === "online" && data?.held === null);
   /** The id currently installing, so only its own row spins. */
   const installingId = install.isPending ? install.variables : undefined;
   /** The id whose last install ended, so a failure renders under the row that failed. */
@@ -209,8 +231,9 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
     ? { message: errMessage(install.error, "Couldn't run the installer.") }
     : install.data && !install.data.ok
       ? {
-          message:
-            install.data.exitCode === null
+          message: install.data.timedOut
+            ? "The installer timed out. It may still be running."
+            : install.data.exitCode === null
               ? "The installer could not be started."
               : `The installer exited with code ${install.data.exitCode}.`,
           output: install.data.output,
@@ -288,6 +311,21 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
     } finally {
       setUpdatingAll(false);
     }
+  }
+
+  /**
+   * Start one install, dropping any line the previous run left for the same
+   * harness. Without this reset, a retry on `local` shows the old run's last
+   * line as current progress until the new stream speaks.
+   */
+  function startInstall(id: string): void {
+    setInstallLines((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    install.mutate(id);
   }
 
   return (
@@ -451,17 +489,28 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                       type="button"
                       size="sm"
                       // One at a time, and never beside an update: both act on
-                      // this machine's filesystem, and the update route already
-                      // serializes its own runs.
-                      disabled={install.isPending || updatingAll || updateBusy || recheck.isPending}
-                      disabledReason={
-                        updateBusy || updatingAll
-                          ? "Wait for the current update to finish."
-                          : recheck.isPending
-                            ? "Wait for the current check to finish."
-                            : "Wait for installation to finish."
+                      // the same machine's filesystem, and the update route
+                      // already serializes its own runs. Reachability is the
+                      // route's other half: a remote install needs a live
+                      // socket, and a disabled button with the reason beats a
+                      // press that answers 409.
+                      disabled={
+                        install.isPending || updatingAll || updateBusy || recheck.isPending || !installReachable
                       }
-                      onClick={() => install.mutate(h.harnessId)}
+                      disabledReason={
+                        data?.held
+                          ? data.held.reason === "below-floor"
+                            ? "This node's Subshell daemon is too old for installs. Update it from the Updates card above."
+                            : "This node's Subshell daemon isn't compatible with installs. Check the Updates card above."
+                          : !installReachable
+                            ? "The node is offline. Wait for it to reconnect before installing."
+                            : updateBusy || updatingAll
+                              ? "Wait for the current update to finish."
+                              : recheck.isPending
+                                ? "Wait for the current check to finish."
+                                : "Wait for installation to finish."
+                      }
+                      onClick={() => startInstall(h.harnessId)}
                     >
                       {installingId === h.harnessId && (
                         <LoaderCircle aria-hidden className="motion-safe:animate-spin" />
@@ -522,22 +571,28 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                     </p>
                   )}
                   {offerInstall && info && (
-                    /* What the button above will do, without a click. This runs
-                    a vendor's script on the control-plane host as the
-                    server's own user, which should not take a press to
-                    find out. */
+                    /* What the button above will do, without a click. On
+                    `local` this runs a vendor's script in the server's own
+                    process as its user; on an enrolled node the same line runs
+                    there, as the daemon's user. Either way that should not
+                    take a press to find out. */
                     <p className="col-span-full text-detail text-muted-foreground">
-                      Runs <code className="font-mono">{info.install.command}</code> on this machine, as the user the
-                      server runs as.
+                      Runs <code className="font-mono">{info.install.command}</code>{" "}
+                      {data?.kind === "agent"
+                        ? "on this node, as the user the subshell daemon runs as."
+                        : "on this machine, as the user the server runs as."}
                     </p>
                   )}
                   {installingId === h.harnessId && (
                     // The installer's own words, one line, verbatim: there is no
                     // percentage to derive from `curl … | bash`, and inventing
                     // stages it does not report would be worse than showing what
-                    // it says.
+                    // it says. A remote run sends no line frames — its output
+                    // arrives in the `done` frame — so the line stands in until
+                    // that lands.
                     <p role="status" className="col-span-full truncate font-mono text-detail text-muted-foreground">
-                      {installLines[h.harnessId] ?? "Starting the installer…"}
+                      {installLines[h.harnessId] ??
+                        (data?.kind === "agent" ? "Running the installer on this node…" : "Starting the installer…")}
                     </p>
                   )}
                   {settledId === h.harnessId && installFailure && (
@@ -555,6 +610,14 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                         </details>
                       )}
                     </div>
+                  )}
+                  {settledId === h.harnessId && install.data?.ok && (
+                    // The node view's refetched detection is the durable proof;
+                    // this line answers the press before that lands, matching
+                    // the update row's "Updated.".
+                    <p role="status" className="col-span-full text-detail text-success">
+                      Installed.
+                    </p>
                   )}
                   {updatingThis && (
                     <p role="status" className="col-span-full truncate font-mono text-detail text-muted-foreground">

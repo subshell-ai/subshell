@@ -252,8 +252,15 @@ import {
  * echo, which is why the exact-match handshake refuses it before either is
  * sent. The floor and `apps/node/agent/package.json` move to 3.5.0 in this
  * commit, one minor above the published 3.4.1.
+ *
+ * **28 -> 29:** harness installs become a first-class action. A
+ * `harness_install` command runs a built-in harness's `install.command` on the
+ * node that holds it. An older node answers `unsupported`, which is why the
+ * exact-match handshake refuses it before it is sent. The floor and
+ * `apps/node/agent/package.json` move to 3.6.0 in this commit, one minor above
+ * the published 3.5.1.
  */
-export const NODE_PROTOCOL_VERSION = 28;
+export const NODE_PROTOCOL_VERSION = 29;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -1056,6 +1063,29 @@ export type NodeCommandBody =
       /** Harness plugin id, echoed in the answer for correlation */
       harnessId: string;
       /** Shell line that updates the CLI in place */
+      command: string;
+    }
+  | {
+      /**
+       * Install one built-in harness's CLI on this node.
+       *
+       * The command is a SHELL LINE (`curl … | sh`, `npm i -g …`) that the
+       * control plane reads from the built-in manifest — the node has held no
+       * manifests since the inversion, so the installer line travels with the
+       * request. It runs through `sh -c` under the same bounded runner every
+       * installer uses: an allowlisted environment, a ten-minute deadline,
+       * closed stdin, and a captured output cap. The manifest parser already
+       * refuses a line that needs privileges, and the host has no terminal to
+       * answer a password prompt either way.
+       *
+       * One harness per command, so the plane can report per-row progress and
+       * an install sweep stays sequential at the UI rather than holding one
+       * enormous round trip.
+       */
+      type: "harness_install";
+      /** Harness plugin id, echoed in the answer for correlation */
+      harnessId: string;
+      /** Shell line that installs the CLI */
       command: string;
     }
   | {
@@ -2264,6 +2294,14 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       // button). Refusing here keeps the executor's contract total.
       return isStr(value.harnessId) && value.harnessId !== "" && isStr(value.command) && value.command.trim() !== ""
         ? { type: "harness_update", harnessId: value.harnessId, command: value.command }
+        : null;
+    case "harness_install":
+      // Shape only, the same gate as harness_update: an EMPTY harness id or
+      // installer line has nothing to run, and the plane never mints one (a
+      // harness with no installer line offers no Install button). Refusing
+      // here keeps the executor's contract total.
+      return isStr(value.harnessId) && value.harnessId !== "" && isStr(value.command) && value.command.trim() !== ""
+        ? { type: "harness_install", harnessId: value.harnessId, command: value.command }
         : null;
     case "write_file":
       return isStr(value.path) &&
