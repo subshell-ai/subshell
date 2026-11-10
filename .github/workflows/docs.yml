@@ -8,8 +8,10 @@
 # release — and the retry semantics differ: a docs tag already on this commit
 # means "redeploy" (below), where for release.yml it would mean "skip".
 #
-# Every release cut requires a fresh full verification of this revision,
-# including site releases. A failure blocks tag creation and deployment.
+# Each site deploy verifies the site it ships, not the whole repository: the
+# site package's own type-check and tests, plus the repo prose rule, run
+# before the tag-writing plan, and the build below gates the bytes that
+# deploy. The four app cuts and npm keep release.yml's full test.yml gate.
 #
 # Flow:
 #   plan    — refuse any run not on refs/heads/main, resolve the version
@@ -19,6 +21,8 @@
 #             create and push; present AT THIS COMMIT → redeploy; present at
 #             another commit → refuse (delete the tag to re-cut). Re-dispatch
 #             converges, same rule the release cut lives by.
+#   verify  — the docs package's own type-check and tests, plus the repo prose
+#             rule; a failure blocks tag creation and deployment.
 #   build   — static export via turbo, asserted, uploaded as `docs-out`.
 #   deploy  — wrangler pushes apps/docs/out to the custom domain, and the run
 #             summary names the URL.
@@ -45,13 +49,35 @@ concurrency:
 
 jobs:
   verify:
-    name: Full release verification
-    uses: ./.github/workflows/test.yml
-    with:
-      full: true
-    permissions:
-      contents: read
-      packages: read
+    name: Verify the docs site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+
+      - name: Cache Bun install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check prose
+        run: bun run lint:prose
+
+      - name: Type-check the docs site
+        run: bunx turbo run verify-types --filter=@internal/docs
+
+      - name: Test the docs site
+        run: bunx turbo run test --filter=@internal/docs
 
   plan:
     needs: verify

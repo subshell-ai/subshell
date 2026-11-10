@@ -35,13 +35,17 @@ test("the aggregate result waits for every test tier even after a failure", () =
   ]);
 });
 
-test("site releases also verify before creating tags", () => {
+test("site deploys verify the site locally before creating tags", () => {
   for (const site of ["docs", "website"]) {
     const workflow = Bun.YAML.parse(
       readFileSync(new URL(`../../.github/workflows/${site}.yml`, import.meta.url), "utf8"),
-    ) as typeof release;
-    expect(workflow.jobs.verify?.uses).toBe("./.github/workflows/test.yml");
-    expect(workflow.jobs.verify?.with?.full).toBe(true);
+    ) as {
+      jobs: Record<string, { needs?: string | string[]; uses?: string; steps?: { run?: string }[] }>;
+    };
+    // The site build and its own tests are the gate; the full repository
+    // suite belongs to the four app cuts and npm, not to a content deploy.
+    expect(workflow.jobs.verify?.uses).toBeUndefined();
+    expect(workflow.jobs.verify?.steps?.some((step) => step.run?.includes(`--filter=@internal/${site}`))).toBe(true);
     expect(workflow.jobs.plan?.needs).toBe("verify");
   }
 });
