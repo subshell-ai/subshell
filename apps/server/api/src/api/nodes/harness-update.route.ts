@@ -8,12 +8,8 @@ import { nodeCanConfigure } from "@/modules/nodes/access.js";
 import { loadNodeGate } from "@/modules/nodes/gate.js";
 import { getLive } from "@/modules/nodes/node-registry.js";
 import { NodeRpcError } from "@/modules/nodes/node-rpc.js";
-import {
-  claimHarnessUpdate,
-  HarnessUpdateRefused,
-  refuseHarnessUpdate,
-  updateHarness,
-} from "@/modules/plugins/harness-update.service.js";
+import { claimHarnessRun, HarnessRunRefused } from "@/modules/plugins/harness-run-lock.js";
+import { refuseHarnessUpdate, updateHarness } from "@/modules/plugins/harness-update.service.js";
 import { ForbiddenError } from "@/shared/errors.js";
 
 /** The wire code a refusal's carried status maps to (same pair as the install route). */
@@ -105,8 +101,8 @@ export const harnessUpdateRoute = new Elysia()
       // Reserve the node's one update slot HERE, for the same reason: a
       // second press that lost the race inside the stream could only answer
       // an `error` frame over a 200. `updateHarness` releases this claim.
-      const claim = claimHarnessUpdate(gate.row.id, params.pluginId);
-      if (claim instanceof HarnessUpdateRefused) {
+      const claim = claimHarnessRun(gate.row.id, params.pluginId, "update");
+      if (claim instanceof HarnessRunRefused) {
         return status(409, apiErrorBody({ code: BackendErrorCodes.EXISTS_ERROR, message: claim.message }));
       }
 
@@ -152,7 +148,7 @@ export const harnessUpdateRoute = new Elysia()
             // frame; a client that sees neither `done` nor `error` treats an
             // ended body as a failure too.
             const message =
-              err instanceof HarnessUpdateRefused
+              err instanceof HarnessRunRefused
                 ? err.message
                 : err instanceof Error
                   ? err.message
