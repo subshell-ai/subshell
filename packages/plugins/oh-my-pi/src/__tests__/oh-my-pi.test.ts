@@ -65,9 +65,114 @@ describe("Oh My Pi", () => {
     const files = registration?.files ?? {};
     expect(JSON.parse(files["mcp.json"] ?? "{}")).toEqual({ mcpServers: { subshell: { type: "stdio", ...launch } } });
     expect(files["mcp.json"]).toBe(registration.fileContent);
-    expect(JSON.parse(files["package.json"] ?? "{}").omp.extensions).toEqual(["bridge.mjs", "subagents.mjs"]);
+    expect(JSON.parse(files["package.json"] ?? "{}").omp.extensions).toEqual([
+      "bridge.mjs",
+      "subagents.mjs",
+      "provider.mjs",
+    ]);
     expect(files["bridge.mjs"] ?? "").toContain("export default function");
     expect(files["subagents.mjs"] ?? "").toContain("export default function");
+    // Fixed source, never templated from preset env: the config it reads
+    // names MODEL_CLI_OMP_API_KEY instead of carrying the credential, so no
+    // secret reaches a node's disk through this file.
+    expect(files["provider.mjs"]).toBe(
+      `export default function(pi) {
+  const raw = process.env.MODEL_CLI_OMP_CONFIG;
+  if (!raw) return;
+  let config;
+  try {
+    config = JSON.parse(raw);
+  } catch {
+    pi.logger?.debug?.("model-cli provider config ignored: MODEL_CLI_OMP_CONFIG is not JSON");
+    return;
+  }
+
+  const CONNECTION_KEYS = ["baseUrl", "api", "apiKey", "models"];
+  const MODEL_KEYS = [
+    "id",
+    "name",
+    "contextWindow",
+    "maxTokens",
+    "reasoning",
+    "input",
+    "cost",
+    "compat",
+    "thinking",
+  ];
+  const COST_KEYS = ["input", "output", "cacheRead", "cacheWrite"];
+  const COMPAT_KEYS = [
+    "maxTokensField",
+    "reasoningContentField",
+    "replayReasoningContent",
+    "requiresReasoningContentForAllAssistantTurns",
+    "supportsDeveloperRole",
+    "supportsStore",
+    "supportsStrictMode",
+    "thinkingFormat",
+  ];
+  const THINKING_KEYS = ["mode", "efforts", "effortMap"];
+
+  const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+  const only = (value, keys) => Object.keys(value).every((key) => keys.includes(key));
+  const text = (value) => typeof value === "string" && value !== "";
+  const amount = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  const positive = (value) => amount(value) && value > 0;
+  const command = (value) => {
+    if (typeof value === "string") return value.startsWith("!");
+    if (Array.isArray(value)) return value.some(command);
+    if (isObject(value)) return Object.values(value).some(command);
+    return false;
+  };
+  const cost = (value) => isObject(value) && only(value, COST_KEYS) && Object.values(value).every(amount);
+  const compat = (value) =>
+    isObject(value) &&
+    only(value, COMPAT_KEYS) &&
+    Object.values(value).every((item) => typeof item === "string" || typeof item === "boolean");
+  const thinking = (value) =>
+    isObject(value) &&
+    only(value, THINKING_KEYS) &&
+    (value.mode === "anthropic-adaptive" || value.mode === "effort") &&
+    Array.isArray(value.efforts) &&
+    value.efforts.every(text) &&
+    isObject(value.effortMap) &&
+    Object.values(value.effortMap).every(text);
+  const model = (value) =>
+    isObject(value) &&
+    only(value, MODEL_KEYS) &&
+    text(value.id) &&
+    (value.name === undefined || text(value.name)) &&
+    (value.contextWindow === undefined || positive(value.contextWindow)) &&
+    (value.maxTokens === undefined || positive(value.maxTokens)) &&
+    (value.reasoning === undefined || typeof value.reasoning === "boolean") &&
+    (value.input === undefined ||
+      (Array.isArray(value.input) && value.input.every((item) => item === "text" || item === "image"))) &&
+    (value.cost === undefined || cost(value.cost)) &&
+    (value.compat === undefined || compat(value.compat)) &&
+    (value.thinking === undefined || thinking(value.thinking));
+
+  const connection = config?.connection;
+  const models = connection?.models;
+  const usable =
+    typeof config?.provider === "string" &&
+    /^model-cli-omp-(?:litellm|direct)-\\S+$/.test(config.provider) &&
+    isObject(connection) &&
+    only(connection, CONNECTION_KEYS) &&
+    typeof connection.baseUrl === "string" &&
+    /^https?:\\/\\/.+/.test(connection.baseUrl) &&
+    (connection.api === "anthropic-messages" || connection.api === "openai-completions") &&
+    connection.apiKey === "MODEL_CLI_OMP_API_KEY" &&
+    Array.isArray(models) &&
+    models.length > 0 &&
+    models.every(model) &&
+    !command(config);
+  if (!usable) {
+    pi.logger?.debug?.("model-cli provider config ignored: MODEL_CLI_OMP_CONFIG is not the model-cli shape");
+    return;
+  }
+  pi.registerProvider(config.provider, connection);
+}
+`,
+    );
     expect(registration?.env).toBeUndefined();
     expect(plugin.buildCommand({ ...input, mcp: registration })).toEqual([
       input.binary,
@@ -81,6 +186,146 @@ describe("Oh My Pi", () => {
       expect(name).toMatch(/^[A-Za-z0-9_-]+\.(mjs|py|json)$/);
       expect(Buffer.byteLength(content)).toBeLessThanOrEqual(64 * 1024);
     }
+  });
+
+  it("loads the model-cli provider only from a complete config", () => {
+    const registration = plugin.mcpRegistration?.(
+      { command: "/opt/subshell", args: ["mcp"] },
+      "/tmp/subshell config.json",
+    );
+    const source = registration?.files?.["provider.mjs"];
+    if (!source) throw new Error("Missing provider module");
+    const factory = (env: Record<string, string | undefined>) => {
+      // The shipped module is ESM; strip the export to run the same bytes as
+      // a function, the way the subagent bridge test does.
+      type Make = (process: {
+        env: Record<string, string | undefined>;
+      }) => (pi: {
+        registerProvider: (...args: unknown[]) => void;
+        logger: { debug: (message: string) => void };
+      }) => void;
+      const make = new Function("process", source.replace("export default", "return")) as Make;
+      return make({ env });
+    };
+    const run = (raw?: string) => {
+      const calls: unknown[][] = [];
+      const logs: string[] = [];
+      factory(raw === undefined ? {} : { MODEL_CLI_OMP_CONFIG: raw })({
+        registerProvider: (...args) => calls.push(args),
+        logger: { debug: (message) => logs.push(message) },
+      });
+      return { calls, logs };
+    };
+    // Unset and empty are normal silence. Anything else that isn't the exact
+    // model-cli shape registers nothing and leaves one debug line:
+    // registration is applied outside the factory's error guard.
+    for (const raw of [undefined, ""]) {
+      expect(run(raw)).toEqual({ calls: [], logs: [] });
+    }
+    const provider = "model-cli-omp-litellm-dsv41-flash-exl3";
+    const valid = {
+      baseUrl: "http://localhost:4000",
+      api: "openai-completions",
+      apiKey: "MODEL_CLI_OMP_API_KEY",
+      models: [{ id: "m" }],
+    };
+    const rejects = [
+      "{",
+      "null",
+      "[]",
+      "{}",
+      JSON.stringify({ provider }),
+      // A built-in provider name would apply the override to the user's own
+      // provider and models.
+      JSON.stringify({ provider: "anthropic", connection: valid }),
+      JSON.stringify({ provider, connection: { ...valid, headers: { "x-api-key": "!sh -c id" } } }),
+      JSON.stringify({ provider, connection: { ...valid, apiKey: "SUBSHELL_API_KEY" } }),
+      JSON.stringify({ provider, connection: { ...valid, apiKey: "!sh -c id" } }),
+      JSON.stringify({ provider, connection: { ...valid, models: [] } }),
+      JSON.stringify({ provider, connection: { ...valid, models: [{ id: "m", name: "!sh -c id" }] } }),
+      JSON.stringify({ provider, connection: { ...valid, models: [{ id: "m", headers: { x: "y" } }] } }),
+      JSON.stringify({ provider, connection: { ...valid, transport: "fetch" } }),
+      JSON.stringify({ provider, connection: { ...valid, baseUrl: "file:///etc/passwd" } }),
+      JSON.stringify({ provider, connection: { ...valid, api: "custom" } }),
+      JSON.stringify({ provider, connection: { ...valid, apiKey: undefined } }),
+      JSON.stringify({ provider, connection: { ...valid, api: undefined } }),
+      JSON.stringify({ provider, connection: { ...valid, baseUrl: undefined } }),
+      JSON.stringify({ provider, connection: { ...valid, models: [{}] } }),
+    ];
+    for (const raw of rejects) {
+      const { calls, logs } = run(raw);
+      expect(calls).toEqual([]);
+      expect(logs).toHaveLength(1);
+    }
+    // The complete model-cli shape registers verbatim, models and all.
+    const connection = {
+      ...valid,
+      models: [
+        {
+          id: "dsv41-flash-exl3",
+          name: "DeepSeek V4.1 Flash",
+          contextWindow: 524288,
+          maxTokens: 131072,
+          reasoning: true,
+          input: ["text"],
+          cost: { input: 0.15, output: 0.6, cacheRead: 0.03, cacheWrite: 0.3 },
+          compat: { supportsDeveloperRole: false, thinkingFormat: "deepseek" },
+          thinking: { mode: "effort", efforts: ["low", "high"], effortMap: { low: "low", high: "high" } },
+        },
+      ],
+    };
+    expect(run(JSON.stringify({ provider, connection }))).toEqual({ calls: [[provider, connection]], logs: [] });
+  });
+
+  it("drops a legacy model-cli extension flag when the launch writes its provider", () => {
+    const registration = plugin.mcpRegistration?.(
+      { command: "/opt/subshell", args: ["mcp"] },
+      "/tmp/subshell config.json",
+    );
+    if (!registration) throw new Error("Missing MCP registration");
+    const legacy = [
+      "--extension",
+      "~/.cache/model-cli/omp-provider.mjs",
+      "--extension=/opt/model-cli/omp-provider.mjs",
+      "-e",
+      "/home/me/projects/.cache/model-cli/./omp-provider.mjs",
+      "--hook",
+      "/opt/model-cli//omp-provider.mjs",
+      "--hook=/opt/model-cli/omp-provider.mjs ",
+      "-e=/opt/model-cli/omp-provider.mjs",
+      "--trusted-extension",
+      "/opt/model-cli/omp-provider.mjs",
+      "--trusted-extension=/opt/model-cli/omp-provider.mjs",
+    ];
+    const custom = ["--extension", "/opt/custom/provider.mjs"];
+    const flags = [...legacy, "--model", "m", ...custom];
+    const saved = { ...preset, flags, env: { MODEL_CLI_OMP_CONFIG: "{}" } };
+    expect(plugin.buildCommand({ ...input, preset: saved, mcp: registration })).toEqual([
+      input.binary,
+      "--extension",
+      "/tmp/subshell config.json.d",
+      "--model",
+      "m",
+      ...custom,
+    ]);
+    // The legacy module reads the same variable, so a preset without it would
+    // load nothing; drop the flag whenever the module is written.
+    expect(plugin.buildCommand({ ...input, preset: { ...preset, flags }, mcp: registration })).toEqual([
+      input.binary,
+      "--extension",
+      "/tmp/subshell config.json.d",
+      "--model",
+      "m",
+      ...custom,
+    ]);
+    // No provider module was written, so the flag remains the only provider path.
+    expect(plugin.buildCommand({ ...input, preset: saved })).toEqual([
+      input.binary,
+      ...legacy,
+      "--model",
+      "m",
+      ...custom,
+    ]);
   });
 
   it("validates preset inputs", () => {
