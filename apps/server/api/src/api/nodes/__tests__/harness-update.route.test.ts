@@ -6,7 +6,10 @@ import { nodesRoutes } from "@/api/nodes/index.js";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { authDatabase } from "@/modules/auth/database.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
@@ -29,6 +32,9 @@ let agentNode: string;
 let ownerId: string;
 const adminEmail = `hu-admin-${crypto.randomUUID()}@subshell.local`;
 let adminToken: string;
+let bearerSubshellId = "";
+let bearerKeyId: string | undefined;
+let bearerKey = "";
 
 /** POST the update route; a token authenticates, an omission does not. */
 function post(nodeId: string, pluginId: string, token?: string) {
@@ -37,6 +43,16 @@ function post(nodeId: string, pluginId: string, token?: string) {
     token
       ? authedRequest(path, token, { method: "POST" })
       : new Request(`http://localhost:3080${path}`, { method: "POST" }),
+  );
+}
+
+/** POST carrying a machine bearer instead of a browser cookie. */
+function postBearer(nodeId: string, pluginId: string, key: string) {
+  return app.fetch(
+    new Request(`http://localhost:3080/api/nodes/${nodeId}/harnesses/${pluginId}/update`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${key}` },
+    }),
   );
 }
 
@@ -56,6 +72,18 @@ beforeAll(async () => {
     role: "admin",
   });
   adminToken = await signIn(adminEmail, pw);
+  bearerSubshellId = `hu_s_${crypto.randomUUID().slice(0, 8)}`;
+  await new SubshellsRepository(db).create({
+    id: bearerSubshellId,
+    userId: ownerId,
+    presetId: "p",
+    harnessId: "claude-code",
+    name: bearerSubshellId,
+    workingDir: "/tmp",
+    tmuxSocket: null,
+  });
+  bearerKey = await issueSubshellToken(bearerSubshellId, ownerId);
+  bearerKeyId = (await new SubshellsRepository(db).findById(bearerSubshellId))?.apiKeyId ?? undefined;
   agentNode = crypto.randomUUID();
   // Offline on purpose: the projection is what the route demands before it
   // opens a stream, and a node with no socket cannot run the command.
@@ -63,6 +91,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (bearerSubshellId) await db.deleteFrom("subshells").where("id", "=", bearerSubshellId).execute();
+  if (bearerKeyId) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [bearerKeyId]);
   await nodes.deleteById(agentNode);
   await deleteUserByEmailOrId(ownerEmail);
   await deleteUserByEmailOrId(adminEmail);
@@ -72,6 +102,13 @@ describe("POST /api/nodes/:id/harnesses/:pluginId/update refusals", () => {
   it("refuses a caller with no session", async () => {
     const res = await post(agentNode, "claude-code");
     expect(res.status).toBe(401);
+  });
+
+  it("refuses a machine bearer: harness updates are browser sessions", async () => {
+    // The same rule `/api/nodes/:id/update` carries: a key is a machine
+    // credential, not a person pressing a button.
+    const res = await postBearer(agentNode, "claude-code", bearerKey);
+    expect(res.status).toBe(403);
   });
 
   it("refuses an unknown plugin before asking whether the node is live", async () => {

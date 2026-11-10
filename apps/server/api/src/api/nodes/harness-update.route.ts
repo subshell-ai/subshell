@@ -1,12 +1,13 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
 import { apiErrorBody } from "@/api/api-error.js";
-import { nodeManagementGuard } from "@/api/nodes/node-management-guard.js";
+import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { apiModels } from "@/api/schemas/index.js";
 import { audit } from "@/modules/audit.js";
 import { nodeCanConfigure } from "@/modules/nodes/access.js";
 import { loadNodeGate } from "@/modules/nodes/gate.js";
 import { getLive } from "@/modules/nodes/node-registry.js";
+import { NodeRpcError } from "@/modules/nodes/node-rpc.js";
 import {
   claimHarnessUpdate,
   HarnessUpdateRefused,
@@ -38,9 +39,12 @@ const UPDATE_HEARTBEAT_MS = 5_000;
  *
  * `local` runs it in this process and streams the command's own lines;
  * an enrolled node runs it through the signed `harness_update` command, so its
- * output arrives when the run ends. Gate: `nodeCanConfigure`, the same rule
- * the node's Re-check uses — updating a tool changes the machine, so it cannot
- * be a viewer's act.
+ * output arrives when the run ends. **Browser session only**, the same rule
+ * `/api/nodes/:id/update` carries: a machine credential cannot order a package
+ * manager run even with `nodes:configure`, and `local` is narrower still —
+ * admin, because the line runs in the server's own process. On an enrolled
+ * node the gate is `nodeCanConfigure`, the same rule the node's Re-check uses:
+ * updating a tool changes the machine, so it cannot be a viewer's act.
  *
  * **The answer is NDJSON, not one JSON document**, for the same reason the
  * installer's is: a run that prints nothing for ten minutes must still hold
@@ -51,17 +55,17 @@ const UPDATE_HEARTBEAT_MS = 5_000;
  * a refusal decided before the body opened and before anything ran.
  */
 export const harnessUpdateRoute = new Elysia()
-  .use(nodeManagementGuard)
+  .use(authGuard)
   .use(apiModels)
   .post(
     "/:id/harnesses/:pluginId/update",
     async ({ params, user, actor, status }) => {
-      const gate = await loadNodeGate(user.id, params.id, actor);
+      requireCookieActor(actor, "Harness updates are restricted to browser sessions");
+      const gate = await loadNodeGate(user.id, params.id);
       if (!gate) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
       if (!nodeCanConfigure(gate.access)) throw new ForbiddenError();
-
       // Running the line on the control-plane host is the install route's act,
       // and that route reserves it for an admin cookie because it is remote
       // code execution as the server's OS user. Update falls back to the same
@@ -151,12 +155,13 @@ export const harnessUpdateRoute = new Elysia()
                   ? err.message
                   : "The update failed.";
             send({ type: "error", message });
-            // A transport failure (a dropped socket, a malformed answer, an RPC
-            // deadline) does not prove the command did nothing — the node's own
-            // ten-minute budget keeps it running. Record the ambiguity the way
-            // the node self-update does, so a real CLI replacement is not
-            // invisible to the audit trail. A pre-run refusal did nothing.
-            if (!(err instanceof HarnessUpdateRefused)) {
+            // Mirrors `/api/nodes/:id/update`'s unknown branch: a timeout or a
+            // dropped socket may have happened after the node received the
+            // command, and the node's own ten-minute budget keeps it running.
+            // A spoken refusal (`failed`, `unsupported`) or a malformed answer
+            // is not ambiguity about whether it ran, so only these two write
+            // the unknown row. A pre-run refusal did nothing.
+            if (err instanceof NodeRpcError && (err.code === "timeout" || err.code === "offline")) {
               await audit({
                 actorUserId: user.id,
                 action: "node.harness.update.unknown",
@@ -205,12 +210,11 @@ export const harnessUpdateRoute = new Elysia()
         404: "ApiErrorResponse",
         409: "ApiErrorResponse",
       },
-      systemPermission: "nodes:configure",
       detail: {
         operationId: "updateNodeHarness",
         tags: ["nodes"],
         description:
-          "Runs one harness CLI's own update command on the machine that holds it (the control-plane host or an enrolled node). STREAMS application/x-ndjson: {type:line,text} frames for local output, {type:waiting} heartbeats, then one terminal {type:done,...} carrying ok/exitCode/output/durationMs/timedOut or {type:error,message}. ok:false inside a done frame is a run that failed; a 4xx is a refusal decided before the body opened.",
+          "Runs one harness CLI's own update command on the machine that holds it (the control-plane host or an enrolled node). Browser sessions only; admin on the control-plane host, node configure on an enrolled node. STREAMS application/x-ndjson: {type:line,text} frames for local output, {type:waiting} heartbeats, then one terminal {type:done,...} carrying ok/exitCode/output/durationMs/timedOut or {type:error,message}. ok:false inside a done frame is a run that failed; a 4xx is a refusal decided before the body opened.",
       },
     },
   );
