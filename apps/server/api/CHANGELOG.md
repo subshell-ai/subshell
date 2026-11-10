@@ -1,5 +1,22 @@
 # @internal/server
 
+## 3.6.0
+
+### Minor Changes
+
+- [#519](https://github.com/subshell-ai/subshell/pull/519) [`0bf7e48`](https://github.com/subshell-ai/subshell/commit/0bf7e4801a56914b4bf1c28c8a2edfc635096b13) Thanks [@theogravity](https://github.com/theogravity)! - Web previews list ports a harness reports about its own tooling. The new
+  `previews` plugin capability ships a reporter; Oh My Pi watches tool output for
+  loopback URLs and reports them, so an agent-started dev server appears in the
+  preview picker even when its process runs outside the pane's tree (as omp's
+  brokered tool shells do). Only the pane's own key may report, reports carry
+  ports rather than hosts, and the rows are transient.
+
+### Patch Changes
+
+- [#521](https://github.com/subshell-ai/subshell/pull/521) [`ee06a42`](https://github.com/subshell-ai/subshell/commit/ee06a42aece231d4b7815417a667418cdcc20b51) Thanks [@theogravity](https://github.com/theogravity)! - Adding a subshell to a populated workspace now selects the new tab. The workspace refetch could tile the pane first while its summary was still loading, leaving the previous tab active; the add handler now activates the pane after either path, including when the summary read fails.
+- Updated dependencies []:
+  - @internal/pane-runtime@1.0.0
+
 ## 3.5.1
 
 ### Patch Changes

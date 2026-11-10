@@ -1,5 +1,11 @@
 # @internal/docs
 
+## 0.11.14
+
+### Patch Changes
+
+- [#521](https://github.com/subshell-ai/subshell/pull/521) [`ee06a42`](https://github.com/subshell-ai/subshell/commit/ee06a42aece231d4b7815417a667418cdcc20b51) Thanks [@theogravity](https://github.com/theogravity)! - Refresh the documentation and marketing site deploys for this release, so both sites publish the current main revision under fresh tags.
+
 ## 0.11.13
 
 ### Patch Changes
