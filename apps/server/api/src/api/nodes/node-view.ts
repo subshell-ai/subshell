@@ -87,7 +87,7 @@ export const NodeHarnessViewSchema = t.Object({
     t.Object({
       command: t.String({
         description:
-          "Shell line that updates this harness CLI on this node. Present only for an agent harness with an update path, and only to a viewer who can configure the node",
+          "Shell line that updates this harness CLI on this node. Present only for an agent harness with an update path, and only to the viewer the update route accepts: configure on an agent node, admin on the control-plane host",
       }),
       docsUrl: t.Optional(t.String({ description: "Update documentation URL, when the plugin declares one" })),
     }),
@@ -557,7 +557,7 @@ export async function toNodeView(
   granted: NodeAccess,
 ): Promise<NodeView> {
   const { harnesses, stale } = await effectiveHarnessStates(row);
-  const visibleHarnesses = harnessRowsFor(access, harnesses);
+  const visibleHarnesses = harnessRowsFor(row.kind, access, isAdmin, harnesses);
   const allowedDirs = await new NodeAllowedDirsRepository(db).listForNode(row.id);
   // The switch only ever speaks about the control-plane host, so only that
   // row pays the read.
@@ -611,14 +611,14 @@ export async function toNodeViews(
       serverAsNode ??= await serverSubshellsEnabled(db);
       out.push({
         ...nodeViewBase(row, access, isAdmin, allowedDirs, granted, serverAsNode, ownerLabel),
-        harnesses: harnessRowsFor(access, localReport.harnesses),
+        harnesses: harnessRowsFor(row.kind, access, isAdmin, localReport.harnesses),
         inventoryStale: localReport.stale,
       });
     } else {
       const { harnesses, stale } = await effectiveHarnessStates(row, installed);
       out.push({
         ...nodeViewBase(row, access, isAdmin, allowedDirs, granted, true, ownerLabel),
-        harnesses: harnessRowsFor(access, harnesses),
+        harnesses: harnessRowsFor(row.kind, access, isAdmin, harnesses),
         inventoryStale: stale,
       });
     }
@@ -627,13 +627,20 @@ export async function toNodeViews(
 }
 
 /**
- * The update line is machine-acting data, so it rides the same gate as the
- * Update button: a viewer who cannot configure the node does not receive it.
- * The rest of the row is unchanged. `update` is optional, so dropping it keeps
- * the wire shape valid for every viewer.
+ * The update line is machine-acting data, so it rides the route's own gate:
+ * `nodeCanConfigure` on an agent node, and ADMIN on `local` because that line
+ * runs in the server's process. `local` gives every member an Everyone/edit
+ * grant, so asking `nodeCanConfigure` alone would hand the line to people the
+ * route refuses. The rest of the row is unchanged; `update` is optional, so
+ * dropping it keeps the wire shape valid for every viewer.
  */
-function harnessRowsFor(access: NodeViewableAccess, rows: EffectiveHarnessState[]): EffectiveHarnessState[] {
-  if (nodeCanConfigure(access)) return rows;
+function harnessRowsFor(
+  kind: NodeTable["kind"],
+  access: NodeViewableAccess,
+  isAdmin: boolean,
+  rows: EffectiveHarnessState[],
+): EffectiveHarnessState[] {
+  if (kind === "local" ? isAdmin : nodeCanConfigure(access)) return rows;
   return rows.map(({ update: _update, ...row }) => row);
 }
 

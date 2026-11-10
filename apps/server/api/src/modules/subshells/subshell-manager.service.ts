@@ -729,10 +729,13 @@ export class SubshellManagerService {
     // The version write, OUTSIDE the launch rollback: a live pane must not be
     // killed because a metadata column refused. A miss here leaves NULL, which
     // is the same honest answer as a machine that could not read one.
+    // A plugin's `parseVersion` is typed to answer a string, but it is
+    // third-party code: a non-string answer becomes an absent fact rather than
+    // an exception thrown AFTER the pane was already spawned.
     const recordedVersion =
-      launchedHarnessVersion === undefined
-        ? undefined
-        : normalizeLabel(launchedHarnessVersion, HARNESS_VERSION_MAX) || undefined;
+      typeof launchedHarnessVersion === "string"
+        ? normalizeLabel(launchedHarnessVersion, HARNESS_VERSION_MAX) || undefined
+        : undefined;
     if (recordedVersion !== undefined) {
       try {
         await this.#subshells.update(id, { harnessVersion: recordedVersion });
@@ -1662,7 +1665,8 @@ export class SubshellManagerService {
       // NULL, not the previous value: the row describes the pane that is
       // running NOW, and a version the machine could not read this time is an
       // absent fact rather than the old pane's.
-      harnessVersion: normalizeLabel(ack.harnessVersion ?? "", HARNESS_VERSION_MAX) || null,
+      harnessVersion:
+        typeof ack.harnessVersion === "string" ? normalizeLabel(ack.harnessVersion, HARNESS_VERSION_MAX) || null : null,
     });
     if (revived === 0) {
       logger.warn(`subshell ${row.id} terminated mid-restart; killing the orphan pane and revoking its token`);

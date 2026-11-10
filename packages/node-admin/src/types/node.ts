@@ -77,8 +77,8 @@ export interface NodeHarness {
   restartRequired?: boolean;
   /**
    * How this harness CLI updates itself on this node. Present only for an
-   * agent harness with an update path, and only when the viewer can configure
-   * the node (the route runs a shell line; a viewer learns nothing about it).
+   * agent harness with an update path, and only when the viewer is one the
+   * update route accepts: configure on an agent node, admin on `local`.
    */
   update?: { command: string; docsUrl?: string };
 }

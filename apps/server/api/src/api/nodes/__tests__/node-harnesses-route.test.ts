@@ -243,6 +243,16 @@ describe("/api/nodes harness state + recheck", () => {
     }
   });
 
+  it("view: a member's edit grant on local does not carry the update line", async () => {
+    // Seeded `local` gives Everyone/edit, which passes `nodeCanConfigure` but
+    // not the route's admin gate. The row must follow the route, not the rank.
+    const memberRow = harnessOf(await getNodeView("local", aliceCookie), H0);
+    expect("update" in memberRow).toBe(false);
+
+    const adminRow = harnessOf(await getNodeView("local", adminCookie), H0);
+    expect(adminRow.update?.command).toContain("claude");
+  });
+
   it("view: a plugin the instance does not carry is absent, not shown broken — even with an inventory row", async () => {
     // The inversion's visible half on the node page: a stale/foreign
     // detection entry cannot mint a row.

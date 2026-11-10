@@ -3331,6 +3331,47 @@ file), and `install-server.sh` is fetched over the public internet and piped to
 a shell exactly as the node one-liner already is, bounded the same way, by
 verifying the published digest before the first `chmod +x`.
 
+## 11.10c The node page runs a harness CLI's update line
+
+`POST /api/nodes/:id/harnesses/:pluginId/update` runs the `subshell.update.command`
+of the plugin that drives a harness, or its `install.command` when the installer
+is also the updater. It is the same class as §11.10, with the machine as the
+variable:
+
+- **The command is manifest data, never request input.** The route takes a
+  plugin id and a node id; the shell line comes from the plugin the instance
+  holds. The manifest parser refuses `sudo`, `doas` and `pkexec` at every shell
+  boundary, and a plugin carrying one is refused at load (§11.9's trust
+  baseline: an admin who can install a plugin already runs its code in this
+  process).
+- **On `local` it is admin-cookie only.** The line runs in the server process
+  as the server's OS user, so it follows the agent installer's gate, not the
+  node's Everybody/edit grant. The view sends the line only to the same
+  audience the route accepts; `view` grantees and ordinary members do not
+  receive it. On an enrolled node the gate is `nodeCanConfigure`
+  (`owner`/`manage`/`edit`), because the command travels the signed link and
+  the node acts on its own machine. Bearer keys reach only an agent node their
+  own user owns.
+- **The run is bounded like an installer**: the shared `runBounded` allowlisted
+  environment, login-shell PATH, closed stdin, ten-minute deadline and 64 KiB
+  per-stream capture. Output goes to the caller's browser (it can carry a
+  token or path) and is deliberately not logged. The audit rows are
+  `node.harness.update` with plugin/outcome metadata and
+  `node.harness.update.unknown` when a transport failure leaves it unknowable
+  whether the command ran; neither carries output.
+- **One host run slot** serializes local harness installs and updates, so two
+  package managers don't interleave over the same filesystem. The tmux
+  installer (§11.10b) has its own single-flight flag and remains a separate
+  path.
+- **A launched-version echo from a node is untrusted text.** It is parsed by
+  the plugin, then normalized and capped before it is stored or rendered; a
+  non-string or empty answer is stored as NULL, not treated as a
+  launch failure.
+
+Residual: an update line that is also an installer can install a CLI on a node
+where it was missing, even though the card offers Install only on `local`. It
+still runs only the plugin's fixed vendor line, as a configure act.
+
 ## 11.11 An admin can reconfigure and restart the server from a browser
 
 `PATCH /api/admin/server/config` rewrites config.env and `POST
