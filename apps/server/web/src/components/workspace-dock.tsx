@@ -31,7 +31,12 @@ import { invalidateWorkspaceMembership } from "@/hooks/use-workspaces";
 import { confirmCloseSubshell } from "@/lib/subshell-confirmations";
 import { acceptsSubshellDrag, readSubshellDrag } from "@/lib/subshell-dnd";
 import { usePointerDragZone } from "@/lib/subshell-pointer-drag";
-import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId, takePaneFocusOnArrive } from "@/lib/workspace-focus";
+import {
+  armPaneFocusOnArrive,
+  onWorkspacePaneFocusRequest,
+  setWorkspaceFocusedId,
+  takePaneFocusOnArrive,
+} from "@/lib/workspace-focus";
 import {
   normalizeLegacyLayout,
   panelIdsInLayout,
@@ -153,6 +158,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   // separate tree). Cleared on unmount so a stale focus never outlives the page.
   useEffect(
     () => () => {
+      apiRef.current = null;
       setWorkspaceFocusedId(null);
       publishWorkspacePreviews([], null);
     },
@@ -575,6 +581,19 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     [detail.panes, detail.workspace.id, onRefetch, queryClient, closeLanding],
   );
 
+  // Focus a pane the add handler just created, or arm the arrival effect when
+  // the dock has not tiled it yet. Re-reading apiRef matters: a breakpoint
+  // swap can unmount the dock while the summary read is in flight, and the
+  // unmount cleanup nulls the ref so a disposed api is never used here.
+  const focusAddedPane = useCallback((paneId: string, subshellId: string): void => {
+    const panel = apiRef.current?.getPanel(paneId);
+    if (panel) {
+      panel.api.setActive();
+      return;
+    }
+    armPaneFocusOnArrive(subshellId);
+  }, []);
+
   /** Resolves true when the pane row now exists server-side; false when it does not and the banner says why. */
   const handleAdd = useCallback(
     async (subshellId: string, direction: SplitDirection): Promise<boolean> => {
@@ -596,15 +615,15 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
           // panel's title and content are correct from the moment it's
           // added instead of waiting on the next poll.
           const subshell = await apiFetch<SubshellView>(`/api/subshells/${subshellId}`);
-          const api = apiRef.current;
           // `getPanel` before adding, not just the known-set: the detail
           // refetch this very call kicked (POST → invalidate → refetch) can
           // land DURING the summary fetch above, and the reconciliation
-          // effect then adds this pane's panel first. Adding again would
-          // throw dockview's "panel with id X already exists" (the e2e split
-          // spec caught exactly this). A pane the effect already tiled keeps
-          // the effect's plain placement — the same degraded-but-correct
-          // landing the finally-block's refetch comment describes.
+          // effect then adds this pane's panel first — INACTIVE, because the
+          // dock already had a focused tile. Adding again would throw
+          // dockview's "panel with id X already exists" (the e2e split spec
+          // caught exactly this), so the explicit activation after the add
+          // is what keeps the pane on screen in both paths.
+          const api = apiRef.current;
           if (api && !api.getPanel(newPane.id)) {
             addPanel(
               api,
@@ -628,6 +647,17 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
               resolveAddPosition(direction, api.activePanel?.id),
             );
           }
+          // Both paths end here: a panel this call added was active by
+          // default, and one reconciliation tiled first was inactive. The
+          // add is an act, so its pane is the one that belongs on screen.
+          focusAddedPane(newPane.id, subshellId);
+        } catch (err) {
+          // The summary read can fail while the pane row exists. Don't leave
+          // the add unfocused: activate a panel that is already tiled, or arm
+          // the arrival effect for the reconciliation pass the finally below
+          // triggers.
+          focusAddedPane(newPane.id, subshellId);
+          throw err;
         } finally {
           // Runs even if the subshell summary fetch above failed: the pane
           // already exists server-side by this point, and `onRefetch` is
@@ -644,7 +674,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       }
       return true;
     },
-    [addPanel, addPane, onRefetch],
+    [addPanel, addPane, focusAddedPane, onRefetch],
   );
 
   // The split that created this workspace. The picker chose (or launched) the

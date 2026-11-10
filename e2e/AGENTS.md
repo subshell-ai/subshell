@@ -120,6 +120,10 @@ against ONE shared database:
   `01`, and the split spec closes the subshells it launches, so the order
   between the two does not matter: it is named here so nobody reads the
   duplicate prefix as an accident (`09` and `10` already carry pairs).
+- Two files share the `24-` prefix: `24-dock-focus` sorts before
+  `24-ssh-ux`. The dock spec depends only on `01`, creates its own workspace,
+  and deletes what it creates; the SSH spec seeds its own presets. The order
+  between them is arbitrary, named here for the same reason.
 
 `.auth/admin.json` is path-portable: `ADMIN_STATE` in `helpers.ts` resolves it
 to an absolute path from `import.meta.url` (always `e2e/.auth/admin.json`), and
@@ -181,7 +185,7 @@ terminal, so these are disposable test credentials.
 Specs 22 and 23-ssh-relay retain their host-process fixtures for terminal
 lifecycle and cross-node cryptographic relay coverage.
 
-Spec 24 covers SSH preset CRUD, restoring authentication choices, save-before-launch retries, and the browser’s first-connection confirmation and cancellation;
+Spec 24-ssh-ux covers SSH preset CRUD, restoring authentication choices, save-before-launch retries, and the browser’s first-connection confirmation and cancellation;
 spec 23-ssh-relay checks real discovery and acceptance before relay authentication.
 Spec 25 runs the browser signer against a real sshd on the host (not
 Testcontainers): it needs `ssh`, `sshd` and `ssh-keygen` present, and it skips
