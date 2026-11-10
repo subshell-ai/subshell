@@ -246,7 +246,7 @@ export function SubshellRecentRow({
                 // also clears the focused row's ring, which paints OUTSIDE
                 // the pill (operator device review 2026-09-27: `my-0.5` read
                 // as no gap, `my-1` wanted a touch more).
-                "my-1.5 flex min-w-0 items-start gap-2 rounded-md py-1 pr-12 pl-3 text-detail transition-colors",
+                "my-1.5 flex min-w-0 items-start gap-2 rounded-md py-1 pr-12 pl-1 text-detail transition-colors",
                 // ONE signal (operator ruling 2026-10-17): the CURRENT pane
                 // wears the accent fill and the white ring; workspace
                 // membership marks nothing, and nothing here goes bold.
