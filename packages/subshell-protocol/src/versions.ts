@@ -150,8 +150,16 @@ export function semverLt(a: string, b: string): boolean {
  * nothing to reach; the exact-match handshake already refuses one, and the
  * floor is what turns that refusal into "install subshell >= 3.5.0" wherever a
  * version gets compared.
+ *
+ * Raised to 3.6.0 with protocol 29 (`harness_install`). The published agent
+ * is 3.5.1, so the floor goes one minor above it rather than to it, and
+ * `apps/node/agent/package.json` moves with it in this commit. An agent below
+ * this speaks no `harness_install`, so the Install button on its node would
+ * have nothing to reach; the exact-match handshake already refuses one, and
+ * the floor is what turns that refusal into "install subshell >= 3.6.0"
+ * wherever a version gets compared.
  */
-export const MIN_NODE_VERSION = "3.5.0";
+export const MIN_NODE_VERSION = "3.6.0";
 
 /**
  * Whether an agent reporting `version` may connect.
