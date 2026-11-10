@@ -74,7 +74,11 @@ this repo, never by anything a request sends; a registry plugin is refused even
 when the instance offers it. The route is a browser-session act at the manage
 band (`gate.canManage`: the owner or a `manage` grantee), and the refusals are
 settled before the NDJSON body opens: unknown plugin 404, non-built-in or no
-installer line 400, offline node 409, a harness run already on the node 409.
+installer line 400, built-in not offered by this instance 404, offline node
+409, a harness run already on the node 409. The band governs this verb and its
+audit; it is not isolation from the installer, because Update remains an
+`edit`-level configure act and falls back to the same line when a harness
+declares no updater.
 
 The run is bounded like the update's (the node's `runBounded`: allowlisted
 environment, login-shell PATH, closed stdin, ten-minute deadline, output cap),

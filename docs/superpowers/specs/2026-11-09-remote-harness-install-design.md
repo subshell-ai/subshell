@@ -66,6 +66,15 @@ installing software changes what is on it. Admins on a foreign node carry
 install on someone else's machine; that matches ownership transfer and the
 other owner-only acts.
 
+The band governs the install VERB and its audit; it is not isolation from the
+installer itself. Update remains a configure act (`nodeCanConfigure`, `edit`
+and above), and when a built-in harness declares no update verb its
+`updateHint` falls back to `install.command` (§11.10c's residual records the
+same fallback). An `edit` grantee, or an admin at edit level, can therefore
+still install the same vendor line through Update. Giving Install its own verb
+and manage gate makes the act visible and audited on its own; it does not take
+the installer out of Update's configure path.
+
 The local path keeps its own rule (`canManage`, which is the admin answer on
 `local`).
 
@@ -200,7 +209,9 @@ This is the same class as §11.10c (harness update), with a stronger gate:
 - Browser-cookie-only; bearer keys are refused because a machine credential
   cannot order a package manager run.
 - Owner/manage gate; `view` and `edit` grantees, and admins without a manage
-  grant on that agent node, are refused.
+  grant on that agent node, are refused. This gate governs the install verb
+  and its audit; it does not remove the installer from Update's configure
+  path, which still falls back to the same line at `edit`.
 - `runBounded` keeps the allowlisted environment (no node bearer token, no
   server secrets), login-shell PATH, closed stdin, ten-minute deadline, reader
   cancellation, and 64 KiB per-stream capture. The output is a bounded

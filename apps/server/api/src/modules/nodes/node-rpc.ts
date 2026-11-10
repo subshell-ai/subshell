@@ -197,6 +197,16 @@ export function sendCommand(nodeId: string, cmd: NodeCommandBody, options: SendC
     const seq = ++conn.seq;
     const jws = await signCommand(privateJwk, { nodeId, jti, seq, cmd });
 
+    // The held fallback at selection is frozen to `update` ONLY. A socket can
+    // be live when this call selected it and held by the time the queued step
+    // signs the frame; the re-check above treats that moved connection as
+    // still ours, which is right for the frozen rescue and wrong for every
+    // other command. Check immediately before registering and sending, after
+    // the signing awaits, so a hold that lands during them is caught too.
+    if (cmd.type !== "update" && getHeld(nodeId)?.conn === conn) {
+      throw new NodeRpcError("offline", `node "${nodeId}" was held before the command was sent`, nodeId);
+    }
+
     // From here the command is in flight: arm the deadline and register the
     // correlation entry BEFORE the frame can be answered, then emit. `send`
     // stays the step's last statement so a thrown socket error never leaves

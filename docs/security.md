@@ -3441,7 +3441,9 @@ still runs only the plugin's fixed vendor line, as a configure act.
 `POST /api/nodes/:id/harnesses/:pluginId/install` installs the CLI a plugin
 drives on the machine that will run it, through the signed `harness_install`
 command (protocol 29). It is the remote half of §11.10c's act and is accounted
-separately because installing software is a stronger grant than updating it.
+separately because the install act gets its own verb, manage gate and audit,
+not because the manage band isolates the installer: Update's installer
+fallback still runs the same vendor line at `edit` (§11.10c's residual).
 
 - **The line is built-in manifest data, never request input.** The route takes
   a plugin id and a node id; the shell line comes from the manifest compiled
@@ -3457,14 +3459,17 @@ separately because installing software is a stronger grant than updating it.
 - **Browser sessions only, at the manage band.** `requireCookieActor` refuses a
   bearer or system key even with `nodes:configure`. The gate is
   `gate.canManage` (the owner or a `manage` grantee) because installing
-  software changes the machine's tool set: `edit` is not enough, and an
-  instance admin's edit-level boost stops below this band on someone else's
-  node.
+  software gets its own audited act: `edit` is not enough for this verb, and
+  an instance admin's edit-level boost stops below this band on someone else's
+  node. The band governs the install verb and its audit; it is not isolation
+  from the installer, because Update's fallback still runs the same line at
+  `edit` (§11.10c's residual).
 - **Refusals precede the stream, in a fixed order.** The node's kind is
   answered before any grant is weighed; an unknown plugin is 404; a non-built-in
-  or a harness with no installer line is 400; an offline node is 409; a harness
-  run already holding the node is 409. All are decided before the NDJSON body
-  opens, because a status line cannot be taken back.
+  or a harness with no installer line is 400; a built-in this instance does not
+  offer is 404; an offline node is 409; a harness run already holding the node
+  is 409. All are decided before the NDJSON body opens, because a status line
+  cannot be taken back.
 - **The run is bounded like every installer**: the node runs the line under its
   own `runBounded` environment, closed stdin, ten-minute deadline and
   per-stream capture, and the plane's RPC deadline is that budget plus
