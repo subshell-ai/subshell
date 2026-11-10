@@ -100,12 +100,18 @@ export async function getNode(deps: ToolDeps, args: z.infer<typeof GetNodeSchema
 export const ListSubshellViewsSchema = z.object({ subshell_id: z.string().min(1) });
 interface PreviewInfo {
   /**
-   * The rows are the wire grammar's own type, not a hand copy: this tool must
-   * say exactly what the human's picker shows (the `title` the grammar and the
-   * route both carry was missing here once), and naming the source means the
-   * next field cannot drift quietly.
+   * Discovered and harness-reported rows share one list. A reported row has no
+   * process (`pid` absent) and says so with `reported`; discovery wins a port
+   * both sources name, because only it carries the socket's owner and a probed
+   * page title.
    */
-  ports: NodePreviewPortsResult["ports"];
+  ports: Array<{
+    title?: string;
+    proto: NodePreviewPortsResult["ports"][number]["proto"];
+    port: number;
+    pid?: number;
+    reported?: boolean;
+  }>;
   cdpPort: number | null;
   screen: NodePreviewScreenWire | null;
   nodeEnabled: boolean;

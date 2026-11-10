@@ -19,6 +19,8 @@ describe("Oh My Pi", () => {
     expect(capabilityMismatches(plugin, "agent-harness")).toEqual([]);
     expect(plugin.capabilities()).toContain("subagents");
     expect(plugin.subagents).toEqual({ discovery: "extension", navigation: "unavailable" });
+    expect(plugin.capabilities()).toContain("previews");
+    expect(plugin.previews).toEqual({ reporting: "extension" });
     expect(plugin.resume).toBeUndefined();
     expect(plugin.supportsAttentionHooks).not.toBe(true);
   });
@@ -68,10 +70,12 @@ describe("Oh My Pi", () => {
     expect(JSON.parse(files["package.json"] ?? "{}").omp.extensions).toEqual([
       "bridge.mjs",
       "subagents.mjs",
+      "previews.mjs",
       "provider.mjs",
     ]);
     expect(files["bridge.mjs"] ?? "").toContain("export default function");
     expect(files["subagents.mjs"] ?? "").toContain("export default function");
+    expect(files["previews.mjs"] ?? "").toContain("export default function");
     // Fixed source, never templated from preset env: the config it reads
     // names MODEL_CLI_OMP_API_KEY instead of carrying the credential, so no
     // secret reaches a node's disk through this file.

@@ -62,6 +62,15 @@ open socket inodes to listening TCP sockets. The server caches results for
 five seconds. Automatic process-tree discovery doesn't run on macOS; saved
 HTTP(S) services and provider-owned display lookup don't require it.
 
+Harnesses that broker tool shells through their own daemon leave that process
+tree, so a server those tools start is reachable but undiscovered. A harness
+plugin that declares `previews` ships a reporter; it POSTs ports its tooling
+served to `/api/subshells/:id/views/report` with the pane's inherited bearer
+token. Only the pane's own token may report, the report carries ports rather
+than hosts, and the server merges them into the list with `reported: true` and
+no `pid`. Reported rows are transient. This also gives macOS panes a way to
+list an agent-started dev server, where process-tree discovery doesn't run.
+
 Discovery helps populate the picker. It isn't a security allowlist for an
 edit-authorized user, who already has the execution account's shell authority.
 View-only browser watching is narrower: it can use only the browser port
