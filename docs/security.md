@@ -3456,7 +3456,7 @@ separately because installing software is a stronger grant than updating it.
   keep in step with it, so the two cannot drift into two gates for one line.
 - **Browser sessions only, at the manage band.** `requireCookieActor` refuses a
   bearer or system key even with `nodes:configure`. The gate is
-  `gate.canManage` — the owner or a `manage` grantee — because installing
+  `gate.canManage` (the owner or a `manage` grantee) because installing
   software changes the machine's tool set: `edit` is not enough, and an
   instance admin's edit-level boost stops below this band on someone else's
   node.
