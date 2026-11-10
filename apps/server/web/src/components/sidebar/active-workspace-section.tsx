@@ -265,7 +265,7 @@ export function ActiveWorkspaceSection({ onQuickAdd, headerEnd }: { headerEnd?: 
 
   const memberArea = (
     <WorkspaceSidebarDropArea kind="add" className="flex max-h-[45%] shrink-0 flex-col">
-      <div className="min-h-0 overflow-y-auto px-1 pb-1">
+      <div className="min-h-0 overflow-y-auto px-0.5 pb-1">
         {active && (
           <WorkspaceActionsMenu workspace={active}>
             <WorkspaceBranch

@@ -79,7 +79,7 @@ export function SubshellNodeGroup({
       aria-expanded={open}
       aria-controls={listId}
       className={cn(
-        "flex w-full cursor-pointer items-center gap-2 rounded-md py-1 pr-2 pl-3 text-detail text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground",
+        "flex w-full cursor-pointer items-center gap-2 rounded-md py-1 pr-2 pl-1 text-detail text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground",
         disabled && "cursor-default",
       )}
     />

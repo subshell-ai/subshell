@@ -17,6 +17,8 @@ describe("Oh My Pi", () => {
       knownPaths: [".bun/bin/omp", ".local/bin/omp"],
     });
     expect(capabilityMismatches(plugin, "agent-harness")).toEqual([]);
+    expect(plugin.capabilities()).toContain("subagents");
+    expect(plugin.subagents).toEqual({ discovery: "extension", navigation: "unavailable" });
     expect(plugin.resume).toBeUndefined();
     expect(plugin.supportsAttentionHooks).not.toBe(true);
   });
@@ -63,8 +65,9 @@ describe("Oh My Pi", () => {
     const files = registration?.files ?? {};
     expect(JSON.parse(files["mcp.json"] ?? "{}")).toEqual({ mcpServers: { subshell: { type: "stdio", ...launch } } });
     expect(files["mcp.json"]).toBe(registration.fileContent);
-    expect(JSON.parse(files["package.json"] ?? "{}").omp.extensions).toEqual(["bridge.mjs"]);
+    expect(JSON.parse(files["package.json"] ?? "{}").omp.extensions).toEqual(["bridge.mjs", "subagents.mjs"]);
     expect(files["bridge.mjs"] ?? "").toContain("export default function");
+    expect(files["subagents.mjs"] ?? "").toContain("export default function");
     expect(registration?.env).toBeUndefined();
     expect(plugin.buildCommand({ ...input, mcp: registration })).toEqual([
       input.binary,

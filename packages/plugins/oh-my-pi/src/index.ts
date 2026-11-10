@@ -4,6 +4,7 @@ import {
   type SettingsField,
   validateGenericPreset,
 } from "@subshell-ai/plugin-api";
+import { SUBAGENT_BRIDGE } from "./subagents.js";
 
 const SETTINGS: SettingsField[] = [
   { key: "model", label: "Model", description: "Model ID or pattern passed to omp", type: "string" },
@@ -44,9 +45,15 @@ const TITLE_PREFIX = /^π(?:$|\s+(?:[>!:]|[⠁-⣿]|[◔◑◕○●]|[-\\/|])|:
  * Oh My Pi uses its own executable and native MCP discovery, independently of
  * pi. An explicit extension directory contributes mcp.json without redirecting
  * the user's config or credentials. Verified against omp 18.12.6.
+ *
+ * The same directory carries the subagent bridge. omp keeps its child roster
+ * on the session event bus; the extension reports it so the sidebar can hang
+ * those children under the parent subshell. omp offers no extension API for
+ * moving the parent's terminal onto a child, so navigation stays unavailable.
  */
 const createPlugin: HarnessPluginFactory = () => ({
-  capabilities: () => ["mcp", "settings"],
+  subagents: { discovery: "extension", navigation: "unavailable" },
+  capabilities: () => ["subagents", "mcp", "settings"],
 
   /** `π <state> <label>`: the label behind the brand and run state is the name. */
   parsePaneTitle: (raw) => raw.replace(TITLE_PREFIX, "").trim(),
@@ -83,9 +90,10 @@ const createPlugin: HarnessPluginFactory = () => ({
           name: "subshell-mcp",
           private: true,
           type: "module",
-          omp: { extensions: ["bridge.mjs"] },
+          omp: { extensions: ["bridge.mjs", "subagents.mjs"] },
         }),
         "bridge.mjs": "export default function () {}\n",
+        "subagents.mjs": SUBAGENT_BRIDGE,
         "mcp.json": fileContent,
       },
       args: ["--extension", `${configPath}.d`],
@@ -96,7 +104,7 @@ const createPlugin: HarnessPluginFactory = () => ({
     return {
       mode: "auto",
       summary:
-        "Subshell registers its MCP server through a per-launch Oh My Pi extension. Your existing configuration stays in place.",
+        "Subshell registers its MCP server and reports the pane's subagents through a per-launch Oh My Pi extension. Your existing configuration stays in place.",
     };
   },
 

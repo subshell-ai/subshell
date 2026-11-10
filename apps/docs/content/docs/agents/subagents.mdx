@@ -31,11 +31,12 @@ If native navigation isn't available, the children remain visible as status indi
 | OpenCode | TUI integration, using the native plugin API verified against OpenCode 1.18.18. | Switches the existing TUI; changes made inside the harness also update the header. |
 | Hermes | Configure and approve `subagent_start` and `subagent_stop` shell hooks. The harness's setup instructions include the configuration. | Status only. |
 | pi | pi's own `subagent` example extension (installed into pi separately), or an extension implementing the bridge below. | Status only. |
+| Oh My Pi | omp's own subagent events, through an extension added at launch. | Status only. |
 | Terminal | No harness subagents. | Not applicable. |
 
 New name and description reports update the existing row. Claude Code's subagent descriptions are hidden because its reported task and tool descriptions don't match the generated progress summaries in its task picker. Use Claude's own task picker to see current activity. The sidebar still shows subagent names and status. Hermes supplies the child's stated goal.
 
-Restart existing subshells to load a newly installed integration. Restarting doesn't enable Claude's generated progress summaries. Lifecycle-only integrations report events while they run; after a server restart, existing children won't reappear until the harness reports them again. OpenCode and pi send snapshots instead.
+Restart existing subshells to load a newly installed integration. Restarting doesn't enable Claude's generated progress summaries. Lifecycle-only integrations report events while they run; after a server restart, existing children won't reappear until the harness reports them again. OpenCode, pi, and Oh My Pi send snapshots instead.
 
 ## pi extension bridge
 

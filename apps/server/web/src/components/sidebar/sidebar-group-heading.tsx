@@ -5,7 +5,7 @@ export function SidebarGroupHeading({ children, action }: { children: ReactNode;
   return (
     <div className="flex min-w-0 items-center justify-between gap-1 pt-1">
       <h3
-        className="min-w-0 truncate px-3 font-strong text-detail text-muted-foreground"
+        className="min-w-0 truncate px-1 font-strong text-detail text-muted-foreground"
         style={{ fontSize: "calc(var(--text-detail) - 1px)" }}
       >
         {children}
