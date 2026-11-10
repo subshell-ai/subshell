@@ -504,6 +504,9 @@ describe("preview results (protocol 23)", () => {
     expect(parseNodeHarnessUpdateResult(undefined)).toBeNull();
     expect(parseNodeHarnessUpdateResult({ ...answered, ok: "yes" })).toBeNull();
     expect(parseNodeHarnessUpdateResult({ ...answered, output: 7 })).toBeNull();
+    // A malicious node cannot make the plane hold or render an unbounded echo.
+    expect(parseNodeHarnessUpdateResult({ ...answered, harnessId: "x".repeat(129) })).toBeNull();
+    expect(parseNodeHarnessUpdateResult({ ...answered, output: "x".repeat(256 * 1024 + 1) })).toBeNull();
     expect(parseNodeHarnessUpdateResult({ ...answered, durationMs: "1s" })).toBeNull();
     expect(parseNodeHarnessUpdateResult({ ...answered, timedOut: undefined })).toBeNull();
   });

@@ -3341,10 +3341,11 @@ unknown-audit rules line up with the node's own binary update
 
 - **The command is manifest data, never request input.** The route takes a
   plugin id and a node id; the shell line comes from the plugin the instance
-  holds. The manifest parser refuses `sudo`, `doas` and `pkexec` at every shell
-  boundary, and a plugin carrying one is refused at load (§11.9's trust
-  baseline: an admin who can install a plugin already runs its code in this
-  process).
+  holds. The manifest parser refuses `sudo`, `doas` and `pkexec` where one
+  runs as a command at a shell boundary; a quoted argument that mentions one
+  is accepted, the same line-split limit §11.9 documents. A plugin carrying a
+  refused line is refused at load (§11.9's trust baseline: an admin who can
+  install a plugin already runs its code in this process).
 - **Browser sessions only, at the node-update rank.** The route calls
   `requireCookieActor`, the same rule `/api/nodes/:id/update` carries: a bearer
   or system key cannot order a package manager run, even with
@@ -3372,7 +3373,10 @@ unknown-audit rules line up with the node's own binary update
 - **A launched-version echo from a node is untrusted text.** It is parsed by
   the plugin, then normalized and capped before it is stored or rendered; a
   non-string or empty answer is stored as NULL, not treated as a
-  launch failure.
+  launch failure. The probe itself runs under the installer environment
+  allowlist (HOME, PATH, locale, TMPDIR) with proxy credentials removed, so
+  the vendor binary's `--version` cannot read server/node secrets from the
+  process environment.
 
 Residual: an update line that is also an installer can install a CLI on a node
 where it was missing, even though the card offers Install only on `local`. It

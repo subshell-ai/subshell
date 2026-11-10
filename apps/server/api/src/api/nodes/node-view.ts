@@ -549,6 +549,9 @@ function heldView(nodeId: string): { reason: HeldReason; agentVersion: string } 
  * @param isAdmin - Whether the viewer holds the admin role (drives the
  *  seeded-`local` exception inside `canManage`, and the admin half of
  *  `canRetire`, which is true for an admin on ANY kind)
+ * @param exposeUpdate - whether this request is a browser session the update
+ *  route could accept; machine credentials pass false, and the local admin
+ *  and configure checks still apply inside the row
  */
 export async function toNodeView(
   row: NodeTable,
@@ -638,11 +641,11 @@ export async function toNodeViews(
  * `nodeCanConfigure` on an agent node, and ADMIN on `local` because that line
  * runs in the server's process. `local` gives every member an Everyone/edit
  * grant, so asking `nodeCanConfigure` alone would hand the line to people the
- * route refuses. A machine credential also gets none: its list/detail right
- * is disclosure-only unless its key carries `nodes:configure`, and the field
- * exists for the browser card, not an API client. The rest of the row is
- * unchanged; `update` is optional, so dropping it keeps the wire shape valid
- * for every viewer.
+ * route refuses. A machine credential also gets none: the update route is
+ * cookie-only even with `nodes:configure`, and the field exists for the
+ * browser card, not an API client. The rest of the row is unchanged;
+ * `update` is optional, so dropping it keeps the wire shape valid for every
+ * viewer.
  */
 function harnessRowsFor(
   kind: NodeTable["kind"],

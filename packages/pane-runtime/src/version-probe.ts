@@ -1,4 +1,5 @@
 import { readCommandBounded } from "./bounded-exec.js";
+import { childEnv } from "./run-bounded.js";
 
 /**
  * Reading a harness's version without letting it wedge the caller.
@@ -36,6 +37,22 @@ export const VERSION_PROBE_TIMEOUT_MS = 4000;
  */
 export const VERSION_PROBE_MAX_BYTES = 4096;
 
+/** Env keys that can carry proxy credentials; a version probe has no use for them. */
+const PROXY_ENV_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"] as const;
+
+/**
+ * The environment a version probe gets: the installer allowlist (HOME, PATH,
+ * locale, TMPDIR) without the proxy variables. `--version` is arbitrary code
+ * the harness vendor wrote, and it runs on every launch now, so it must not
+ * inherit `BETTER_AUTH_SECRET` or any other secret from the server/node
+ * process, nor proxy credentials it has no reason to see.
+ */
+function probeEnv(): Record<string, string> {
+  const env = childEnv(process.env.PATH ?? "");
+  for (const key of PROXY_ENV_KEYS) delete env[key];
+  return env;
+}
+
 /**
  * Runs `<binary> <args>` and returns its trimmed stdout.
  *
@@ -51,7 +68,9 @@ export async function probeVersion(
   args: string[] = ["--version"],
   timeoutMs: number = VERSION_PROBE_TIMEOUT_MS,
 ): Promise<string | null> {
-  const result = await readCommandBounded([binary, ...args], timeoutMs, VERSION_PROBE_MAX_BYTES);
+  const result = await readCommandBounded([binary, ...args], timeoutMs, VERSION_PROBE_MAX_BYTES, {
+    env: probeEnv(),
+  });
   if (!result || result.truncated) return null;
   return result.text.trim() || null;
 }

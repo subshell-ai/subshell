@@ -433,15 +433,36 @@ export interface NodeHarnessUpdateResult {
 }
 
 /**
+ * Longest harness id echoed by a node. Manifest ids are capped at 64 by the
+ * plugin parser, so a longer echo is malformed or malicious.
+ */
+const HARNESS_UPDATE_ID_MAX = 128;
+
+/**
+ * Longest harness-update output accepted. The node's bounded runner caps each
+ * stream at 64 KiB and then joins stdout/stderr (plus a truncation marker), so
+ * 256 KiB is a generous wire bound; anything larger is a malformed or
+ * malicious node answer, not a legitimate disclosure.
+ */
+const HARNESS_UPDATE_OUTPUT_MAX = 256 * 1024;
+
+/**
  * Validates and narrows a `harness_update` command's `result{data}`.
  * @param data - the `data` member of a successful result frame
  * @returns the narrowed result, or null when the payload is malformed
  */
 export function parseNodeHarnessUpdateResult(data: unknown): NodeHarnessUpdateResult | null {
   if (!isRecord(data)) return null;
-  if (!isStr(data.harnessId) || !isBool(data.ok)) return null;
+  if (!isStr(data.harnessId) || data.harnessId.length > HARNESS_UPDATE_ID_MAX) return null;
+  if (!isBool(data.ok)) return null;
   if (data.exitCode !== null && !isInt(data.exitCode)) return null;
-  if (!isStr(data.output) || !isNum(data.durationMs) || !isBool(data.timedOut)) return null;
+  if (
+    !isStr(data.output) ||
+    data.output.length > HARNESS_UPDATE_OUTPUT_MAX ||
+    !isNum(data.durationMs) ||
+    !isBool(data.timedOut)
+  )
+    return null;
   return {
     harnessId: data.harnessId,
     ok: data.ok,

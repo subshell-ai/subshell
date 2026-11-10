@@ -33,6 +33,9 @@ function codeForRefusalStatus(status: 400 | 404 | 409): BackendErrorCodes {
  */
 const UPDATE_HEARTBEAT_MS = 5_000;
 
+/** Bound on node-provided error text relayed to the page; a wire frame can carry 1 MiB. */
+const UPDATE_ERROR_MAX = 4096;
+
 /**
  * `POST /api/nodes/:id/harnesses/:pluginId/update` — run one harness CLI's own
  * update line on the machine that holds it (issue #250).
@@ -154,7 +157,9 @@ export const harnessUpdateRoute = new Elysia()
                 : err instanceof Error
                   ? err.message
                   : "The update failed.";
-            send({ type: "error", message });
+            const boundedMessage =
+              message.length > UPDATE_ERROR_MAX ? `${message.slice(0, UPDATE_ERROR_MAX)}…` : message;
+            send({ type: "error", message: boundedMessage });
             // Mirrors `/api/nodes/:id/update`'s unknown branch: a timeout or a
             // dropped socket may have happened after the node received the
             // command, and the node's own ten-minute budget keeps it running.
