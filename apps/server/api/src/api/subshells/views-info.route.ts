@@ -9,6 +9,7 @@ import { getVirtualDisplayEnabled, getWebPreviewsEnabled } from "@/modules/nodes
 import { liveScreenForPane } from "@/modules/previews/live-screen.js";
 import { getPreviewBroker } from "@/modules/previews/preview-broker.js";
 import { PREVIEW_PORTS_UNSUPPORTED } from "@/modules/previews/refusals.js";
+import { type ReportedPreviewPort, reportedPreviews } from "@/modules/subshells/reported-previews.js";
 
 /**
  * `GET /api/subshells/:id/views` (spec §6): what the pane currently offers
@@ -34,7 +35,12 @@ const PreviewPortSchema = t.Object({
     description: "Address family the listener is on",
   }),
   port: t.Integer({ description: "Listening port on the pane's machine (loopback)" }),
-  pid: t.Integer({ description: "Process holding the listener, inside the pane's tree" }),
+  pid: t.Optional(
+    t.Integer({ description: "Process holding the listener, inside the pane's tree; absent for a reported port" }),
+  ),
+  reported: t.Optional(
+    t.Boolean({ description: "True when the harness reported this port instead of process-tree discovery" }),
+  ),
 });
 
 const PreviewScreenSchema = t.Object({
@@ -48,9 +54,38 @@ const PreviewScreenSchema = t.Object({
   ),
 });
 
+/**
+ * Reported ports join the discovered ones, one row per port. Discovery wins
+ * a shared port because its row carries the process attribution; when its
+ * probe found no page title, the harness's one-line label fills that gap.
+ * Reported rows are loopback HTTP by construction and therefore `tcp`.
+ */
+function mergeReportedPorts(
+  ports: ReadonlyArray<{ proto: "tcp" | "tcp6"; port: number; pid?: number; title?: string; reported?: boolean }>,
+  reported: readonly ReportedPreviewPort[],
+): Array<{ proto: "tcp" | "tcp6"; port: number; pid?: number; title?: string; reported?: boolean }> {
+  const reportedByPort = new Map(reported.map((row) => [row.port, row]));
+  const seen = new Set(ports.map((row) => row.port));
+  return [
+    ...ports.map((row) => {
+      const label = reportedByPort.get(row.port)?.title;
+      return row.title || !label ? row : { ...row, title: label };
+    }),
+    ...reported
+      .filter((row) => !seen.has(row.port))
+      .map((row) => ({
+        proto: "tcp" as const,
+        port: row.port,
+        ...(row.title ? { title: row.title } : {}),
+        reported: true,
+      })),
+  ];
+}
+
 const PreviewInfoResponseSchema = t.Object({
   ports: t.Array(PreviewPortSchema, {
-    description: "Listening sockets in the pane's process tree; empty when there are none or the node cannot answer",
+    description:
+      "Discovered listening sockets plus harness-reported ports (`reported: true`, no `pid`); empty when there are none or the node cannot answer",
   }),
   cdpPort: t.Nullable(t.Integer({ description: "The pane's open devtools port, or null when nothing speaks CDP" })),
   screen: t.Nullable(PreviewScreenSchema, {
@@ -108,7 +143,7 @@ export const viewsInfoRoute = new Elysia()
   .use(apiModels)
   .get(
     "/:id/views",
-    async ({ params, user, actor, apiKeyPermissions }) => {
+    async ({ params, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "read");
       const { row } = await gatePreview(user.id, params.id, "view", actor);
       const nodeId = row.nodeId;
@@ -127,6 +162,9 @@ export const viewsInfoRoute = new Elysia()
       if (!nodeState.nodeEnabled) {
         return { ...EMPTY_PORTS, ...nodeState };
       }
+      const reported = nodeState.webPreviewsEnabled
+        ? reportedPreviews(ctx.db).read(row.id, row.startedAt ?? "", row.alive === 1)
+        : [];
       try {
         // The screen decision is the shared predicate `PUT /:id/screen`'s
         // duplicate guard refuses on, so the checkbox and the guard always
@@ -134,7 +172,7 @@ export const viewsInfoRoute = new Elysia()
         // live in `liveScreenForPane`).
         const { answer, screen } = await liveScreenForPane(getPreviewBroker(), nodeId, params.id);
         return {
-          ports: nodeState.webPreviewsEnabled ? answer.ports : [],
+          ports: nodeState.webPreviewsEnabled ? mergeReportedPorts(answer.ports, reported) : [],
           cdpPort: nodeState.webPreviewsEnabled ? answer.cdpPort : null,
           screen: nodeState.virtualDisplayEnabled ? screen : null,
           ...(!nodeState.virtualDisplayEnabled || answer.screenLost === undefined
@@ -143,7 +181,13 @@ export const viewsInfoRoute = new Elysia()
           ...nodeState,
         };
       } catch (err) {
-        return { ...EMPTY_PORTS, ...nodeState, ...mapPortsFailure(err) };
+        const failure = mapPortsFailure(err);
+        return {
+          ...EMPTY_PORTS,
+          ...nodeState,
+          ports: failure.nodeEnabled ? mergeReportedPorts([], reported) : [],
+          ...failure,
+        };
       }
     },
     {

@@ -24,12 +24,15 @@ import type { SubshellView } from "@/types/subshell";
  * viewer implements off the arrival clock.
  */
 
-/** One listening socket in the pane's process tree, as the info route answers. */
+/** One loopback listener: discovered in the pane's process tree or reported by its harness. */
 export interface PreviewPortRow {
   title?: string;
   proto: "tcp" | "tcp6";
   port: number;
-  pid: number;
+  /** Process holding the listener; absent when a harness reported the port. */
+  pid?: number;
+  /** True when the harness reported this port instead of process-tree discovery. */
+  reported?: boolean;
 }
 
 /** The pane's virtual display, when it has one. */

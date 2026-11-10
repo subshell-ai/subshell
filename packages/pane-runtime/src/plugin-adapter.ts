@@ -127,6 +127,7 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
     // What the harness can show of its child agents; the preset editor uses
     // the `setup` copy when the harness needs a one-time human act.
     ...(plugin.subagents ? { subagents: plugin.subagents } : {}),
+    ...(plugin.previews ? { previews: plugin.previews } : {}),
   };
 
   // Optional members are attached only when the plugin has them, so

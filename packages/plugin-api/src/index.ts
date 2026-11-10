@@ -12,6 +12,11 @@ export {
   type UpdateSpec,
 } from "./manifest.js";
 export {
+  HARNESS_PREVIEW_REPORTINGS,
+  type HarnessPreviewReporting,
+  type HarnessPreviews,
+} from "./previews.js";
+export {
   HARNESS_SUBAGENT_DISCOVERIES,
   HARNESS_SUBAGENT_NAVIGATIONS,
   HARNESS_SUBAGENT_STATUSES,

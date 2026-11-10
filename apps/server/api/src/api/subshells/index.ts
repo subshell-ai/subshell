@@ -21,6 +21,7 @@ import { updateSubshellNameRoute } from "@/api/subshells/update-subshell-name.ro
 import { updateSubshellNotifyRoute } from "@/api/subshells/update-subshell-notify.route.js";
 import { viewsInfoRoute } from "@/api/subshells/views-info.route.js";
 import { viewsOpenRoute } from "@/api/subshells/views-open.route.js";
+import { viewsReportRoute } from "@/api/subshells/views-report.route.js";
 import { servicesRoute } from "./services.route.js";
 import { subshellSubagentsRoute } from "./subshell-subagents.route.js";
 
@@ -39,6 +40,7 @@ export const subshellRoutes = new Elysia({ prefix: "/api/subshells" }).use([
   getSubshellLogRoute,
   viewsInfoRoute,
   viewsOpenRoute,
+  viewsReportRoute,
   servicesRoute,
   browserWatchRoute,
   subshellSharesRoutes,

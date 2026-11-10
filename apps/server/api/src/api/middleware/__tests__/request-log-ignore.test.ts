@@ -45,6 +45,10 @@ describe("REQUEST_LOG_IGNORE", () => {
     expect(ignored("/api/subshells/x/views/open")).toBe(false);
     expect(ignored("/api/subshells/x/views/browser/watch")).toBe(false);
   });
+  it("ignores the harness report heartbeat but not the preview acts", () => {
+    expect(ignored("/api/subshells/018f2c4e-1a2b-7c3d-9e4f-5a6b7c8d9e0f/views/report")).toBe(true);
+    expect(ignored("/api/subshells/x/views/report/extra")).toBe(false);
+  });
 
   it("does not swallow the node routes that are ACTS rather than polls", () => {
     // Service verbs, repointing and the logging switch each change a machine.

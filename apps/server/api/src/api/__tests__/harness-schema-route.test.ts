@@ -87,6 +87,13 @@ describe("harness schema route", () => {
     expect(body.settingsFields.map((f) => f.key).sort()).toEqual(["agent", "auto", "model"]);
   });
 
+  it("oh-my-pi -> preview reporting rides the schema", async () => {
+    const res = await presetRoutes.fetch(authedRequest("/api/presets/harnesses/oh-my-pi/schema", token));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { previews: { reporting: string } | null };
+    expect(body.previews).toEqual({ reporting: "extension" });
+  });
+
   it("unknown harness -> 404", async () => {
     const res = await presetRoutes.fetch(authedRequest("/api/presets/harnesses/nope/schema", token));
     expect(res.status).toBe(404);

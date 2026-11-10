@@ -4,6 +4,7 @@ import {
   type SettingsField,
   validateGenericPreset,
 } from "@subshell-ai/plugin-api";
+import { PREVIEW_BRIDGE } from "./previews.js";
 import { SUBAGENT_BRIDGE } from "./subagents.js";
 
 const SETTINGS: SettingsField[] = [
@@ -216,7 +217,8 @@ function withoutLegacyProviderExtension(flags: string[]): string[] {
  */
 const createPlugin: HarnessPluginFactory = () => ({
   subagents: { discovery: "extension", navigation: "unavailable" },
-  capabilities: () => ["subagents", "mcp", "settings"],
+  previews: { reporting: "extension" },
+  capabilities: () => ["subagents", "previews", "mcp", "settings"],
 
   /** `π <state> <label>`: the label behind the brand and run state is the name. */
   parsePaneTitle: (raw) => raw.replace(TITLE_PREFIX, "").trim(),
@@ -255,10 +257,11 @@ const createPlugin: HarnessPluginFactory = () => ({
           name: "subshell-mcp",
           private: true,
           type: "module",
-          omp: { extensions: ["bridge.mjs", "subagents.mjs", "provider.mjs"] },
+          omp: { extensions: ["bridge.mjs", "subagents.mjs", "previews.mjs", "provider.mjs"] },
         }),
         "bridge.mjs": "export default function () {}\n",
         "subagents.mjs": SUBAGENT_BRIDGE,
+        "previews.mjs": PREVIEW_BRIDGE,
         "provider.mjs": MODEL_CLI_PROVIDER_SHIM,
         "mcp.json": fileContent,
       },

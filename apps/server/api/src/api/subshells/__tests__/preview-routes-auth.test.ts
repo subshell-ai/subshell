@@ -1502,4 +1502,91 @@ describe("preview REST surface (Task 9)", () => {
     // broker; the route never calls it on its own).
     expect(getPreviewBroker().sessionForPane(pane)).toBeNull();
   });
+
+  /* ---------------------------------------------------------------- */
+  /* harness-reported preview ports                                   */
+  /* ---------------------------------------------------------------- */
+
+  it("merges a harness report into the pane's list, without a pid", async () => {
+    attachLive();
+    const pane = await directRow();
+    const token = await bearerFor(pane);
+    const report = await call("POST", `/${pane}/views/report`, {
+      bearer: token,
+      body: { ports: [{ port: 5173, title: "  Sidebar mockups\u0000  " }] },
+    });
+    expect(report.status).toBe(200);
+    expect(await report.json()).toEqual({ ok: true });
+    const body = await jsonBody(await call("GET", `/${pane}/views`, { cookie: ownerCookie }));
+    const rows = body.ports as { proto: string; port: number; pid?: number; reported?: boolean; title?: string }[];
+    expect(rows.find((row) => row.port === 5173)).toEqual({
+      proto: "tcp",
+      port: 5173,
+      title: "Sidebar mockups",
+      reported: true,
+    });
+    // Discovery wins a port both sources name: its row keeps the owner pid.
+    const discovered = rows.find((row) => row.port === 3000);
+    expect(discovered?.pid).toBe(4242);
+    expect(discovered?.reported).toBeUndefined();
+  });
+
+  it("refuses a report from another pane's key", async () => {
+    attachLive();
+    const pane = await directRow();
+    const other = await directRow();
+    const foreignToken = await bearerFor(other);
+    const res = await call("POST", `/${pane}/views/report`, {
+      bearer: foreignToken,
+      body: { ports: [{ port: 5173 }] },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("refuses a report for a pane that is no longer running", async () => {
+    attachLive();
+    const pane = await directRow({ status: "terminated" });
+    const token = await bearerFor(pane);
+    const res = await call("POST", `/${pane}/views/report`, {
+      bearer: token,
+      body: { ports: [{ port: 5173 }] },
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("lists reported ports on a node whose scan is unsupported", async () => {
+    attachLive({ preview_ports_get: () => new Error("preview-ports-unsupported") });
+    const pane = await directRow();
+    const token = await bearerFor(pane);
+    await call("POST", `/${pane}/views/report`, { bearer: token, body: { ports: [{ port: 8080 }] } });
+    const body = await jsonBody(await call("GET", `/${pane}/views`, { cookie: ownerCookie }));
+    expect(body.nodeEnabled).toBe(true);
+    expect(body.reason).toBe("preview-ports-unsupported");
+    expect(body.ports).toEqual([{ proto: "tcp", port: 8080, reported: true }]);
+  });
+
+  it("refuses a report from a dashboard cookie", async () => {
+    attachLive();
+    const pane = await directRow();
+    const res = await call("POST", `/${pane}/views/report`, {
+      cookie: ownerCookie,
+      body: { ports: [{ port: 5173 }] },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("accepts an emoji title and trims it to the response's unit budget", async () => {
+    attachLive();
+    const pane = await directRow();
+    const token = await bearerFor(pane);
+    const title = "😀".repeat(101);
+    const report = await call("POST", `/${pane}/views/report`, {
+      bearer: token,
+      body: { ports: [{ port: 5173, title }] },
+    });
+    expect(report.status).toBe(200);
+    const body = await jsonBody(await call("GET", `/${pane}/views`, { cookie: ownerCookie }));
+    const row = (body.ports as { port: number; title?: string }[]).find((entry) => entry.port === 5173);
+    expect(row?.title).toBe("😀".repeat(100));
+  });
 });

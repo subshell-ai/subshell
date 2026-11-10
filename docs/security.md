@@ -857,12 +857,14 @@ denies.
 **The harness self-report class.** A handful of routes exist for the pane to
 report its OWN state, and each accepts only that pane's own key: `POST
 /:id/attention`, `POST /:id/harness-session`, `POST /:id/subagents/report`,
-`POST /:id/exit`, the exit
+`POST /:id/views/report`, `POST /:id/exit`, the exit
 route checks `principal === sess:<id>` explicitly
 (`subshell-exit.route.ts:49`), plus the token self-extension route. A
 harness can report about itself, never about another subshell; a forged
 session id merely selects an existing transcript the pane's own user could
-already read. `subagents/report` forwards rosters and the harness's own
+already read. `views/report` forwards bounded, normalized port rows and
+one-line labels, never hosts, so it cannot point the proxy anywhere but
+loopback. `subagents/report` forwards rosters and the harness's own
 short labels: each child's name, status, and at most a one-line task label
 (a Hermes child's goal, or the description Claude Code wrote for the Agent
 tool's `PreToolUse` input). Prompts, transcripts, and child output never

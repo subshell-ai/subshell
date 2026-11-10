@@ -98,6 +98,8 @@ Resume support supplies `allocateHarnessSessionId()` and `resumePath(id, cwd, ho
 
 Attention hooks require `supportsAttentionHooks: true` and actual reporting hooks in the launch. Build those from `reporter.command` and `reporter.args`; omit hooks when it is absent. Don't assume the execution machine has Bun or the server's binary path.
 
+Preview reporting declares the `previews` capability and a `previews` descriptor: `{ reporting: "extension" | "hooks", setup? }`. The reporter POSTs the ports a harness's tooling serves to `/api/subshells/:id/views/report` with the pane's inherited bearer token. Only that subshell's own token may report. Send `{ ports: [{ port, title? }] }`, at most 32 entries; titles are bounded and normalized, and a report carries no host, so it can only describe loopback. Reports are transient and are merged into the pane's view list.
+
 Other optional members include `parseVersion`, `parsePaneTitle`, `exitStatus`, `presetSettings`, `suggestedEnv`, and `suggestedFlags`. See the [exported types](https://github.com/subshell-ai/subshell/blob/main/packages/plugin-api/src/types.ts) for complete field definitions.
 
 When a harness titles its terminal with something other than the name the host supplied, implement `parsePaneTitle(raw)`. The host removes escape sequences and control bytes and trims the result before calling it; strip the harness's own brand, run-state separator, or status glyph and return the session name, or `""` when the title names nothing. Omit it when the title is the name itself.
@@ -125,6 +127,7 @@ A `NetworkAddress` has canonical origin `url`, `scheme`, human-facing `label`, a
 | `mcp` | `mcpRegistration` or `mcpSetup` | Not applicable. |
 | `resume` | Both members of `resume` | Not applicable. |
 | `attention` | `supportsAttentionHooks: true`, with hooks implemented | Not applicable. |
+| `previews` | `previews: { reporting: "extension" \| "hooks" }` | Not applicable. |
 | `publish` | Not applicable. | Both `publish()` and `unpublish()`. |
 | `supervise` | Not applicable. | `supervisedProcess(ctx)`. |
 | `guard` | Not applicable. | `requestGuard(ctx)`. |

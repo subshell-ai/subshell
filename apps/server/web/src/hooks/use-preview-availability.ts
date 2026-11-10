@@ -17,11 +17,11 @@ export function usePreviewAvailability(id: string | undefined, subshell: Subshel
   const usable = id !== undefined && id !== "" && subshell !== undefined;
   const preview = useSubshellPreview(id ?? "", usable ? subshell : undefined);
   // The saved-services poll asks the same question the badge asks before
-  // counting: node switched on, no reason attached, and an access level that
-  // can act on what the count shows. `preview-ports-unsupported` answers with
-  // the switch on and a reason at once, and a `view` grantee has no ports
-  // counted at all, so either case would hold a five-second read whose data
-  // is always discarded.
+  // counting: the node is switched on and the answer can offer rows. A
+  // `preview-ports-unsupported` answer normally holds it off, but when the
+  // harness reported ports the list is needed: it tells a reported row apart
+  // from one the person already saved. A `view` grantee has no ports counted
+  // at all, so their poll is always a discard.
   const access = subshell?.access ?? "owner";
   const services = useSubshellServices(id ?? "", usable && shouldPollSavedServices(preview.info, access));
   const live = usable && subshell.status === "running" && subshell.alive;

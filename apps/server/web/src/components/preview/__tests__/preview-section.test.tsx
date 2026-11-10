@@ -462,6 +462,18 @@ describe("unsupported discovery", () => {
     expect(screen.getByText(/doesn’t support automatic port discovery/)).toBeTruthy();
     expect(screen.queryByText(/Nothing to preview yet/)).toBeNull();
   });
+  it("rewords the platform limit when the agent reported ports", () => {
+    mount({
+      info: info({
+        ports: [{ proto: "tcp", port: 8080, reported: true }],
+        cdpPort: null,
+        nodeEnabled: true,
+        reason: "preview-ports-unsupported",
+      }),
+    });
+    expect(screen.getByText(/ports reported by the agent are still available/)).toBeTruthy();
+    expect(screen.queryByText(/Add a service by port instead/)).toBeNull();
+  });
 });
 
 it("fills a preview tab and resumes its selected app only once", async () => {
@@ -495,6 +507,33 @@ it("fills a preview tab and resumes its selected app only once", async () => {
     />,
   );
   expect(opened).toEqual([3000]);
+});
+
+it("resumes a reported app when process-tree discovery is refused", async () => {
+  const opened: number[] = [];
+  const c = controller({
+    info: info({
+      ports: [{ proto: "tcp", port: 8080, reported: true }],
+      cdpPort: null,
+      nodeEnabled: true,
+      reason: "preview-ports-unsupported",
+    }),
+    openPort: async (port) => {
+      opened.push(port);
+      return { proxyBase: "/pv/tab/" };
+    },
+  });
+  render(
+    <PreviewSection
+      paneId="pane1"
+      access="owner"
+      preview={c}
+      initialView={{ kind: "app", port: 8080 }}
+      onClose={() => {}}
+    />,
+  );
+  await screen.findByTitle("Preview of port 8080");
+  expect(opened).toEqual([8080]);
 });
 
 it("keeps the chooser free of a toolbar and shows it only after opening a view", async () => {

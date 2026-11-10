@@ -355,6 +355,14 @@ export const HarnessSubagentSupportSchema = t.Object({
   setup: t.Optional(t.String({ description: "One-time user action needed for reporting to work, if any" })),
 });
 
+/** How a harness reports the ports its own tooling started. */
+export const HarnessPreviewsSchema = t.Object({
+  reporting: t.Union([t.Literal("extension"), t.Literal("hooks")], {
+    description: "How preview ports reach Subshell",
+  }),
+  setup: t.Optional(t.String({ description: "One-time user action needed for reporting to work, if any" })),
+});
+
 /** Everything the preset editor needs to know about one harness. */
 export const HarnessSchemaResponseSchema = t.Object({
   settingsFields: t.Array(SettingsFieldSchema, { description: "Settings editor schema (empty if none)" }),
@@ -363,6 +371,9 @@ export const HarnessSchemaResponseSchema = t.Object({
   mcp: McpSetupSchema,
   subagents: t.Nullable(HarnessSubagentSupportSchema, {
     description: "Subagent surfacing this harness supports; null when it reports none",
+  }),
+  previews: t.Nullable(HarnessPreviewsSchema, {
+    description: "Web preview reporting this harness supports; null when it reports none",
   }),
 });
 

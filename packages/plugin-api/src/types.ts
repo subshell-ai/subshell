@@ -13,6 +13,8 @@
  * searching last year's install locations forever. Those belong on the host.
  */
 
+import type { HarnessPreviews } from "./previews.js";
+import { HARNESS_PREVIEW_REPORTINGS } from "./previews.js";
 import type { HarnessSubagentSupport } from "./subagents.js";
 import { HARNESS_SUBAGENT_DISCOVERIES, HARNESS_SUBAGENT_NAVIGATIONS } from "./subagents.js";
 
@@ -67,6 +69,7 @@ export type PluginCapability =
   | "resume"
   | "attention"
   | "subagents"
+  | "previews"
   // network
   | "publish"
   | "supervise"
@@ -80,6 +83,7 @@ export const PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
   "resume",
   "attention",
   "subagents",
+  "previews",
   "publish",
   "supervise",
   "guard",
@@ -92,6 +96,7 @@ export const HARNESS_CAPABILITIES: readonly PluginCapability[] = [
   "resume",
   "attention",
   "subagents",
+  "previews",
   "settings",
 ];
 
@@ -443,6 +448,13 @@ export interface PluginSecrets {
 export interface SubshellPlugin {
   /** Native child-agent reporting and optional in-place navigation. */
   subagents?: HarnessSubagentSupport;
+  /**
+   * Native preview-port reporting: the harness tells the plane which loopback
+   * ports its tooling serves, so the picker lists servers discovery cannot
+   * attribute to the pane's process tree. Declare the `previews` capability
+   * with it.
+   */
+  previews?: HarnessPreviews;
   /** Builds the argv (no shell) used to launch a subshell. */
   buildCommand(input: BuildCommandInput): string[];
   /** Validates a preset definition before saving. */
@@ -846,6 +858,7 @@ export function capabilityMismatches(plugin: SubshellPlugin | NetworkPlugin, typ
           mcp: Boolean(harness.mcpRegistration ?? harness.mcpSetup),
           resume: Boolean(harness.resume),
           attention: harness.supportsAttentionHooks === true,
+          previews: Boolean(harness.previews),
           subagents: Boolean(harness.subagents),
           settings: Boolean(harness.presetSettings),
         };
@@ -922,6 +935,15 @@ export function capabilityMismatches(plugin: SubshellPlugin | NetworkPlugin, typ
         );
       if (support.setup !== undefined && (typeof support.setup !== "string" || support.setup.trim() === ""))
         problems.push("subagents.setup, when present, must be a non-empty sentence");
+    }
+    const previews = (plugin as SubshellPlugin).previews;
+    if (previews) {
+      if (!HARNESS_PREVIEW_REPORTINGS.includes(previews.reporting))
+        problems.push(
+          `previews.reporting is ${JSON.stringify(previews.reporting)}, not one of ${HARNESS_PREVIEW_REPORTINGS.join(" or ")}`,
+        );
+      if (previews.setup !== undefined && (typeof previews.setup !== "string" || previews.setup.trim() === ""))
+        problems.push("previews.setup, when present, must be a non-empty sentence");
     }
   }
   return problems;

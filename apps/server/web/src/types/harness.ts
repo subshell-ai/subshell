@@ -77,7 +77,7 @@ export interface McpSetupStepInfo {
  */
 export type McpSetupInfo = { mode: "auto"; summary: string } | { mode: "manual"; steps: McpSetupStepInfo[] };
 
-import type { HarnessSubagentSupport } from "@subshell-ai/plugin-api";
+import type { HarnessPreviews, HarnessSubagentSupport } from "@subshell-ai/plugin-api";
 
 /**
  * What a harness can surface of its child agents: the contract's own type, so
@@ -85,6 +85,9 @@ import type { HarnessSubagentSupport } from "@subshell-ai/plugin-api";
  * answers null when the harness reports none).
  */
 export type HarnessSubagentSupportInfo = HarnessSubagentSupport;
+
+/** How a harness reports the ports its own tooling started; null when it reports none. */
+export type HarnessPreviewsInfo = HarnessPreviews;
 
 /** Reference data for one harness, backing the preset editor's suggestions. */
 export interface HarnessSchema {
@@ -98,4 +101,6 @@ export interface HarnessSchema {
   mcp: McpSetupInfo;
   /** Subagent surfacing this harness supports; null when it reports none */
   subagents: HarnessSubagentSupportInfo | null;
+  /** Web preview reporting this harness supports; null when it reports none */
+  previews: HarnessPreviewsInfo | null;
 }

@@ -178,3 +178,30 @@ describe("capabilityMismatches: the subagent descriptor's values", () => {
     expect(capabilityMismatches(blankSetup, "agent-harness")[0]).toContain("subagents.setup");
   });
 });
+
+describe("capabilityMismatches: the preview reporter's values", () => {
+  it("accepts a reporter whose words are in the value sets", () => {
+    const p = harness(["previews"], {
+      previews: { reporting: "extension", setup: "Trust the extension when asked." },
+    });
+    expect(capabilityMismatches(p, "agent-harness")).toEqual([]);
+  });
+
+  it("catches the capability and the member disagreeing in either direction", () => {
+    expect(capabilityMismatches(harness(["previews"]), "agent-harness")[0]).toContain(
+      'declares the "previews" capability',
+    );
+    expect(capabilityMismatches(harness([], { previews: { reporting: "extension" } }), "agent-harness")[0]).toContain(
+      'implements "previews" members',
+    );
+  });
+
+  it("refuses an unknown reporting word and a setup that is present but blank", () => {
+    const badWord = harness(["previews"], {
+      previews: { reporting: "teleport" } as unknown as NonNullable<SubshellPlugin["previews"]>,
+    });
+    expect(capabilityMismatches(badWord, "agent-harness")[0]).toContain('previews.reporting is "teleport"');
+    const blankSetup = harness(["previews"], { previews: { reporting: "hooks", setup: "  " } });
+    expect(capabilityMismatches(blankSetup, "agent-harness")[0]).toContain("previews.setup");
+  });
+});
