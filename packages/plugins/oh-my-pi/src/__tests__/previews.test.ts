@@ -11,6 +11,7 @@ function installBridge(
     SUBSHELL_ID: "pane",
   },
   send?: (url: string, init: { body: string }) => Promise<Response>,
+  clock: { now: () => number } = Date,
 ) {
   const handlers = new Map<string, (event: unknown) => void>();
   const reports: Report[] = [];
@@ -23,6 +24,7 @@ function installBridge(
     "clearTimeout",
     "setInterval",
     "clearInterval",
+    "Date",
     PREVIEW_BRIDGE.replace("export default", "return"),
   )(
     { env },
@@ -41,6 +43,7 @@ function installBridge(
       return beats.length;
     },
     () => {},
+    clock,
   );
   install({
     on: (name: string, handler: (event: unknown) => void) => {
@@ -59,10 +62,10 @@ function installBridge(
   };
 }
 
-const toolResult = (text: string, isError = false) => ({
+const toolResult = (text: string, isError = false, toolName = "bash") => ({
   type: "tool_result",
   toolCallId: "t1",
-  toolName: "bash",
+  toolName,
   input: {},
   isError,
   content: [{ type: "text", text }],
@@ -129,4 +132,57 @@ test("posts to the pane's own report route and stays quiet without pane identity
   blind.flush();
   await Promise.resolve();
   expect(called).toBe(false);
+});
+
+test("ignores tool output that only mentions a URL", async () => {
+  const bridge = installBridge();
+  bridge.handlers.get("tool_result")?.(toolResult("The docs serve http://localhost:5173", false, "read"));
+  bridge.handlers.get("tool_result")?.(toolResult("http://localhost:5174", false, "grep"));
+  bridge.flush();
+  await Promise.resolve();
+  expect(bridge.reports).toHaveLength(0);
+});
+
+test("stops refreshing a port after the freshness window", async () => {
+  let now = 1_000_000;
+  const bridge = installBridge(undefined, undefined, { now: () => now });
+  bridge.handlers.get("tool_result")?.(toolResult("http://localhost:3000"));
+  bridge.flush();
+  await Promise.resolve();
+  expect(bridge.reports).toHaveLength(1);
+
+  now += 11 * 60_000;
+  bridge.beats[0]?.();
+  await Promise.resolve();
+  expect(bridge.reports).toHaveLength(1);
+
+  bridge.handlers.get("tool_result")?.(toolResult("http://localhost:4000"));
+  bridge.flush();
+  await Promise.resolve();
+  expect(bridge.reports.at(-1)?.ports.map((row) => row.port)).toEqual([4000]);
+});
+
+test("keeps at most 32 ports", async () => {
+  const bridge = installBridge();
+  const ports = Array.from({ length: 33 }, (_, index) => `http://localhost:${3000 + index}`).join("\n");
+  bridge.handlers.get("tool_result")?.(toolResult(ports));
+  bridge.flush();
+  await Promise.resolve();
+  expect(bridge.reports[0]?.ports).toHaveLength(32);
+  expect(bridge.reports[0]?.ports.map((row) => row.port)).not.toContain(3032);
+});
+
+test("stops the heartbeat when the server does not have the route", async () => {
+  let calls = 0;
+  const bridge = installBridge(undefined, async () => {
+    calls += 1;
+    return new Response(null, { status: 404 });
+  });
+  bridge.handlers.get("tool_result")?.(toolResult("http://localhost:3000"));
+  bridge.flush();
+  await Promise.resolve();
+  expect(calls).toBe(1);
+  bridge.beats[0]?.();
+  await Promise.resolve();
+  expect(calls).toBe(1);
 });

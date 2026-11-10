@@ -983,7 +983,7 @@ export interface NodePreviewPortsResult {
  * Iterating code points keeps an astral character whole rather than leaving a
  * lone half of a pair at the cut.
  */
-function capUtf16(value: string, maxUnits: number): string {
+export function capUtf16(value: string, maxUnits: number): string {
   let units = 0;
   let out = "";
   for (const ch of value) {

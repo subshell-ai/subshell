@@ -241,7 +241,18 @@ export function PreviewSection({
   const reopen = useRef({ handleOpen, handleScreen, startWatch: handleWatch });
   reopen.current = { handleOpen, handleScreen, startWatch: handleWatch };
   useEffect(() => {
-    if (resumed.current || !initialView || !info?.nodeEnabled || (info.reason && initialView.kind !== "service"))
+    // A ports refusal is not the same as an empty list: reported rows can
+    // still hold the tab's target when process-tree discovery is unavailable.
+    const portsRefusal = info?.reason === "preview-ports-unsupported";
+    const targetStillOffered =
+      initialView?.kind !== "app" || info?.ports.some((row) => row.port === initialView?.port) === true;
+    if (
+      resumed.current ||
+      !initialView ||
+      !info?.nodeEnabled ||
+      (info.reason && !portsRefusal && initialView.kind !== "service") ||
+      !targetStillOffered
+    )
       return;
     if (initialView.kind === "screen" && (!info.screen || info.virtualDisplayEnabled === false)) return;
     if (initialView.kind !== "screen" && info.webPreviewsEnabled === false) return;

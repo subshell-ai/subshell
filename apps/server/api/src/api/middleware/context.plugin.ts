@@ -42,6 +42,9 @@ export const REQUEST_LOG_IGNORE: (string | RegExp)[] = [
   // The preview poll an open pane view runs (spec §7): the exact path, so
   // the open/watch acts under it keep their request lines.
   /^\/api\/subshells\/[^/]+\/views$/,
+  // A harness's preview report, at the same heartbeat cadence as the
+  // subagents report: self-report traffic, not an act a log reader wants.
+  /^\/api\/subshells\/[^/]+\/views\/report$/,
   // The /pv proxy: request lines carry the path, the path carries the
   // 32-hex session ref, and the ref IS the credential (spec 2026-10-21
   // §10). A debug request line here would log a live link into someone's

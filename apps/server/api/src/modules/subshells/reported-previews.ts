@@ -48,6 +48,11 @@ export class ReportedPreviews {
    * belonged to the harness process that reported them.
    */
   report(subshellId: string, generation: string, ports: readonly { port: number; title?: string }[]): void {
+    // Bound memory even when a client never revisits deleted subshells: a
+    // harness can report once and the pane leave without another read.
+    if (this.states.size >= 4096 && !this.states.has(subshellId)) {
+      this.states.delete(this.states.keys().next().value ?? "");
+    }
     let state = this.states.get(subshellId);
     if (!state || state.generation !== generation) {
       state = { generation, rows: new Map() };
@@ -61,8 +66,12 @@ export class ReportedPreviews {
     }
   }
 
-  /** The unexpired ports for one live run, sorted by port. */
-  read(subshellId: string, generation: string): ReportedPreviewPort[] {
+  /** The unexpired ports for one live run, sorted by port. A dead row forgets them. */
+  read(subshellId: string, generation: string, alive = true): ReportedPreviewPort[] {
+    if (!alive) {
+      this.states.delete(subshellId);
+      return [];
+    }
     const state = this.states.get(subshellId);
     if (!state) return [];
     if (state.generation !== generation) {

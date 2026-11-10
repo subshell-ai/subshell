@@ -41,3 +41,17 @@ test("an empty title is not stored", () => {
   registry.report("pane", "run-1", [{ port: 5173, title: "" }]);
   expect(registry.read("pane", "run-1")).toEqual([{ port: 5173, reportedAt: expect.any(Number) }]);
 });
+
+test("a dead pane's rows are forgotten", () => {
+  const registry = new ReportedPreviews();
+  registry.report("pane", "run-1", [{ port: 5173 }]);
+  expect(registry.read("pane", "run-1", false)).toEqual([]);
+  expect(registry.read("pane", "run-1")).toEqual([]);
+});
+
+test("bounds the number of pane states", () => {
+  const registry = new ReportedPreviews();
+  for (let index = 0; index < 4097; index += 1) registry.report(`pane-${index}`, "run-1", [{ port: 3000 + index }]);
+  expect(registry.read("pane-0", "run-1")).toEqual([]);
+  expect(registry.read("pane-4096", "run-1").map((row) => row.port)).toEqual([7096]);
+});

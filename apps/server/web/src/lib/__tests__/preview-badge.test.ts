@@ -36,6 +36,13 @@ describe("unsavedPreviewItemCount", () => {
     expect(unsavedPreviewItemCount(info({ nodeEnabled: false }), [], OPEN)).toBe(0);
     expect(unsavedPreviewItemCount(info({ reason: "node-offline", ports: [port(3000)] }), [], OPEN)).toBe(0);
   });
+  it("counts a harness-reported port when process-tree discovery is refused", () => {
+    const reported = { proto: "tcp" as const, port: 8080, reported: true as const };
+    expect(unsavedPreviewItemCount(info({ reason: "preview-ports-unsupported", ports: [reported] }), [], OPEN)).toBe(1);
+    expect(unsavedPreviewItemCount(info({ reason: "preview-ports-unsupported", ports: [reported] }), [], "view")).toBe(
+      0,
+    );
+  });
 
   it("counts each discovered thing the pane has no saved row for", () => {
     expect(unsavedPreviewItemCount(info({ ports: [port(3000), port(3001)] }), [], OPEN)).toBe(2);
@@ -102,6 +109,12 @@ describe("shouldPollSavedServices", () => {
     // the switch alone left those panes asking for a list for a count that is
     // always 0; the reason is what says there is nothing to ask.
     expect(shouldPollSavedServices(info({ nodeEnabled: true, reason: "preview-ports-unsupported" }), OPEN)).toBe(false);
+  });
+  it("polls saved services when the refusal carries reported rows", () => {
+    // The rows are visible and openable, and the saved list is what tells the
+    // badge which of them the person already kept, so this poll does work.
+    const reported = { proto: "tcp" as const, port: 8080, reported: true as const };
+    expect(shouldPollSavedServices(info({ reason: "preview-ports-unsupported", ports: [reported] }), OPEN)).toBe(true);
   });
 
   it("holds the poll off for a viewer who never has ports counted", () => {

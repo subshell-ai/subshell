@@ -234,6 +234,36 @@ describe("PresetFields subagent setup line", () => {
   });
 });
 
+describe("PresetFields preview setup line", () => {
+  const seed = (harnessId: string): PresetFormValue => ({ ...emptyPresetForm(), harnessId, name: "N" });
+
+  it("shows the one-time act a harness needs before its preview reports start", async () => {
+    const restore = mockFetch([CLAUDE], {
+      mcp: { mode: "auto" },
+      subagents: null,
+      previews: { reporting: "extension", setup: "Trust the preview extension." },
+    });
+    try {
+      renderEditor(seed("claude-code"), []);
+      await waitFor(() => expect(screen.getByText("Trust the preview extension.")).toBeDefined());
+      expect(screen.getByText("Previews")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("renders nothing when the harness reports no previews", async () => {
+    const restore = mockFetch([CLAUDE], { mcp: { mode: "auto" }, subagents: null, previews: null });
+    try {
+      renderEditor(seed("claude-code"), []);
+      await waitFor(() => expect(screen.getByPlaceholderText(/e\.g\. Fast model/)).toBeDefined());
+      expect(screen.queryByText("Previews")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe("PresetFields agent select (unlocked)", () => {
   it("carries the frozen ids and copy, and hides everything else until an agent is chosen", async () => {
     const restore = mockFetch([CLAUDE, PI]);

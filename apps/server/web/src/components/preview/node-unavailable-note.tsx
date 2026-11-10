@@ -45,6 +45,8 @@ export function NodeUnavailableNote({
   const reasons = unavailableReasons(info, feature);
   if (info.nodeEnabled && reasons.size === 0) return null;
   const switchOff = [...reasons].some(isSwitchOff);
+  const hasReported =
+    info.nodeEnabled && info.webPreviewsEnabled !== false && info.ports.some((row) => row.reported === true);
   return (
     <div className={`flex flex-col gap-1 ${className}`}>
       {(reasons.size ? [...reasons] : [undefined]).map((reason) => (
@@ -52,7 +54,9 @@ export function NodeUnavailableNote({
           key={reason ?? "unavailable"}
           className={`text-detail ${isSwitchOff(reason) ? "text-warning" : "text-muted-foreground"}`}
         >
-          {nodeReasonLine(reason)}
+          {reason === "preview-ports-unsupported" && hasReported
+            ? "This machine can't scan its process tree for servers; ports reported by the agent are still available."
+            : nodeReasonLine(reason)}
         </p>
       ))}
       {switchOff && (

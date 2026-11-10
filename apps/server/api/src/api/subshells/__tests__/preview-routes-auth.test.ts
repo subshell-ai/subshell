@@ -1564,4 +1564,29 @@ describe("preview REST surface (Task 9)", () => {
     expect(body.reason).toBe("preview-ports-unsupported");
     expect(body.ports).toEqual([{ proto: "tcp", port: 8080, reported: true }]);
   });
+
+  it("refuses a report from a dashboard cookie", async () => {
+    attachLive();
+    const pane = await directRow();
+    const res = await call("POST", `/${pane}/views/report`, {
+      cookie: ownerCookie,
+      body: { ports: [{ port: 5173 }] },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("accepts an emoji title and trims it to the response's unit budget", async () => {
+    attachLive();
+    const pane = await directRow();
+    const token = await bearerFor(pane);
+    const title = "😀".repeat(101);
+    const report = await call("POST", `/${pane}/views/report`, {
+      bearer: token,
+      body: { ports: [{ port: 5173, title }] },
+    });
+    expect(report.status).toBe(200);
+    const body = await jsonBody(await call("GET", `/${pane}/views`, { cookie: ownerCookie }));
+    const row = (body.ports as { port: number; title?: string }[]).find((entry) => entry.port === 5173);
+    expect(row?.title).toBe("😀".repeat(100));
+  });
 });

@@ -321,6 +321,15 @@ export function PresetFields({
               <p className="text-detail text-muted-foreground">{schema.subagents.setup}</p>
             </div>
           )}
+          {/* Preview reporting has its own one-time act (trusting the
+              extension that watches tool output), so it gets its own line
+              rather than riding the subagents paragraph. */}
+          {schema?.previews?.setup && (
+            <div className="space-y-1">
+              <p className="text-muted-foreground text-sm">Previews</p>
+              <p className="text-detail text-muted-foreground">{schema.previews.setup}</p>
+            </div>
+          )}
         </>
       )}
     </div>

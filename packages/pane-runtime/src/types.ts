@@ -17,6 +17,7 @@ export {
   type DetectionReason,
   type DetectionResult,
   type DetectSpec,
+  type HarnessPreviews,
   type HarnessResume,
   type HarnessSubagent,
   type HarnessSubagentSnapshot,
@@ -37,6 +38,7 @@ import type {
   BuildCommandInput,
   DetectionResult,
   DetectSpec,
+  HarnessPreviews,
   HarnessResume,
   HarnessSubagentSupport,
   McpLaunchSpec,
@@ -213,6 +215,8 @@ export interface HarnessPlugin {
   mcpSetup(launch: McpLaunchSpec, reporter?: ReporterSpec): McpSetupInfo;
   /** What the plugin declares about its harness's child agents, if anything. */
   subagents?: HarnessSubagentSupport;
+  /** What the plugin declares about its harness's preview reporting, if anything. */
+  previews?: HarnessPreviews;
   /** Validates a preset definition before saving. */
   validatePreset(preset: PresetDefinition): PresetValidationResult;
   /** Settings editor schema (or null if the harness has no settings). */

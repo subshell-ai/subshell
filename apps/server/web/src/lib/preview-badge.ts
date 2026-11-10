@@ -3,24 +3,15 @@ import type { SavedService } from "@/hooks/use-subshell-services";
 import type { SubshellAccess } from "@/types/subshell";
 
 /**
- * Whether the pane's saved-services read is worth asking for, which is the
- * same test the badge makes before counting anything: a node that has not
- * switched previews on, or one that answered with a reason, can only produce a
- * count of 0. `preview-ports-unsupported` is the case that shows why both
- * halves matter: it arrives with `nodeEnabled: true` on every macOS pane, so
- * gating on the switch alone would keep polling a list whose result is thrown
- * away. The access half is the same idea from the other side: a `view` grantee
- * never has the ports counted, so asking for their rows is a poll with a
- * discard.
- *
- * "One predicate" is the point, and it is now literally true: this and
- * {@link unsavedPreviewItemCount} both ask {@link previewAnswerUsable}, because
- * two hand-written copies of the same condition are how a future gate added to
- * one side would silently leave the other polling or counting a list nothing
- * can be made of.
+ * Whether the pane's answer can offer anything at all. A reason normally
+ * means no rows, but `preview-ports-unsupported` coexists with harness
+ * reported ports: the node can't scan its process tree, yet an agent can
+ * still have started a server. Both the badge and the saved-services poll
+ * ask this predicate, because the list is what tells a reported port apart
+ * from one the person already saved.
  */
 function previewAnswerUsable(info: PreviewInfo | undefined): info is PreviewInfo {
-  return info?.nodeEnabled === true && info.reason === undefined;
+  return info?.nodeEnabled === true && (info.reason === undefined || info.ports.some((row) => row.reported === true));
 }
 
 export function shouldPollSavedServices(info: PreviewInfo | undefined, access: SubshellAccess): boolean {

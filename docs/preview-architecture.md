@@ -70,11 +70,14 @@ those tools start are invisible to the `/proc` walk. A plugin that declares the
 pane's own bearer token. The route accepts only that pane's key and a running
 pane; entries are bounded, titles are normalized, and no report carries a host,
 so the proxy can only be pointed at loopback. The registry is in-memory with a
-30-minute TTL and is invalidated when the pane's `startedAt` changes. Reports
-merge into `ports` rows marked `reported: true` with no `pid`; a discovered row
-wins a shared port because only it carries process attribution and a probed
-page title. Merging still happens when the node names a ports-scan refusal
-(macOS), which is how an agent-started dev server appears there.
+30-minute TTL and is invalidated when the pane's `startedAt` changes. The
+`oh-my-pi` bridge refreshes a port only while it has mentioned it in the last
+ten minutes, so a server that stopped stops being re-reported. Reports merge
+into `ports` rows marked `reported: true` with no `pid`; a discovered row wins
+a shared port because only it carries process attribution, and a reported
+label fills in when the probe found no page title. Merging still happens when
+the node names a ports-scan refusal (macOS), which is how an agent-started dev
+server appears there.
 
 Discovery is a UI aid, not an allowlist for edit-authorized raw forwarding.
 

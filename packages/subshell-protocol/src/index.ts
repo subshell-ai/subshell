@@ -148,6 +148,7 @@ export {
   type SetPreviewEnabledCommand,
 } from "./node-frames.js";
 export {
+  capUtf16,
   type DetectResultWire,
   type DisplayViewerConnection,
   FS_LS_MAX_ENTRIES,

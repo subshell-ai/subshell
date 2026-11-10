@@ -1,4 +1,4 @@
-import { normalizeLabel, PREVIEW_PAGE_TITLE_MAX_LENGTH } from "@internal/subshell-protocol";
+import { capUtf16, normalizeLabel, PREVIEW_PAGE_TITLE_MAX_LENGTH } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/api/middleware/context.plugin.js";
@@ -12,7 +12,10 @@ const ReportBodySchema = t.Object({
       port: t.Integer({ minimum: 1, maximum: 65_535, description: "Loopback port the harness is serving" }),
       title: t.Optional(
         t.String({
-          maxLength: PREVIEW_PAGE_TITLE_MAX_LENGTH,
+          // The schema counts UTF-16 units while the stored cap counts code
+          // points, so this bound leaves room for a 200-code-point emoji
+          // title; the handler caps the units before storing it.
+          maxLength: PREVIEW_PAGE_TITLE_MAX_LENGTH * 2,
           description: "One-line label from the harness, usually the URL line",
         }),
       ),
@@ -58,7 +61,10 @@ export const viewsReportRoute = new Elysia()
         row.id,
         row.startedAt ?? "",
         body.ports.map((entry) => {
-          const title = entry.title === undefined ? "" : normalizeLabel(entry.title, PREVIEW_PAGE_TITLE_MAX_LENGTH);
+          const title =
+            entry.title === undefined
+              ? ""
+              : capUtf16(normalizeLabel(entry.title, PREVIEW_PAGE_TITLE_MAX_LENGTH), PREVIEW_PAGE_TITLE_MAX_LENGTH);
           return { port: entry.port, ...(title ? { title } : {}) };
         }),
       );

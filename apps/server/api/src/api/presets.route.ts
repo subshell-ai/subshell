@@ -566,6 +566,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         // can print their own lines with the same portability rule.
         mcp: harness.mcpSetup(PORTABLE_MCP_LAUNCH, PORTABLE_REPORTER),
         subagents: harness.subagents ?? null,
+        previews: harness.previews ?? null,
       };
     },
     {
