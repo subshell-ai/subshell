@@ -10,9 +10,40 @@ import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
 import type { RecentPathsResponse } from "@/hooks/use-recent-paths";
 import { isUntouchedForm, launchTemplateFromList } from "@/lib/launch-defaults";
 import { wireToPresetBlocks } from "@/lib/prompt-stack";
-import { buildAgentOptions, defaultAgentId } from "@/lib/subshell-compat";
+import { buildAgentOptions, defaultAgentId, harnessFitsNode } from "@/lib/subshell-compat";
 import type { PresetRow } from "@/types/preset";
 import type { SubshellView } from "@/types/subshell";
+
+/**
+ * The node correction for a preset that names no machine: keep the machine the
+ * picker would settle on, unless it cannot run the preset's agent - then blank
+ * it so choosing a node that has the agent is the next act.
+ *
+ * The agent the preset named is the thing worth keeping, and `pickNodeDefault`
+ * keeps the pick blank while several nodes are selectable (or fills the sole
+ * one), so a fleet with one valid target still settles by itself. Two cases
+ * are deliberately left to the harness gate's named correction: a server-side
+ * refusal (not installed, broken, disabled), where no machine could rescue the
+ * agent, and a pick the re-home would immediately restore, where the blank
+ * would only churn the node and clear a directory the preset named. A preset
+ * that names a machine is left alone - the ordinary re-home and harness rules
+ * own that case.
+ */
+function nodeForPreset(
+  preset: PresetRow,
+  next: NewSubshellFormValue,
+  nodes: Node[],
+  plugins: readonly InstancePluginRow[],
+): NewSubshellFormValue {
+  if (preset.nodeId != null) return next;
+  const settled = nodes.find((n) => n.id === pickNodeDefault(nodes, next.nodeId)) ?? null;
+  const serverFit = buildAgentOptions(plugins, null).find((o) => o.value === preset.harnessId);
+  if (settled === null || serverFit === undefined || serverFit.disabled) return next;
+  if (harnessFitsNode(settled, preset.harnessId) === null) return next;
+  // The re-home would put this node straight back, so blanking cannot stick.
+  if (pickNodeDefault(nodes, "") === settled.id) return next;
+  return { ...next, nodeId: "" };
+}
 
 /** What the defaults effect reads and corrects: everything it may write
  *  back through `onChange`, plus the settled-ness flags it waits on. The
@@ -66,6 +97,12 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
   const { displayCheck, skipPriorLaunch = false } = args;
   const displayReviewNodeRef = useRef<string | null>(null);
   const agentDefaultBlockedRef = useRef(false);
+  // A preset picked before the node list or plugin catalog answered: the
+  // machine question `nodeForPreset` asks is re-run by the effect, once, the
+  // moment the answer lands - and only while the form still holds the node
+  // the pick settled on. A machine the person chose since belongs to the
+  // explicit switch rule, whose clearing comes with an explanation.
+  const presetNodeCheckRef = useRef<{ preset: PresetRow; nodeId: string } | null>(null);
 
   // The full default launch reads the newest prior subshell — data the ONE
   // live-fed list already holds, so no new request. ONE selector with the
@@ -144,9 +181,11 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
     // still the previous node's, so the directory default waits for the pass
     // that holds the final node (its query re-keys, lands, and fires here).
     const reHomed = next.nodeId !== value.nodeId;
-    // The machine changed between renders (user pick, or the re-home just
+    // The machine changed between renders (a user pick, or the re-home
     // above): drop the carried-over path and re-arm the seed, so the new
-    // machine's own most-recent-else-home fills when its query answers.
+    // machine's own most-recent-else-home fills when its query answers. The
+    // deferred correction below syncs `dirNodeRef` itself, so it never
+    // reaches this block.
     if (next.nodeId !== dirNodeRef.current) {
       displayReviewNodeRef.current = next.virtualDisplay ? next.nodeId : null;
       next = { ...next, harnessResetReason: undefined, displayResetReason: undefined };
@@ -189,6 +228,33 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
         } else {
           prefillDoneRef.current = true;
         }
+      }
+    }
+    // A preset picked before the node list or the plugin catalog answered
+    // could not ask its machine question at apply time; ask it now, so the
+    // harness gate below never throws the preset's agent away for a default
+    // machine the person never chose. One shot: once the answer has been
+    // applied (or the preset or agent has moved on), the form is the
+    // person's, and a later node pick keeps the clearing rule it documents.
+    // `value.nodeId`, not `next.nodeId`, decides "never chose": the re-home
+    // above may legally move a vanished default, but a node the person picked
+    // since the preset was applied is theirs, and the switch rule owns it.
+    const deferred = presetNodeCheckRef.current;
+    if (deferred !== null && nodes !== null && plugins !== undefined) {
+      presetNodeCheckRef.current = null;
+      if (
+        value.nodeId === deferred.nodeId &&
+        next.presetId === deferred.preset.id &&
+        next.harnessId === deferred.preset.harnessId
+      ) {
+        const corrected = nodeForPreset(deferred.preset, next, nodes, plugins);
+        // The correction moves the machine AFTER the pair rule above has run,
+        // so its bookkeeping has to follow: the next pass would otherwise read
+        // the picker's default as the machine the held directory belongs to,
+        // and clear a directory the preset named (or one seeded for the
+        // default) that the person never touched.
+        if (corrected.nodeId !== next.nodeId) dirNodeRef.current = corrected.nodeId;
+        next = corrected;
       }
     }
     const heldNode = nodes?.find((n) => n.id === next.nodeId) ?? null;
@@ -313,7 +379,19 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
       return;
     }
     let next: NewSubshellFormValue = { ...emptyNewSubshellForm(), presetId: preset.id, harnessId: preset.harnessId };
-    if (preset.nodeId !== null) next = { ...next, nodeId: preset.nodeId };
+    // `== null` also covers a cached payload from before the hint column
+    // existed: absent is "names no machine", exactly like null.
+    if (preset.nodeId != null) next = { ...next, nodeId: preset.nodeId };
+    // A preset names an agent; the machine is only a hint (spec 2026-09-29).
+    // Blank the machine when the form's default cannot run that agent, rather
+    // than let the harness gate throw the agent away - the one thing the
+    // preset DID name (operator report 2026-11-09). Until the node list and
+    // the plugin catalog answer there is nothing to ask, so the effect's
+    // deferred check repeats this the moment they land.
+    if (preset.nodeId == null) {
+      if (nodes !== null && plugins !== undefined) next = nodeForPreset(preset, next, nodes, plugins);
+      else presetNodeCheckRef.current = { preset, nodeId: next.nodeId };
+    }
     if (preset.workingDir !== null) next = { ...next, workingDir: preset.workingDir };
     const display = preset.screenConfig ? parseStoredVirtualDisplayRequest(preset.screenConfig) : null;
     if (display)

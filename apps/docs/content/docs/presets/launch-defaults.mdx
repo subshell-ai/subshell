@@ -50,11 +50,14 @@ the preset or the node default.
 
 ## Review before launching
 
-The launch form fills in these defaults and lets you change them. Switching
+The launch form fills in these defaults and lets you change them. A preset can
+name an agent and leave the machine open. If the form's default machine can't
+run that agent and there's another machine to choose, the form keeps the agent
+and leaves the machine unselected so you can choose one that has it. Switching
 nodes replaces the working directory with that node’s recent path or home. If
-the selected agent can’t run there, the form clears it and the preset
-selection, then asks you to choose another agent. Your prompt text stays in the
-form. Virtual display is turned off if the new node can’t provide it.
+the selected agent can’t run there, the form clears it and the preset selection,
+then asks you to choose another agent. Your prompt text stays in the form.
+Virtual display is turned off if the new node can’t provide it.
 
 You can save a default for a machine that is temporarily offline. Launch still checks availability, maintenance, agent detection, permissions, and directory rules. Saving defaults doesn't bypass those checks.
 

@@ -141,6 +141,12 @@ interface MockOpts {
   /** Answer GET /api/nodes this many ms late — the ordering where recents
    *  resolve while the node pick is still unsettled (review round 2). */
   nodesDelayMs?: number;
+  /** Hold GET /api/nodes until this promise resolves — the UNANSWERED list a
+   *  preset pick can arrive before; deterministic, no wall-clock race. */
+  nodesGate?: Promise<unknown>;
+  /** Hold GET /api/plugins until this promise resolves — the UNANSWERED
+   *  catalog a preset pick can arrive before; deterministic. */
+  pluginsGate?: Promise<unknown>;
   /** Hold GET /api/subshells until this promise resolves — the UNANSWERED
    *  list the agent-default gate exists for (cross-client review,
    *  2026-09-13). Deterministic; no wall-clock race. */
@@ -169,12 +175,14 @@ function mockFetch(
     const method = init?.method ?? "GET";
     if (path === "/api/nodes") {
       const body = () => new Response(JSON.stringify({ nodes }));
+      if (opts.nodesGate) return opts.nodesGate.then(body);
       return opts.nodesDelayMs
         ? new Promise<Response>((r) => setTimeout(() => r(body()), opts.nodesDelayMs))
         : Promise.resolve(body());
     }
     if (path === "/api/plugins") {
-      return Promise.resolve(new Response(JSON.stringify({ plugins })));
+      const body = () => new Response(JSON.stringify({ plugins }));
+      return opts.pluginsGate ? opts.pluginsGate.then(body) : Promise.resolve(body());
     }
     if (path === "/api/presets" && method === "GET") {
       lastPresetsUrl = path + url.search;
@@ -1378,6 +1386,164 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
       await pressPreset("Pi one");
       expect(latest().presetId).toBe("p-pi");
       expect(latest().harnessId).toBe("pi");
+    } finally {
+      restore();
+    }
+  });
+
+  it("a preset whose agent the default node cannot run keeps the agent and leaves the node unchosen", async () => {
+    // The preset names the agent, not the machine. The fresh form's "local"
+    // default then cannot run it, and the old correction threw the agent away
+    // too - the one thing the preset did name. Blank the node instead:
+    // picking a machine that has the agent becomes the person's next act,
+    // with the preset's agent still held.
+    const pi = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
+    const host = node({ id: "local", name: "this host", kind: "local", access: "view", harnesses: [TERM_ON] });
+    const piNode = node({ id: "a1", name: "mac mini", harnesses: [{ harnessId: "pi", name: "Pi", installed: true }] });
+    const restore = mockFetch([host, piNode], [TERM, pi], [preset({ id: "p-pi", harnessId: "pi", name: "Pi one" })]);
+    try {
+      const { latest } = await renderForm(emptyNewSubshellForm());
+      await pressPreset("Pi one");
+      expect(latest().presetId).toBe("p-pi");
+      expect(latest().harnessId).toBe("pi");
+      expect(latest().nodeId).toBe("");
+      expect(latest().harnessResetReason).toBeUndefined();
+      expect((screen.getByPlaceholderText("Choose a node") as HTMLInputElement).value).toBe("");
+    } finally {
+      restore();
+    }
+  });
+
+  it("the same holds when the preset is picked before the node list answers", async () => {
+    // The machine question cannot be asked before the list lands, but the
+    // answer arriving later must not turn into "your agent can't run here".
+    const pi = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
+    const host = node({ id: "local", name: "this host", kind: "local", access: "view", harnesses: [TERM_ON] });
+    const piNode = node({ id: "a1", name: "mac mini", harnesses: [{ harnessId: "pi", name: "Pi", installed: true }] });
+    const nodes = Promise.withResolvers<void>();
+    const restore = mockFetch(
+      [host, piNode],
+      [TERM, pi],
+      [preset({ id: "p-pi", harnessId: "pi", name: "Pi one", workingDir: "/srv/preset" })],
+      [],
+      undefined,
+      { nodesGate: nodes.promise },
+    );
+    try {
+      const { latest } = await renderForm(emptyNewSubshellForm());
+      await pressPreset("Pi one");
+      // Still unanswered: the agent is held, not judged against a machine the
+      // list has not named yet.
+      expect(latest().harnessId).toBe("pi");
+      // The gate resolves a promise chain (fetch body → JSON → query state),
+      // so let one timer turn land inside the same act().
+      const flushed = Promise.withResolvers<void>();
+      setTimeout(flushed.resolve, 0);
+      await act(async () => {
+        nodes.resolve();
+        await flushed.promise;
+      });
+      await settle();
+      expect(latest().nodeId).toBe("");
+      expect(latest().harnessId).toBe("pi");
+      expect(latest().harnessResetReason).toBeUndefined();
+      // The preset's own directory outlived the default machine the late
+      // answer retired; it is the preset's answer, not that machine's.
+      expect(latest().workingDir).toBe("/srv/preset");
+    } finally {
+      restore();
+    }
+  });
+
+  it("a preset naming no machine keeps its directory when the only node cannot run the agent", async () => {
+    // Blanking could not survive the re-home on a one-node fleet, and the node
+    // move would clear the preset's directory; the harness gate speaks instead.
+    const pi = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
+    const host = node({ id: "local", name: "this host", kind: "local", access: "view", harnesses: [TERM_ON] });
+    const restore = mockFetch(
+      [host],
+      [TERM, pi],
+      [preset({ id: "p-pi", harnessId: "pi", name: "Pi one", workingDir: "/srv/preset" })],
+    );
+    try {
+      const { latest } = await renderForm(emptyNewSubshellForm());
+      await pressPreset("Pi one");
+      expect(latest().nodeId).toBe("local");
+      expect(latest().harnessId).toBe("");
+      expect(latest().harnessResetReason).toMatch(/can't run on this host/);
+      expect(latest().workingDir).toBe("/srv/preset");
+    } finally {
+      restore();
+    }
+  });
+
+  it("a node picked before the plugin catalog answers is not the deferral's to blank", async () => {
+    // The machine select needs no catalog, so a pick is possible while the
+    // deferred check waits. That pick is the person's, and the switch rule
+    // owns the outcome - with the explanation it always carries.
+    const pi = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
+    const host = node({ id: "local", name: "this host", kind: "local", access: "view", harnesses: [TERM_ON] });
+    const studio = node({ id: "a2", name: "studio", harnesses: [TERM_ON] });
+    const catalog = Promise.withResolvers<void>();
+    const restore = mockFetch(
+      [host, studio],
+      [TERM, pi],
+      [preset({ id: "p-pi", harnessId: "pi", name: "Pi one" })],
+      [],
+      undefined,
+      { pluginsGate: catalog.promise },
+    );
+    try {
+      const { latest } = await renderForm(emptyNewSubshellForm());
+      await pressPreset("Pi one");
+      expect(latest().harnessId).toBe("pi");
+      expect(latest().nodeId).toBe("local");
+      const nodeInput = screen.getByPlaceholderText("Choose a node");
+      fireEvent.focus(nodeInput);
+      fireEvent.keyDown(nodeInput, { key: "ArrowDown" });
+      fireEvent.click(await screen.findByRole("option", { name: /studio/ }));
+      await waitFor(() => expect(latest().nodeId).toBe("a2"));
+      const flushed = Promise.withResolvers<void>();
+      setTimeout(flushed.resolve, 0);
+      await act(async () => {
+        catalog.resolve();
+        await flushed.promise;
+      });
+      await settle();
+      expect(latest().nodeId).toBe("a2");
+      expect(latest().harnessId).toBe("");
+      expect(latest().harnessResetReason).toMatch(/Pi can't run on studio/);
+      expect(latest().presetId).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("after the blank, choosing a node that has the agent keeps both and is ready to launch", async () => {
+    const pi = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
+    const host = node({ id: "local", name: "this host", kind: "local", access: "view", harnesses: [TERM_ON] });
+    const piNode = node({ id: "a1", name: "mac mini", harnesses: [{ harnessId: "pi", name: "Pi", installed: true }] });
+    const restore = mockFetch(
+      [host, piNode],
+      [TERM, pi],
+      [preset({ id: "p-pi", harnessId: "pi", name: "Pi one" })],
+      [],
+      (scope) => ({ paths: [], home: scope === "a1" ? "/home/hmn" : "/home/server" }),
+    );
+    try {
+      const { latest } = await renderForm(emptyNewSubshellForm());
+      await pressPreset("Pi one");
+      expect(latest().nodeId).toBe("");
+      const nodeInput = screen.getByPlaceholderText("Choose a node");
+      fireEvent.focus(nodeInput);
+      fireEvent.keyDown(nodeInput, { key: "ArrowDown" });
+      fireEvent.click(await screen.findByRole("option", { name: /mac mini/ }));
+      await waitFor(() => expect(latest().nodeId).toBe("a1"));
+      await waitFor(() => expect(latest().workingDir).toBe("/home/hmn"));
+      expect(latest().harnessId).toBe("pi");
+      expect(latest().presetId).toBe("p-pi");
+      expect(latest().harnessResetReason).toBeUndefined();
+      expect(canSubmit(latest())).toBe(true);
     } finally {
       restore();
     }
