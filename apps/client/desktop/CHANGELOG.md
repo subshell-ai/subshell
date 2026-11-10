@@ -1,5 +1,15 @@
 # @internal/desktop-client
 
+## 1.5.9
+
+### Patch Changes
+
+- [#508](https://github.com/subshell-ai/subshell/pull/508) [`4012e15`](https://github.com/subshell-ai/subshell/commit/4012e153f323823659f63aa63908a20cd47014d8) Thanks [@theogravity](https://github.com/theogravity)! - Harness updates become a first-class action: the node page's harness rows can run each CLI's own update line (and Update all walks them sequentially), on the control-plane host or an enrolled node. A plugin declares the line with a new optional `subshell.update` block and falls back to its installer when that is idempotent. Each subshell also records the harness version it launched on. Nothing restarts a running pane on a version change.
+  
+  The node protocol moves to 28, so enrolled nodes need subshell 3.5.0; older nodes are held for their own update until they catch up.
+- Updated dependencies [[`4012e15`](https://github.com/subshell-ai/subshell/commit/4012e153f323823659f63aa63908a20cd47014d8)]:
+  - @internal/node@3.5.1
+
 ## 1.5.8
 
 ### Patch Changes
