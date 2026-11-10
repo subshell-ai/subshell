@@ -98,9 +98,11 @@ filled fields. There is no `+` on the row and no "None" row: a preset worth
 keeping is MADE from the whole form by the "Save as preset" checkbox at its
 bottom, and an untouched picker already IS the no-preset state. First run
 hides the Preset row entirely: a new account has zero presets, so the row
-would have nothing to offer. The saved set lives at `/presets`, with one table in a card per agent under
-real `<h2>` headers. Columns show name, auto-restart, cross-agent use, and actions; command previews
-stay hidden until the name is clicked, then expand in a full-width detail row.
+would have nothing to offer. The saved set lives at `/presets`, with one table
+in a card per agent under real `<h2>` headers. Columns show name, cross-agent
+use, enabled, and actions; auto-restart lives on the preset page. Command
+previews stay hidden until the name is clicked, then expand in a full-width
+detail row.
 The name uses the same disclosure button and chevron as prompts; editing
 belongs in the actions menu. There the row menu's **Clone preset** opens the SAME
 `create-preset-dialog.tsx`, seeded through `initialForm`: the clone IS a plain

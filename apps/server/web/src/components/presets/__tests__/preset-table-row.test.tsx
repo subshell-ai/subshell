@@ -96,9 +96,16 @@ it("gives a view-only viewer a plain yes instead of a switch", () => {
   const mock = mockFetch();
   renderRow(rowPreset({ access: "view", enabled: 1 }));
   expect(screen.queryByRole("switch")).toBeNull();
-  // The Enabled cell reads "Yes"; the Auto-restart cell's "No" is a separate cell.
+  // The Enabled cell reads "Yes"; auto-restart no longer renders a cell here.
   expect(screen.getByText("Yes")).toBeTruthy();
   mock.restore();
+});
+
+it("leaves auto-restart out of the row so names get the width", () => {
+  renderRow(rowPreset({ restartOnExit: 1, enabled: 1 }));
+  // Auto-restart used to be the row's only plain "Yes"; cross-agent renders
+  // "No" and the enabled control is a switch.
+  expect(screen.queryByText("Yes")).toBeNull();
 });
 
 it("still previews the launch command for a disabled preset", () => {
