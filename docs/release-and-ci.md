@@ -731,11 +731,13 @@ any dispatch not on `main` and any `-f version=` that disagrees with
 refusal, same reason, as release.yml's); the tag has three cases: absent
 creates, **present at THIS commit redeploys** (re-dispatch is how you re-push
 a broken deploy, because for docs the deploy is the release), present at
-another commit refuses until the tag is deleted. Both site workflows call
-`test.yml` with `full: true` before their tag-writing plan, following the same full-verification rule as app and npm releases. This
-replaces the earlier no-gate policy: a failed, cancelled, or missing required
-check blocks tag creation and deployment. The verification runs against the
-same revision the site will build. See [the testing policy](testing.md).
+another commit refuses until the tag is deleted. Both site workflows verify
+the site they ship rather than the whole repository: the site package's own
+type-check and tests plus the repo prose rule run before the tag-writing
+plan, and the build with its export assertion gates the bytes that deploy.
+App and npm releases keep the full `test.yml` gate. A failed check blocks tag
+creation and deployment, and the verification runs against the same revision
+the site will build. See [the testing policy](testing.md).
 
 **The website also hosts the install scripts.** The root `install-server.sh`
 and `install-client.sh` are the source, but subshell.sh serves them: the
