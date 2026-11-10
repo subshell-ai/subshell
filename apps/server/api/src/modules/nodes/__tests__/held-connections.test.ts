@@ -221,6 +221,7 @@ describe("held connections", () => {
 
     expect(outcome).toBeInstanceOf(NodeRpcError);
     expect((outcome as NodeRpcError).code).toBe("offline");
+    expect((outcome as NodeRpcError).sent).toBe(false);
     expect(ws.sent).toHaveLength(0);
   });
 

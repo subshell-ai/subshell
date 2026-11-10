@@ -45,13 +45,23 @@ export class NodeRpcError extends Error {
    * for anything they do not recognize.
    */
   readonly detail: string | undefined;
+  /**
+   * Whether the command frame was handed to the socket before this rejection.
+   *
+   * Pre-send refusals (no connection, detached while queued, an unestablished
+   * link, or a live socket held during signing) did nothing on the node, so an
+   * audit row must not call the outcome unknown. Timeouts, agent answers, and
+   * `failConnPendings` all happen after the send and carry `true`.
+   */
+  readonly sent: boolean;
 
-  constructor(code: NodeRpcErrorCode, message: string, nodeId: string, detail?: string) {
+  constructor(code: NodeRpcErrorCode, message: string, nodeId: string, detail?: string, sent = false) {
     super(message);
     this.name = "NodeRpcError";
     this.code = code;
     this.nodeId = nodeId;
     this.detail = detail;
+    this.sent = sent;
   }
 }
 
@@ -218,6 +228,8 @@ export function sendCommand(nodeId: string, cmd: NodeCommandBody, options: SendC
             "timeout",
             `command "${cmd.type}" to node "${nodeId}" timed out after ${timeoutMs}ms`,
             nodeId,
+            undefined,
+            true,
           ),
         );
       }
@@ -283,10 +295,18 @@ export function resolveResult(conn: NodeConnection, event: NodeResultEvent): boo
   if (event.ok) {
     pending.resolve(event.data);
   } else if (event.error === "unsupported") {
-    pending.reject(new NodeRpcError("unsupported", `node "${conn.nodeId}" does not support this command`, conn.nodeId));
+    pending.reject(
+      new NodeRpcError(
+        "unsupported",
+        `node "${conn.nodeId}" does not support this command`,
+        conn.nodeId,
+        undefined,
+        true,
+      ),
+    );
   } else {
     pending.reject(
-      new NodeRpcError("failed", `node "${conn.nodeId}" reported: ${event.error}`, conn.nodeId, event.error),
+      new NodeRpcError("failed", `node "${conn.nodeId}" reported: ${event.error}`, conn.nodeId, event.error, true),
     );
   }
   return true;
@@ -308,7 +328,7 @@ export function failConnPendings(conn: NodeConnection, code: NodeRpcErrorCode = 
   const fallback = `node "${conn.nodeId}" connection closed with ${entries.length} in-flight command(s)`;
   for (const pending of entries) {
     clearTimeout(pending.timer);
-    pending.reject(new NodeRpcError(code, message ?? fallback, conn.nodeId));
+    pending.reject(new NodeRpcError(code, message ?? fallback, conn.nodeId, undefined, true));
   }
   return entries.length;
 }

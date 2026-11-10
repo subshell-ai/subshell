@@ -211,7 +211,8 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
       : data.access === "owner" || data.access === "manage" || data.access === "edit");
   // Permission is only half of it: a remote install travels the signed link,
   // so the node must be online and not HELD (a held socket answers `update`
-  // only). `local` runs here, where there is no socket to wait for.
+  // only, and a held row is projected offline). `local` runs here, where there
+  // is no socket to wait for.
   const installReachable = data?.kind === "local" || (data?.status === "online" && data?.held === null);
   /** The id currently installing, so only its own row spins. */
   const installingId = install.isPending ? install.variables : undefined;
@@ -310,6 +311,21 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
     } finally {
       setUpdatingAll(false);
     }
+  }
+
+  /**
+   * Start one install, dropping any line the previous run left for the same
+   * harness. Without this reset, a retry on `local` shows the old run's last
+   * line as current progress until the new stream speaks.
+   */
+  function startInstall(id: string): void {
+    setInstallLines((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    install.mutate(id);
   }
 
   return (
@@ -482,15 +498,17 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                         install.isPending || updatingAll || updateBusy || recheck.isPending || !installReachable
                       }
                       disabledReason={
-                        !installReachable
-                          ? "The node is offline. Wait for it to reconnect before installing."
-                          : updateBusy || updatingAll
-                            ? "Wait for the current update to finish."
-                            : recheck.isPending
-                              ? "Wait for the current check to finish."
-                              : "Wait for installation to finish."
+                        data?.held
+                          ? "This node's Subshell daemon is too old for installs. Update it from the Updates card above."
+                          : !installReachable
+                            ? "The node is offline. Wait for it to reconnect before installing."
+                            : updateBusy || updatingAll
+                              ? "Wait for the current update to finish."
+                              : recheck.isPending
+                                ? "Wait for the current check to finish."
+                                : "Wait for installation to finish."
                       }
-                      onClick={() => install.mutate(h.harnessId)}
+                      onClick={() => startInstall(h.harnessId)}
                     >
                       {installingId === h.harnessId && (
                         <LoaderCircle aria-hidden className="motion-safe:animate-spin" />

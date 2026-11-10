@@ -122,6 +122,7 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
     const err = await rejection(sendCommand("ghost", { type: "ping" }, { timeoutMs: 1000 }));
     expect(err.code).toBe("offline");
     expect(err.nodeId).toBe("ghost");
+    expect(err.sent).toBe(false); // nothing reached a socket
   });
 
   it("sends a signed envelope and resolves with result.data, correlated by jti", async () => {
@@ -226,6 +227,7 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
 
     const err = await rejection(p);
     expect(err.code).toBe("timeout");
+    expect(err.sent).toBe(true); // the frame was on the wire
     expect(conn.pending.size).toBe(0); // pending entry dropped
 
     // A late reply for the abandoned jti matches nothing.
@@ -293,11 +295,13 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
 
     expect(failConnPendings(oldConn)).toBe(1); // targeted: only the old conn
     expect((await rejection(p1)).code).toBe("offline");
+    expect((await rejection(p1)).sent).toBe(true); // the old frame was on the wire
     expect(freshConn.pending.size).toBe(1); // the mapped connection is untouched
     expect(oldConn.pending.size).toBe(0);
 
     expect(failConnPendings(freshConn)).toBe(1);
     expect((await rejection(p2)).code).toBe("offline");
+    expect((await rejection(p2)).sent).toBe(true);
   });
 
   it("failConnPendings honors a custom code/message and clears the map", async () => {
@@ -311,6 +315,7 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
     expect(failConnPendings(conn, "failed", "node went away")).toBe(2);
     const err = await rejection(p1);
     expect(err.code).toBe("failed");
+    expect(err.sent).toBe(true);
     expect(err.message).toBe("node went away");
     expect((await rejection(p2)).code).toBe("failed");
     expect(conn.pending.size).toBe(0);
@@ -426,6 +431,7 @@ describe("node rpc (spec 2026-08-31 §4/§5.3)", () => {
 
       const err = await rejection(sendCommand("n1", { type: "ping" }, { timeoutMs: 5000 }));
       expect(err.code).toBe("offline");
+      expect(err.sent).toBe(false);
       await new Promise((r) => setTimeout(r, 20)); // give a bad send every chance to reach the wire
       expect(fake.sent).toEqual([]); // NOTHING was written
       expect(conn.pending.size).toBe(0); // and no phantom correlation entry was registered

@@ -9,7 +9,12 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { authDatabase } from "@/modules/auth/database.js";
-import { attachConnection, type NodeSocket, resetNodeRegistryForTests } from "@/modules/nodes/node-registry.js";
+import {
+  attachConnection,
+  holdConnection,
+  type NodeSocket,
+  resetNodeRegistryForTests,
+} from "@/modules/nodes/node-registry.js";
 import { resolveResult } from "@/modules/nodes/node-rpc.js";
 import { claimHarnessRun, HarnessRunRefused } from "@/modules/plugins/harness-run-lock.js";
 import { issueSubshellToken } from "@/modules/subshells/tokens.js";
@@ -257,6 +262,30 @@ describe("POST /api/nodes/:id/harnesses/:pluginId/install runs", () => {
       expect(sent).toHaveLength(0);
     } finally {
       held.release();
+      resetNodeRegistryForTests();
+    }
+  });
+
+  it("refuses a HELD socket: a held node predates the install command", async () => {
+    // Held is projected offline, but the route must not fall back to it the
+    // way the node-update route does: that socket speaks a protocol without
+    // `harness_install`, so nothing may be signed over it.
+    const { socket, sent } = liveSocket();
+    const conn = attachConnection(agentNode, socket);
+    holdConnection(agentNode, conn, {
+      reason: "below-floor",
+      agentVersion: "0.8.0",
+      protocolVersion: 28,
+      os: "linux",
+      arch: "x64",
+      onIdle: () => undefined,
+    });
+    try {
+      const res = await post(agentNode, "claude-code", ownerToken);
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ code: "NODE_OFFLINE" });
+      expect(sent).toHaveLength(0);
+    } finally {
       resetNodeRegistryForTests();
     }
   });

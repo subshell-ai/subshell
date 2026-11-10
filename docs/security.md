@@ -3480,8 +3480,9 @@ the same vendor line at `edit` (§11.10c's residual).
 - **Audit.** `node.harness.install` names the plugin, `ok`, exit code, duration
   and timeout flag, written whether the installer exited zero or not, and never
   carries output. `node.harness.install.unknown` is written only when a timeout
-  or a dropped socket leaves it unknowable whether the command ran, with
-  metadata naming only the plugin.
+  or a dropped socket after the send leaves it unknowable whether the command ran,
+  with metadata naming only the plugin. A refusal before the frame goes out
+  carries no such ambiguity and writes no unknown row.
 
 Residual: an install that returns before its deadline refreshes the node's
 cached detection best-effort, so a refresh failure leaves the page showing the

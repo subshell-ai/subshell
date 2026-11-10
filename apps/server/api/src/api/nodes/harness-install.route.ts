@@ -145,12 +145,12 @@ export const harnessInstallRoute = new Elysia()
             const boundedMessage =
               message.length > HARNESS_RUN_ERROR_MAX ? `${message.slice(0, HARNESS_RUN_ERROR_MAX)}…` : message;
             send({ type: "error", message: boundedMessage });
-            // A timeout or a dropped socket may have happened after the node
-            // received the command, and the node's own ten-minute budget keeps
-            // it running — so whether it ran is unknowable. A spoken refusal or
-            // a malformed answer is not ambiguity about whether it ran, so only
-            // these two write the unknown row. A pre-run refusal did nothing.
-            if (err instanceof NodeRpcError && (err.code === "timeout" || err.code === "offline")) {
+            // A timeout or a dropped socket after the send leaves it
+            // unknowable whether the node received the command; its ten-minute
+            // budget keeps it running either way. A spoken refusal, a malformed
+            // answer, or a pre-send refusal carries no such ambiguity;
+            // `err.sent` distinguishes them.
+            if (err instanceof NodeRpcError && err.sent && (err.code === "timeout" || err.code === "offline")) {
               await audit({
                 actorUserId: user.id,
                 action: "node.harness.install.unknown",

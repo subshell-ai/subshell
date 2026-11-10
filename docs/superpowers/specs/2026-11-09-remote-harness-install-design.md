@@ -18,7 +18,7 @@ local installer uses under the same bounded runner.
 
 ## Goals
 
-- An owner or `manage` grantee sees **Install** on a not-installed agent
+- An owner, `manage`, or `edit` grantee sees **Install** on a not-installed agent
   harness row on an enrolled node.
 - Pressing it installs that CLI **on that node**, not on the control-plane
   host, and reports the same result shape the Update row already renders
@@ -164,10 +164,13 @@ racing press is a 409, never an error frame over a 200.
   `{type:"done", ...result}` or `{type:"error", message}`. A node sends no
   `line` frames, because the command answers once.
 - Audited as `node.harness.install` with plugin/outcome metadata, and
-  `node.harness.install.unknown` only when a timeout or dropped socket leaves
-  it unknowable whether the command ran. Output is never logged.
-- After the run, `detectOnNode(nodeId)` refreshes cached detection; a failed
-  refresh is logged and does not change the run's result.
+  `node.harness.install.unknown` only when a timeout or dropped socket after
+  the send leaves it unknowable whether the command ran. Output is never
+  logged.
+- After a run that returned before its deadline, `detectOnNode(nodeId)`
+  refreshes cached detection; a timed-out run skips the refresh because
+  `runBounded` kills only the direct child. A failed refresh is logged and does
+  not change the run's result.
 
 `installHarnessOnNode` takes an optional `{ send?, detect? }` seam defaulting
 to the real node RPC and detection refresh, following
@@ -193,7 +196,7 @@ The harness card's gate becomes:
 const canInstallHere =
   data?.kind === "local"
     ? data.canManage
-    : data.access === "owner" || data.access === "manage";
+    : data.access === "owner" || data.access === "manage" || data.access === "edit";
 const installReachable =
   data?.kind === "local" || (data?.status === "online" && data?.held === null);
 ```

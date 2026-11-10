@@ -58,6 +58,11 @@ interface CardOpts {
    * rendering is asserted without racing a close.
    */
   installFrames?: (string | null)[];
+  /**
+   * Frames per install attempt, when a retry must answer differently from the
+   * first run. Takes precedence over {@link installFrames}.
+   */
+  installFramesByCall?: (string | null)[][];
   /** Status the POST to a harness update answers with (default 200). */
   updateStatus?: number;
   /** Body a harness update answers with; the default is a successful run. */
@@ -159,7 +164,10 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
     }
     const agentInstall = /^\/api\/setup\/agents\/([^/]+)\/install$/.exec(url.pathname);
     if (agentInstall && method === "POST") {
-      const frames = opts.installFrames ?? [`${JSON.stringify({ type: "done", ...DONE })}\n`];
+      const attempt =
+        calls.filter((c) => c.method === "POST" && /^\/api\/setup\/agents\/[^/]+\/install$/.test(c.url)).length - 1;
+      const frames = opts.installFramesByCall?.[attempt] ??
+        opts.installFrames ?? [`${JSON.stringify({ type: "done", ...DONE })}\n`];
       return Promise.resolve(
         new Response(
           new ReadableStream<Uint8Array>({
@@ -527,6 +535,28 @@ describe("NodeHarnessCard", () => {
       }
     });
 
+    it("drops the previous run's line when the same harness is installed again", async () => {
+      const { restore } = await mount({
+        ...localOpts,
+        installFramesByCall: [
+          [
+            `${JSON.stringify({ type: "line", text: "old line from the first run" })}\n`,
+            `${JSON.stringify({ type: "done", ...DONE })}\n`,
+          ],
+          [null],
+        ],
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+        expect(await screen.findByText("Installed.")).toBeDefined();
+        fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+        expect(await screen.findByText("Starting the installer…")).toBeDefined();
+        expect(screen.queryByText("old line from the first run")).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
     it("holds Update all while an install is running (one package manager at a time)", async () => {
       const { restore } = await mount({
         kind: "local",
@@ -649,19 +679,20 @@ describe("NodeHarnessCard", () => {
       }
     });
 
-    it("disables Install on a HELD node too: a held socket predates the command", async () => {
-      // `status` still reads online: the socket is held because it speaks a
-      // protocol below the floor, not because the machine is down, and a held
-      // link answers `update` only. A press here could only trade for a 409.
+    it("disables Install on a HELD node with the update remedy", async () => {
+      // A held socket is projected as offline: the daemon speaks a protocol
+      // below the floor and will be refused again on every reconnect. Waiting
+      // for it to come back would never make Install possible.
       const { restore } = await mount({
         ...localOpts,
         kind: "agent",
-        status: "online",
+        status: "offline",
         held: { reason: "protocol-mismatch", agentVersion: "1.0.0" },
       });
       try {
         const btn = await screen.findByRole("button", { name: "Install" });
         expect(btn.matches(":disabled, [aria-disabled=true]")).toBe(true);
+        expect(btn.getAttribute("aria-description")).toContain("too old");
       } finally {
         restore();
       }
