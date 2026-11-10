@@ -81,11 +81,13 @@ environment, login-shell PATH, closed stdin, ten-minute deadline, output cap),
 and the answer streams an NDJSON heartbeat every five seconds, then one
 terminal `done` or `error`; node error text is capped at 4,096 characters.
 Installs and updates share one harness-run slot per node, so a racing press
-answers 409 before the stream opens. After a successful run the node's cached
-detection is refreshed, best-effort, so its version row catches up. Audited as
-`node.harness.install`, with `node.harness.install.unknown` only when a timeout
-or a dropped socket leaves it unknowable whether the installer ran; neither row
-carries output.
+answers 409 before the stream opens. After a run that returned before its
+deadline the node's cached detection is refreshed, best-effort, so its version
+row catches up; a timed-out run skips that refresh, since the vendor pipeline
+may still be installing and the next page load or periodic pass repairs the
+cache. Audited as `node.harness.install`, with
+`node.harness.install.unknown` only when a timeout or a dropped socket leaves
+it unknowable whether the installer ran; neither row carries output.
 
 ## Registering the MCP dialect per harness (moved from AGENTS.md "Architecture")
 

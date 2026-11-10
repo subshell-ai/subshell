@@ -9,19 +9,22 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { authDatabase } from "@/modules/auth/database.js";
+import { attachConnection, type NodeSocket, resetNodeRegistryForTests } from "@/modules/nodes/node-registry.js";
+import { resolveResult } from "@/modules/nodes/node-rpc.js";
+import { claimHarnessRun, HarnessRunRefused } from "@/modules/plugins/harness-run-lock.js";
 import { issueSubshellToken } from "@/modules/subshells/tokens.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
  * The refusals BEFORE the body opens are what this pins: they cannot become a
  * stream frame, so each has to be a real status, and the ORDER is the security
- * rule — the node's kind is answered before any grant is weighed, a plugin that
+ * rule: the node's kind is answered before any grant is weighed, a plugin that
  * this build cannot install is a caller-input answer (404/400) whatever the
  * node's reachability, and a live socket is only demanded once there is
- * something to run. A successful run streams NDJSON; the run itself
- * (`installHarnessOnNode`, its claim, and the detection refresh) is covered by
- * `harness-install.service.test.ts`. This file never executes a vendor's
- * installer.
+ * something to run. A successful run streams NDJSON, answered here over a fake
+ * live socket; the run itself (`installHarnessOnNode`, its claim, and the
+ * detection refresh) is covered by `harness-install.service.test.ts`. This file
+ * never executes a vendor's installer.
  */
 
 const pw = "harness-install-route-1";
@@ -175,5 +178,118 @@ describe("POST /api/nodes/:id/harnesses/:pluginId/install refusals", () => {
     const offline = await post(agentNode, "claude-code", ownerToken);
     expect(offline.status).toBe(409);
     expect(await offline.json()).toMatchObject({ code: "NODE_OFFLINE" });
+  });
+});
+
+describe("POST /api/nodes/:id/harnesses/:pluginId/install runs", () => {
+  /** One signed frame's claims, the way the agent reads the envelope. */
+  interface Claims {
+    jti: string;
+    cmd: { type: string; harnessId?: string };
+  }
+
+  /** Decode one signed frame's claims. */
+  function claimsOf(frameJson: string): Claims {
+    const { jws } = JSON.parse(frameJson) as { jws: string };
+    return JSON.parse(Buffer.from(jws.split(".")[1], "base64url").toString("utf8")) as Claims;
+  }
+
+  /**
+   * A live socket that hands each frame to the test as it is sent, so an
+   * answer lands on the real condition (a frame is on the wire) rather than a
+   * sleep. `sent` keeps the raw frames for the assertion that nothing went out.
+   */
+  function liveSocket(): { socket: NodeSocket; sent: string[]; next: () => Promise<Claims> } {
+    const sent: string[] = [];
+    const queued: Claims[] = [];
+    const waiting: ((claims: Claims) => void)[] = [];
+    return {
+      sent,
+      socket: {
+        send(data) {
+          const raw = String(data);
+          sent.push(raw);
+          const claims = claimsOf(raw);
+          const waiter = waiting.shift();
+          if (waiter) waiter(claims);
+          else queued.push(claims);
+          return 0;
+        },
+        close() {},
+      },
+      next() {
+        const ready = queued.shift();
+        if (ready) return Promise.resolve(ready);
+        const { promise, resolve } = Promise.withResolvers<Claims>();
+        waiting.push(resolve);
+        return promise;
+      },
+    };
+  }
+
+  it("answers 409 EXISTS when another harness run holds the node", async () => {
+    // The slot is the node's, shared by install and update, and the refusal is
+    // decided before the body opens: a racing press can only answer `error`
+    // over a 200, and nothing has been signed yet either.
+    const { socket, sent } = liveSocket();
+    attachConnection(agentNode, socket);
+    const held = claimHarnessRun(agentNode, "codex", "install");
+    if (held instanceof HarnessRunRefused) throw new Error("the slot should be free when this test starts");
+    try {
+      const res = await post(agentNode, "claude-code", ownerToken);
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ code: "EXISTS_ERROR" });
+      expect(sent).toHaveLength(0);
+    } finally {
+      held.release();
+      resetNodeRegistryForTests();
+    }
+  });
+
+  it("streams one terminal done frame carrying the run's parsed result", async () => {
+    const { socket, next } = liveSocket();
+    const conn = attachConnection(agentNode, socket);
+    try {
+      const resP = post(agentNode, "claude-code", ownerToken);
+      const install = await next();
+      expect(install.cmd.type).toBe("harness_install");
+      expect(install.cmd.harnessId).toBe("claude-code");
+      resolveResult(conn, {
+        type: "result",
+        ref: install.jti,
+        ok: true,
+        data: { harnessId: "claude-code", ok: true, exitCode: 0, output: "installed", durationMs: 5, timedOut: false },
+      } as const);
+      // A run that returned before its deadline refreshes detection, so it is
+      // the second command on the wire; answer it so the stream can close.
+      const detect = await next();
+      expect(detect.cmd.type).toBe("detect");
+      resolveResult(conn, {
+        type: "result",
+        ref: detect.jti,
+        ok: true,
+        data: { results: [], env: {} },
+      } as const);
+
+      const res = await resP;
+      expect(res.status).toBe(200);
+      const frames = (await res.text())
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { type: string });
+      const done = frames.filter((frame) => frame.type === "done");
+      expect(done).toHaveLength(1);
+      expect(done[0]).toMatchObject({
+        harnessId: "claude-code",
+        ok: true,
+        exitCode: 0,
+        output: "installed",
+        durationMs: 5,
+        timedOut: false,
+      });
+      expect(frames.filter((frame) => frame.type === "error")).toHaveLength(0);
+    } finally {
+      resetNodeRegistryForTests();
+    }
   });
 });

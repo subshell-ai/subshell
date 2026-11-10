@@ -3478,12 +3478,15 @@ separately because installing software is a stronger grant than updating it.
   or a dropped socket leaves it unknowable whether the command ran, with
   metadata naming only the plugin.
 
-Residual: a successful install refreshes the node's cached detection
-best-effort, so a refresh failure leaves the page showing the old version until
-the next load or periodic pass; the install itself succeeded and is audited as
-such. A node that accepts the command and then dies before answering gets the
-unknown row above, and its own ten-minute budget may still finish the install
-unobserved.
+Residual: an install that returns before its deadline refreshes the node's
+cached detection best-effort, so a refresh failure leaves the page showing the
+old version until the next load or periodic pass; the install itself succeeded
+and is audited as such. A timed-out run skips that refresh: `runBounded` kills
+only the direct child, so the vendor pipeline may still be installing, and a
+detect taken then could cache a half-installed answer; the next page load or
+periodic pass repairs it. A node that accepts the command and then dies before
+answering gets the unknown row above, and its own ten-minute budget may still
+finish the install unobserved.
 
 ## 11.11 An admin can reconfigure and restart the server from a browser
 

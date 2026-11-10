@@ -35,6 +35,26 @@ describe("installHarnessOnNode", () => {
     expect(detect).toHaveBeenCalledTimes(1);
   });
 
+  it("skips the detection refresh when the run timed out", async () => {
+    // `runBounded` kills only the direct child, so the vendor pipeline may
+    // still be installing; a detect taken now could cache a half-installed
+    // answer. The next page load or periodic pass repairs it once it settles.
+    const detect = mock(async () => {});
+    const result = await installHarnessOnNode("node-a", "claude-code", undefined, {
+      send: (async () => ({
+        harnessId: "claude-code",
+        ok: false,
+        exitCode: null,
+        output: "",
+        durationMs: 600_000,
+        timedOut: true,
+      })) as never,
+      detect,
+    });
+    expect(result).toMatchObject({ ok: false, timedOut: true });
+    expect(detect).not.toHaveBeenCalled();
+  });
+
   it("throws on a malformed answer or an echoed id for another harness", async () => {
     await expect(
       installHarnessOnNode("node-a", "claude-code", undefined, {

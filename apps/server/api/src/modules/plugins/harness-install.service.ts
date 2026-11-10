@@ -86,10 +86,13 @@ export async function refuseHarnessInstall(id: string): Promise<HarnessInstallRe
  * Runs a built-in installer on an enrolled node and answers the same result
  * shape updates do.
  *
- * After the run the node's cached detection is refreshed, so the page that
- * refetches shows the binary the install just put there. A failed refresh is
- * logged rather than failing the install: the run itself succeeded, and the
- * next page load or periodic pass repairs the cache.
+ * After a run that returned before its deadline the node's cached detection is
+ * refreshed, so the page that refetches shows the binary the install just put
+ * there. A TIMED-OUT run skips that refresh: `runBounded` kills only the direct
+ * child, so a vendor pipeline may still be installing, and a detect taken now
+ * could cache a half-installed answer. A failed refresh is logged rather than
+ * failing the install: the run itself succeeded, and the next page load or
+ * periodic pass repairs the cache.
  *
  * @param claim - the slot the route reserved before streaming; when absent,
  *   this call claims and releases its own
@@ -115,10 +118,12 @@ export async function installHarnessOnNode(
     if (result.harnessId !== id) {
       throw new Error(`node "${nodeId}" answered for harness "${result.harnessId}", not "${id}"`);
     }
-    try {
-      await (deps.detect ?? detectOnNode)(nodeId);
-    } catch (err) {
-      logger.withError(err).warn(`harness "${id}" installed on node "${nodeId}", but its detection refresh failed`);
+    if (!result.timedOut) {
+      try {
+        await (deps.detect ?? detectOnNode)(nodeId);
+      } catch (err) {
+        logger.withError(err).warn(`harness "${id}" installed on node "${nodeId}", but its detection refresh failed`);
+      }
     }
     return result;
   } finally {

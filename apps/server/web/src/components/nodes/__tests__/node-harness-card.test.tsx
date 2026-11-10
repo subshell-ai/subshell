@@ -587,6 +587,26 @@ describe("NodeHarnessCard", () => {
       }
     });
 
+    it("names the node while a remote installer runs: its output rides the done frame", async () => {
+      // A remote run sends no `line` frames (the output arrives in `done`), so
+      // this line is the only thing on screen until the run answers. The local
+      // half says "Starting the installer…" because its stream does carry lines.
+      const { restore } = await mount({
+        ...localOpts,
+        kind: "agent",
+        access: "owner",
+        installFrames: [null],
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+        const line = await screen.findByRole("status");
+        expect(line.textContent).toBe("Running the installer on this node…");
+        expect(screen.queryByText("Starting the installer…")).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
     it("offers it to a Manage grantee", async () => {
       const { restore } = await mount({ ...localOpts, kind: "agent", access: "manage", canManage: true });
       try {
@@ -616,6 +636,24 @@ describe("NodeHarnessCard", () => {
         const btn = await screen.findByRole("button", { name: "Install" });
         expect(btn.matches(":disabled, [aria-disabled=true]")).toBe(true);
         expect(btn.getAttribute("aria-description")).toContain("offline");
+      } finally {
+        restore();
+      }
+    });
+
+    it("disables Install on a HELD node too: a held socket predates the command", async () => {
+      // `status` still reads online: the socket is held because it speaks a
+      // protocol below the floor, not because the machine is down, and a held
+      // link answers `update` only. A press here could only trade for a 409.
+      const { restore } = await mount({
+        ...localOpts,
+        kind: "agent",
+        status: "online",
+        held: { reason: "protocol-mismatch", agentVersion: "1.0.0" },
+      });
+      try {
+        const btn = await screen.findByRole("button", { name: "Install" });
+        expect(btn.matches(":disabled, [aria-disabled=true]")).toBe(true);
       } finally {
         restore();
       }
