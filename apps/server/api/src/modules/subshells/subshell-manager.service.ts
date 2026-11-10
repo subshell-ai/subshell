@@ -74,6 +74,14 @@ import { issueSubshellToken, revokeSubshellToken, subshellSystemPermissions } fr
 import { HttpError } from "@/shared/errors.js";
 import { logger } from "@/shared/logger.js";
 
+/**
+ * Longest harness version string recorded. Real versions are a short line;
+ * the probe already caps its raw text, but a plugin's parser runs on the plane
+ * and a registry plugin is third-party code, so the stored/rendered value gets
+ * the same normalization and bound as any other label.
+ */
+const HARNESS_VERSION_MAX = 200;
+
 /** The subshell-token lifecycle operations the manager triggers. Injectable
  * for test isolation; defaults to the real better-auth-backed functions. */
 export interface SubshellTokenProvider {
@@ -721,9 +729,13 @@ export class SubshellManagerService {
     // The version write, OUTSIDE the launch rollback: a live pane must not be
     // killed because a metadata column refused. A miss here leaves NULL, which
     // is the same honest answer as a machine that could not read one.
-    if (launchedHarnessVersion !== undefined) {
+    const recordedVersion =
+      launchedHarnessVersion === undefined
+        ? undefined
+        : normalizeLabel(launchedHarnessVersion, HARNESS_VERSION_MAX) || undefined;
+    if (recordedVersion !== undefined) {
       try {
-        await this.#subshells.update(id, { harnessVersion: launchedHarnessVersion });
+        await this.#subshells.update(id, { harnessVersion: recordedVersion });
       } catch (err) {
         logger.withError(err).debug(`subshell ${id}: could not record the launch harness version`);
       }
@@ -1650,7 +1662,7 @@ export class SubshellManagerService {
       // NULL, not the previous value: the row describes the pane that is
       // running NOW, and a version the machine could not read this time is an
       // absent fact rather than the old pane's.
-      harnessVersion: ack.harnessVersion ?? null,
+      harnessVersion: normalizeLabel(ack.harnessVersion ?? "", HARNESS_VERSION_MAX) || null,
     });
     if (revived === 0) {
       logger.warn(`subshell ${row.id} terminated mid-restart; killing the orphan pane and revoking its token`);

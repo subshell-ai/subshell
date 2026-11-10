@@ -270,7 +270,7 @@ function NodeDetailPage() {
               registry entry. The control-plane host is not an agent. */}
           {n.kind === "agent" && <NodeReregister nodeId={n.id} nodeName={n.name} canRetire={n.canRetire} />}
 
-          <NodeHarnessCard nodeId={n.id} />
+          <NodeHarnessCard key={n.id} nodeId={n.id} />
 
           {/* The §4.6 machine trust block (spec 2026-10-08): own and pinned
               peers' key fingerprints, for the out-of-band compare each side

@@ -115,12 +115,15 @@ export const STALLED_MESSAGE =
  * @param stallMs - Silence allowed before giving up
  * @param messages - The failure wording for the surfaces that share this
  *   protocol; install is the default because it was the first
+ * @param validateDone - Narrows the `done` payload; null throws instead of
+ *   handing a malformed result to the page
  */
 export async function readInstallStream<TDone = AgentInstallResult>(
   body: ReadableStream<Uint8Array>,
   onLine?: (line: string) => void,
   stallMs: number = INSTALL_STALL_MS,
-  messages: { stalled?: string; ended?: string } = {},
+  messages: { stalled?: string; ended?: string; malformed?: string } = {},
+  validateDone?: (frame: unknown) => TDone | null,
 ): Promise<TDone> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -128,8 +131,13 @@ export async function readInstallStream<TDone = AgentInstallResult>(
   let done: TDone | undefined;
   const handle = (frame: InstallFrame<TDone>) => {
     if (frame.type === "line") onLine?.(frame.text);
-    else if (frame.type === "done") done = frame;
-    else if (frame.type === "error") throw new ApiError(500, frame.message);
+    else if (frame.type === "done") {
+      const parsed = validateDone ? validateDone(frame) : frame;
+      if (parsed === null) {
+        throw new ApiError(502, messages.malformed ?? "The server sent an unreadable result.");
+      }
+      done = parsed;
+    } else if (frame.type === "error") throw new ApiError(500, frame.message);
     // `waiting` is a heartbeat: it exists to keep the connection alive, and
     // has nothing to report.
   };

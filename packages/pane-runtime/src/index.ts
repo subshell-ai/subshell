@@ -151,10 +151,12 @@ export {
 export {
   type BoundedRunOptions,
   type BoundedRunResult,
+  type BoundedSummary,
   CHILD_ENV_KEYS,
   childEnv,
   OUTPUT_CAP,
   runBounded,
+  summarizeBoundedRun,
 } from "./run-bounded.js";
 export { shellQuote } from "./shell.js";
 export { closeSshKeyBridges, machineSshKeyBridge, SSH_KEY_BRIDGE_REFUSALS } from "./ssh/key-bridge.js";
@@ -275,6 +277,7 @@ export type {
   PresetValidationResult,
   ReporterSpec,
   SettingsField,
+  UpdateHint,
 } from "./types.js";
 export { MCP_SERVER_NAME } from "./types.js";
 export { versionManagerBins } from "./version-manager-paths.js";

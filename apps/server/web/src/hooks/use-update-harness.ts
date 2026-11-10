@@ -1,4 +1,5 @@
 import { ApiError, NetworkError, NODE_QUERY_KEY, parseErrorBody } from "@internal/node-admin";
+import { parseNodeHarnessUpdateResult } from "@internal/subshell-protocol";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HARNESS_QUERY_KEY } from "@/hooks/use-harnesses";
 import { INSTALL_STALL_MS, readInstallStream } from "@/hooks/use-install-agent";
@@ -56,10 +57,20 @@ export function useUpdateHarness(nodeId: string) {
         throw new ApiError(res.status, message, { code, errId });
       }
       if (!res.body) throw new ApiError(res.status, "The server sent no update output.");
-      return await readInstallStream<HarnessUpdateResult>(res.body, undefined, INSTALL_STALL_MS, {
-        stalled: "The update stopped reporting. It may still be running; reload to see the harness version.",
-        ended: "The update ended without saying whether it worked.",
-      });
+      return await readInstallStream<HarnessUpdateResult>(
+        res.body,
+        undefined,
+        INSTALL_STALL_MS,
+        {
+          stalled: "The update stopped reporting. It may still be running; reload to see the harness version.",
+          ended: "The update ended without saying whether it worked.",
+          malformed: "The server's update result was unreadable.",
+        },
+        (frame) => {
+          const parsed = parseNodeHarnessUpdateResult(frame);
+          return parsed === null ? null : { type: "done", ...parsed };
+        },
+      );
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, nodeId] });

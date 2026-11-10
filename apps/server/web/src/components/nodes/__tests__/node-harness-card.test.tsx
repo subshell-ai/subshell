@@ -624,6 +624,52 @@ describe("NodeHarnessCard", () => {
         restore();
       }
     });
+    it("does not offer Update to a non-admin on the control-plane host", async () => {
+      // The seeded local node gives Everyone/edit; that is a launch grant, not
+      // permission to run a vendor installer in the server process.
+      const { restore } = await mount({
+        kind: "local",
+        canManage: false,
+        access: "edit",
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info()],
+      });
+      try {
+        expect(await screen.findByText("ready")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /^update$/i })).toBeNull();
+        expect(screen.queryByRole("button", { name: /update all/i })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("offers Update for an INSTANCE-installed plugin the built-in catalog omits", async () => {
+      // The node view carries the effective update line, so a registry plugin
+      // needs no `/api/setup/harnesses` row (which is built-ins only).
+      const { calls, restore } = await mount({
+        harnesses: [
+          {
+            harnessId: "custom-agent",
+            name: "Custom Agent",
+            installed: true,
+            version: "9.0.0",
+            update: { command: "custom-agent update" },
+          },
+        ],
+        infos: [],
+      });
+      try {
+        expect(await screen.findByText("9.0.0")).toBeDefined();
+        fireEvent.click(screen.getByRole("button", { name: /^update$/i }));
+        await waitFor(() =>
+          expect(
+            calls.some((c) => c.method === "POST" && c.url === `/api/nodes/${NODE_ID}/harnesses/custom-agent/update`),
+          ).toBe(true),
+        );
+      } finally {
+        restore();
+      }
+    });
 
     it("disables Update, spins, and names the command while it runs", async () => {
       const { restore } = await mount({

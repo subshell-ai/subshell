@@ -92,7 +92,7 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
     // "is the installer also the updater". Every built-in's installer is
     // idempotent, which is why the fallback is safe rather than a guess;
     // a plugin whose vendor ships a dedicated verb declares it explicitly.
-    ...(manifest.update || manifest.install
+    ...(manifest.update?.command.trim() || manifest.install?.command.trim()
       ? {
           updateHint: manifest.update ?? {
             command: manifest.install?.command ?? "",

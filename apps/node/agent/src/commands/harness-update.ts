@@ -1,4 +1,4 @@
-import { runBounded } from "@internal/pane-runtime";
+import { runBounded, summarizeBoundedRun } from "@internal/pane-runtime";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 
 /**
@@ -31,25 +31,8 @@ const UPDATE_TIMEOUT_MS = 10 * 60 * 1000;
 
 export async function execHarnessUpdate(_ctx: CommandContext, cmd: Cmd<"harness_update">): Promise<CommandResult> {
   const result = await runBounded(["sh", "-c", cmd.command], { timeoutMs: UPDATE_TIMEOUT_MS });
-  // Joined for the same reason the installer's is: this output is a
-  // DISCLOSURE shown to whoever pressed Update, and a tool that explains
-  // itself on stderr while printing progress on stdout is the common case.
-  const output = [
-    result.stdout,
-    result.stderr,
-    result.timedOut ? `[update timed out after ${UPDATE_TIMEOUT_MS} ms; it may still be running]` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
   return {
     ok: true,
-    data: {
-      harnessId: cmd.harnessId,
-      ok: result.code === 0 && !result.timedOut,
-      exitCode: result.code,
-      output,
-      durationMs: result.durationMs,
-      timedOut: result.timedOut,
-    },
+    data: { harnessId: cmd.harnessId, ...summarizeBoundedRun(result, UPDATE_TIMEOUT_MS, "update") },
   };
 }

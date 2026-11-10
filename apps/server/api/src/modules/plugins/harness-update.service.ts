@@ -1,8 +1,9 @@
-import { getHarness, runBounded } from "@internal/pane-runtime";
+import { getHarness, runBounded, summarizeBoundedRun } from "@internal/pane-runtime";
 import { type NodeHarnessUpdateResult, parseNodeHarnessUpdateResult } from "@internal/subshell-protocol";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { detectOnNode } from "@/modules/nodes/inventory.js";
 import { sendCommand } from "@/modules/nodes/node-rpc.js";
+import { claimLocalRun, localRunHolder } from "@/modules/plugins/local-run-lock.js";
 import { logger } from "@/shared/logger.js";
 import { enabledHarnessPlugins } from "./store.js";
 
@@ -71,6 +72,19 @@ export function claimHarnessUpdate(nodeId: string, id: string): HarnessUpdateCla
   if (running !== undefined) {
     return new HarnessUpdateRefused(`"${running}" is already being updated on this node.`, 409);
   }
+  // The control-plane host's installers share this filesystem too, and their
+  // lock is per plugin id, so an update has to take the host slot as well.
+  let releaseHost: (() => void) | undefined;
+  if (nodeId === LOCAL_NODE_ID) {
+    const holder = localRunHolder();
+    releaseHost = holder === undefined ? claimLocalRun(`update "${id}"`) : undefined;
+    if (!releaseHost) {
+      return new HarnessUpdateRefused(
+        `The control-plane host is busy with ${holder ?? "another install"}; try again when it finishes.`,
+        409,
+      );
+    }
+  }
   inFlight.set(nodeId, id);
   let released = false;
   return {
@@ -78,6 +92,7 @@ export function claimHarnessUpdate(nodeId: string, id: string): HarnessUpdateCla
       if (released) return;
       released = true;
       if (inFlight.get(nodeId) === id) inFlight.delete(nodeId);
+      releaseHost?.();
     },
   };
 }
@@ -162,24 +177,7 @@ export async function runUpdateCommand(
   onLine?: (line: string) => void,
 ): Promise<NodeHarnessUpdateResult> {
   const result = await runBounded(["sh", "-c", command], { timeoutMs: HARNESS_UPDATE_TIMEOUT_MS, onLine });
-  // Joined for the same reason the installer's output is: this is a
-  // disclosure to the person who pressed the button, and a tool that explains
-  // itself on stderr is the common case.
-  const output = [
-    result.stdout,
-    result.stderr,
-    result.timedOut ? `[update timed out after ${HARNESS_UPDATE_TIMEOUT_MS} ms; it may still be running]` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-  return {
-    harnessId: id,
-    ok: result.code === 0 && !result.timedOut,
-    exitCode: result.code,
-    output,
-    durationMs: result.durationMs,
-    timedOut: result.timedOut,
-  };
+  return { harnessId: id, ...summarizeBoundedRun(result, HARNESS_UPDATE_TIMEOUT_MS, "update") };
 }
 
 /** An enrolled node's half: one signed command, one validated answer. */

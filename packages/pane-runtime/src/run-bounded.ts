@@ -154,6 +154,40 @@ export interface BoundedRunResult {
   durationMs: number;
 }
 
+/** The report every installer-style run hands a person: did it work, and what did it say. */
+export interface BoundedSummary {
+  ok: boolean;
+  exitCode: number | null;
+  /** stdout then stderr, ANSI stripped, each capped; a timeout marker appended. */
+  output: string;
+  durationMs: number;
+  timedOut: boolean;
+}
+
+/**
+ * One shaping of a bounded run, shared by the agent installer, the harness
+ * updater and the node's own copy of it. A non-zero exit is a RESULT here,
+ * because a command that ran and said no is not a transport failure.
+ * @param result - what {@link runBounded} produced
+ * @param timeoutMs - the deadline the run was given, named in the timeout marker
+ * @param label - what timed out ("installer", "update"), for the marker's wording
+ */
+export function summarizeBoundedRun(result: BoundedRunResult, timeoutMs: number, label = "command"): BoundedSummary {
+  return {
+    ok: result.code === 0 && !result.timedOut,
+    exitCode: result.code,
+    output: [
+      result.stdout,
+      result.stderr,
+      result.timedOut ? `[${label} timed out after ${timeoutMs} ms; it may still be running]` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    durationMs: result.durationMs,
+    timedOut: result.timedOut,
+  };
+}
+
 /**
  * Runs one argv to completion under this module's bounds.
  *

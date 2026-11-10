@@ -93,4 +93,16 @@ describe("readInstallStream", () => {
       }),
     ).rejects.toThrow(/update ended without saying/);
   });
+
+  it("refuses a done payload its validator rejects", async () => {
+    await expect(
+      readInstallStream(
+        bodyOf([JSON.stringify({ type: "done", junk: true })]),
+        undefined,
+        undefined,
+        { malformed: "unreadable result" },
+        () => null,
+      ),
+    ).rejects.toThrow("unreadable result");
+  });
 });

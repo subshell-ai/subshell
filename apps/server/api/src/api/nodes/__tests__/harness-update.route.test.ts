@@ -27,6 +27,8 @@ const nodes = new NodesRepository(db);
 let ownerToken: string;
 let agentNode: string;
 let ownerId: string;
+const adminEmail = `hu-admin-${crypto.randomUUID()}@subshell.local`;
+let adminToken: string;
 
 /** POST the update route; a token authenticates, an omission does not. */
 function post(nodeId: string, pluginId: string, token?: string) {
@@ -47,6 +49,13 @@ beforeAll(async () => {
     role: "user",
   });
   ownerToken = await signIn(ownerEmail, pw);
+  await new UsersRepository(db).createUser({
+    email: adminEmail,
+    name: adminEmail,
+    passwordHash: await hashPassword(pw),
+    role: "admin",
+  });
+  adminToken = await signIn(adminEmail, pw);
   agentNode = crypto.randomUUID();
   // Offline on purpose: the projection is what the route demands before it
   // opens a stream, and a node with no socket cannot run the command.
@@ -56,6 +65,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await nodes.deleteById(agentNode);
   await deleteUserByEmailOrId(ownerEmail);
+  await deleteUserByEmailOrId(adminEmail);
 });
 
 describe("POST /api/nodes/:id/harnesses/:pluginId/update refusals", () => {
@@ -100,5 +110,21 @@ describe("POST /api/nodes/:id/harnesses/:pluginId/update refusals", () => {
     const res = await post(agentNode, "claude-code", ownerToken);
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ code: "NODE_OFFLINE" });
+  });
+});
+
+describe("POST .../update on the control-plane host", () => {
+  it("refuses a non-admin: the server's own shell line is an admin act", async () => {
+    // The seeded local node gives Everyone/edit, so `nodeCanConfigure` alone
+    // let any member run the installer line in the server process.
+    const res = await post("local", "claude-code", ownerToken);
+    expect(res.status).toBe(403);
+  });
+
+  it("lets an admin reach the local refusals", async () => {
+    // `terminal` has no update path, so a 400 proves the admin passed the
+    // local gate without starting a vendor command.
+    const res = await post("local", "terminal", adminToken);
+    expect(res.status).toBe(400);
   });
 });

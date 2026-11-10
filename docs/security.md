@@ -2985,7 +2985,12 @@ Audit events are written, grouped by family:
   the setup key and installer output never enter the metadata or refusal
   copy, and captured output is redacted before parsing),
   `node.logging.update`, `node.update`,
-  `node.update.unknown`, `node.shares_set`, `node.local_share_changed`, and
+  `node.update.unknown`,
+  `node.harness.update` (metadata names the plugin and the run's outcome;
+  written whether the vendor's command exited zero or not),
+  `node.harness.update.unknown` (the request was sent but its answer never
+  arrived, so whether the command ran is unknowable; metadata names only the
+  plugin), `node.shares_set`, `node.local_share_changed`, and
   `node.service` (with `{ verb: "restart", forced }` metadata; the restart
   verb shares its action with the rest of the service surface). The SSH
   launcher's act lands in this family too as `ssh.launch` (spec 2026-10-07

@@ -31,12 +31,17 @@ import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import type { NodeViewableAccess } from "@/modules/nodes/access.js";
 import {
   type NodeAccess,
+  nodeCanConfigure,
   nodeCanLaunchOn,
   nodeCanManageFor,
   nodeCanRetire,
   nodeCanTransfer,
 } from "@/modules/nodes/access.js";
-import { type EffectiveHarnessReport, effectiveHarnessStates } from "@/modules/nodes/inventory.js";
+import {
+  type EffectiveHarnessReport,
+  type EffectiveHarnessState,
+  effectiveHarnessStates,
+} from "@/modules/nodes/inventory.js";
 import { getHeld, type HeldReason } from "@/modules/nodes/node-registry.js";
 import { localPlatform } from "@/modules/nodes/seed-local.js";
 import { enabledHarnessPlugins } from "@/modules/plugins/store.js";
@@ -76,6 +81,15 @@ export const NodeHarnessViewSchema = t.Object({
     t.Boolean({
       description:
         "The instance holds a newer copy of this plugin than the code the control-plane process is running, so the plugin-derived fields here are the previous copy's. Note this is NOT about `version` on this row, which is the driven program's version and is unaffected. Cleared when the server restarts",
+    }),
+  ),
+  update: t.Optional(
+    t.Object({
+      command: t.String({
+        description:
+          "Shell line that updates this harness CLI on this node. Present only for an agent harness with an update path, and only to a viewer who can configure the node",
+      }),
+      docsUrl: t.Optional(t.String({ description: "Update documentation URL, when the plugin declares one" })),
     }),
   ),
   checkedAt: t.Optional(
@@ -543,6 +557,7 @@ export async function toNodeView(
   granted: NodeAccess,
 ): Promise<NodeView> {
   const { harnesses, stale } = await effectiveHarnessStates(row);
+  const visibleHarnesses = harnessRowsFor(access, harnesses);
   const allowedDirs = await new NodeAllowedDirsRepository(db).listForNode(row.id);
   // The switch only ever speaks about the control-plane host, so only that
   // row pays the read.
@@ -555,7 +570,7 @@ export async function toNodeView(
     : undefined;
   return {
     ...nodeViewBase(row, access, isAdmin, allowedDirs, granted, serverAsNode, ownerLabel),
-    harnesses,
+    harnesses: visibleHarnesses,
     inventoryStale: stale,
   };
 }
@@ -596,19 +611,30 @@ export async function toNodeViews(
       serverAsNode ??= await serverSubshellsEnabled(db);
       out.push({
         ...nodeViewBase(row, access, isAdmin, allowedDirs, granted, serverAsNode, ownerLabel),
-        harnesses: localReport.harnesses,
+        harnesses: harnessRowsFor(access, localReport.harnesses),
         inventoryStale: localReport.stale,
       });
     } else {
       const { harnesses, stale } = await effectiveHarnessStates(row, installed);
       out.push({
         ...nodeViewBase(row, access, isAdmin, allowedDirs, granted, true, ownerLabel),
-        harnesses,
+        harnesses: harnessRowsFor(access, harnesses),
         inventoryStale: stale,
       });
     }
   }
   return out;
+}
+
+/**
+ * The update line is machine-acting data, so it rides the same gate as the
+ * Update button: a viewer who cannot configure the node does not receive it.
+ * The rest of the row is unchanged. `update` is optional, so dropping it keeps
+ * the wire shape valid for every viewer.
+ */
+function harnessRowsFor(access: NodeViewableAccess, rows: EffectiveHarnessState[]): EffectiveHarnessState[] {
+  if (nodeCanConfigure(access)) return rows;
+  return rows.map(({ update: _update, ...row }) => row);
 }
 
 /** Share rows → wire shape with grantee display names resolved (subshell-shares mirror). */

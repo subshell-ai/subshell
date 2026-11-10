@@ -48,6 +48,7 @@ type HarnessEntry = {
   reason?: "not-on-path" | "override-invalid";
   broken?: string;
   checkedAt?: string;
+  update?: { command: string; docsUrl?: string };
 };
 type View = {
   id: string;
@@ -223,6 +224,23 @@ describe("/api/nodes harness state + recheck", () => {
     // nothing any more — the catalog is the instance's, the answer per row
     // is the node's.
     expect(harnessOf(view, H2).installed).toBe(false);
+  });
+
+  it("view: the update line rides the configure gate", async () => {
+    const id = await mkNode({ json: [entry(H0, true, "9.9.9")], at: freshAt() });
+    // The owner configures the node, so the row carries the line the Update
+    // action runs.
+    expect(harnessOf(await getNodeView(id), H0).update?.command).toContain("claude");
+
+    await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "view" }], aliceId);
+    try {
+      // A view grantee reads the harness and its detection but not the shell
+      // line: the route runs it, and that is a configure act.
+      const viewerRow = harnessOf(await getNodeView(id, carolCookie), H0);
+      expect("update" in viewerRow).toBe(false);
+    } finally {
+      await nodeShares.replaceForNode(id, [], aliceId);
+    }
   });
 
   it("view: a plugin the instance does not carry is absent, not shown broken — even with an inventory row", async () => {

@@ -123,9 +123,11 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   // The version this pane launches on (protocol 28), when the plane asked for
   // it: an agent harness's version is worth recording; a shell's or ssh's
   // banner is not. Raw, because interpreting a banner is plugin code that
-  // lives on the control plane; started HERE and awaited at the end, so the
-  // spawn does not wait on it unless the probe is slower than the launch.
-  const versionProbe = cmd.probeVersion === true && resolvedBinary ? probeVersion(resolvedBinary) : undefined;
+  // lives on the control plane. Started just before the spawn and awaited at
+  // the end, so a launch that a later validation refuses never probes, and a
+  // successful one does not wait on the probe unless it is slower than tmux.
+  let versionProbe: Promise<string | null> | undefined;
+  const shouldProbeVersion = cmd.probeVersion === true && resolvedBinary !== undefined;
 
   // (3) MCP registration. The AGENT writes the file — its own path policy and
   // 0600 discipline are node controls, not plugin knowledge. The dialect is
@@ -270,6 +272,7 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     // credential keys, but one map for both consumers is the agreement, so
     // the report is built from the same env the pane got.
     const exitHook = exitHookFor(selfInvocation("report"), paneEnvFor(cmd.subshellEnv, preset, mcpPaneEnv, displayEnv));
+    versionProbe = shouldProbeVersion && resolvedBinary ? probeVersion(resolvedBinary).catch(() => null) : undefined;
     ctx.tmux.newSubshell(cmd.socket, cmd.subshellId, cmd.cwd, paneCmd, exitHook);
   } catch (err) {
     // Roll back in the order things were created: a display this launch

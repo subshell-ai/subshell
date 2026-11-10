@@ -23,13 +23,14 @@ function codeForRefusalStatus(status: 400 | 404 | 409): BackendErrorCodes {
 }
 
 /**
- * How often a silent update says something. A harness update runs for up to
- * ten minutes with no bytes to show (the output arrives in one answer on a
- * remote node), and both Bun's HTTP server and every proxy between it and the
- * page close an idle response. 15 s is far inside any of those deadlines and
- * far outside what a person reads as "stuck".
+ * How often a silent update says something. A remote run sends no line frames
+ * (its output arrives in the one terminal answer), and Bun closes a response
+ * that writes nothing for 10 s — measured against Bun 1.4.4, which answers a
+ * 12 s gap with ECONNRESET. Proxies have their own idle deadlines too, so the
+ * beat is half Bun's window: two of them per close, without turning the
+ * stream into chatter.
  */
-const UPDATE_HEARTBEAT_MS = 15_000;
+const UPDATE_HEARTBEAT_MS = 5_000;
 
 /**
  * `POST /api/nodes/:id/harnesses/:pluginId/update` — run one harness CLI's own
@@ -60,6 +61,15 @@ export const harnessUpdateRoute = new Elysia()
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
       }
       if (!nodeCanConfigure(gate.access)) throw new ForbiddenError();
+
+      // Running the line on the control-plane host is the install route's act,
+      // and that route reserves it for an admin cookie because it is remote
+      // code execution as the server's OS user. Update falls back to the same
+      // installer line when a plugin declares no dedicated verb, so `local`
+      // rides the same gate. `edit` is not enough: the seeded local node gives
+      // Everyone/edit, which is a launch grant, not permission to run a vendor
+      // script in the server process. Enrolled nodes keep the configure gate.
+      if (gate.row.kind === "local" && !gate.isAdmin) throw new ForbiddenError();
 
       // REFUSALS ARE DECIDED BEFORE A BYTE IS STREAMED. Once the body opens
       // the status is 200 and cannot be taken back, so anything that answers
@@ -118,10 +128,10 @@ export const harnessUpdateRoute = new Elysia()
             await audit({
               actorUserId: user.id,
               action: "node.harness.update",
-              targetType: "plugin",
-              targetId: params.pluginId,
+              targetType: "node",
+              targetId: gate.row.id,
               metadataJson: JSON.stringify({
-                nodeId: gate.row.id,
+                pluginId: params.pluginId,
                 ok: result.ok,
                 exitCode: result.exitCode,
                 durationMs: result.durationMs,
@@ -134,15 +144,27 @@ export const harnessUpdateRoute = new Elysia()
             // mid-run. The status line is long gone, so this arrives as a
             // frame; a client that sees neither `done` nor `error` treats an
             // ended body as a failure too.
-            send({
-              type: "error",
-              message:
-                err instanceof HarnessUpdateRefused
+            const message =
+              err instanceof HarnessUpdateRefused
+                ? err.message
+                : err instanceof Error
                   ? err.message
-                  : err instanceof Error
-                    ? err.message
-                    : "The update failed.",
-            });
+                  : "The update failed.";
+            send({ type: "error", message });
+            // A transport failure (a dropped socket, a malformed answer, an RPC
+            // deadline) does not prove the command did nothing — the node's own
+            // ten-minute budget keeps it running. Record the ambiguity the way
+            // the node self-update does, so a real CLI replacement is not
+            // invisible to the audit trail. A pre-run refusal did nothing.
+            if (!(err instanceof HarnessUpdateRefused)) {
+              await audit({
+                actorUserId: user.id,
+                action: "node.harness.update.unknown",
+                targetType: "node",
+                targetId: gate.row.id,
+                metadataJson: JSON.stringify({ pluginId: params.pluginId }),
+              });
+            }
           } finally {
             clearInterval(heartbeat);
             // `updateHarness` releases the slot; doing it again is a no-op and
