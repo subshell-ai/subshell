@@ -50,7 +50,7 @@ Everything below assumes that perimeter holds.
 |---|---|
 | An unauthenticated party reaching any API | The auth guard (every `/api/*` route except auth, setup-status, and the one anonymous read carved out in §2) |
 | One user reading or driving another user's subshells | Ownership checks returning **404, never 403**, so ids cannot be probed |
-| A harness pane escalating beyond its own subshell | Per-subshell tokens scoped by permission map, bound to their row, and rejected on every admin surface |
+| A harness pane escalating beyond its own subshell | Per-subshell tokens scoped by permission map, bound to their row, and rejected on every admin surface. Node list and launch reach exactly its ACCOUNT's authority, the control-plane host included while that launch grant stands (accepted, §3) |
 | A compromised harness enumerating the operator's disk | `/api/files/explore` refuses machine credentials outright (403) |
 | A stolen WS attach token being replayed | 30 s TTL, single-use, minted only over an authenticated REST call; a machine-minted token is additionally bound to one subshell and refused anywhere else, including `/ws/live` |
 | Password guessing | Per-email exponential backoff on sign-in |
@@ -121,11 +121,14 @@ resource-ownership checks still apply after the permission check.
 
 Node enrollment, ordinary configuration, directory rules, sharing, SSH access,
 wide forwarding, maintenance, apps and screens access, logging, and ownership
-transfer have separate grants. `nodes:transfer` (spec 2026-11-07) is the one node grant that changes
-whose machine a machine is, and it honors the same owner-equality boundary as
-every other node grant: a machine token hands over only nodes its own account
-owns, which is the provisioning story of server-minted setup keys producing
-system-owned rows that automation then assigns. Handing a node to another
+transfer have separate grants. `nodes:transfer` (spec 2026-11-07) is the one
+node grant that changes whose machine a machine is, and it keeps the
+owner-equality boundary the CONFIGURATION grants use: a machine token hands
+over only nodes its own account owns, which is the provisioning story of
+server-minted setup keys producing system-owned rows that automation then
+assigns. Node LIST and LAUNCH are the exception by design: they resolve as the
+account does (§3's 2026-11-10 bullet), which is what makes a preset naming a
+shared machine launchable from a pane. Handing a node to another
 account is never delegable between humans either: on an agent node the route
 answers 403 for a manage grantee and for an admin alike, and on `local` the
 shape refusal (400) lands before anyone is asked. Subshell reads,
@@ -622,24 +625,52 @@ section's posture depends on):
   `act-denied` (the same token 404s a merely-shared row while its owner's own
   still reads 200), in
   `apps/server/api/src/api/subshells/__tests__/subshells-list-visibility.test.ts`,
-  beside a comment at the route's call site. Tightening the read to the
-  `allowAdminAndShares: false` the gate uses would be a real behavior change
-  and must move this paragraph and those tests together, not silently. The WS
+  beside a comment at the route's call site. Tightening that read to an
+  owner-only set would be a real behavior change and must move this paragraph
+  and those tests together, not silently. The WS
   attach path likewise resolves a bearer-minted token as the subshell's OWNER
   through the full human gate, contained structurally instead of by the
   permission map: the token is bound to one subshell at mint, the bind is
   checked at redemption BEFORE access is ever resolved, and the token can name
   no second pane (see §2).
-- **The NODE LIST answers a machine token as its owner, disclosure-only
-  (2026-09-25).** `GET /api/nodes` used to sit behind the same cookie-only
-  refusal as every other nodes route; the MCP `list_nodes` tool needed a door,
-  so a bearer actor now gets the strict owner-only set: the nodes its owner
-  owns, no shares, no admin boost, rendered by the same mapper with the
-  unboosted access (`list-nodes.route.ts`). `local` appears only to its owner,
-  which for the seeded row is the system user, so a system key sees it and a
-  human's pane token never does. Ordinary keys and pane tokens still cannot
-  configure nodes. Scoped system keys need the permission declared by each route to manage
+- **The NODE LIST answers a machine token as the account it acts for, and so
+  does launch (2026-09-25; widened 2026-11-10).** `GET /api/nodes` used to sit
+  behind the same cookie-only refusal as every other nodes route; the MCP
+  `list_nodes` tool needed a door, so a bearer actor reads the set a NON-ADMIN
+  browser gets: owned plus shared machines, `local` included through its
+  Everyone grant, rendered with the unboosted access
+  (`list-nodes.route.ts`). The admin list arm stays browser-only: a bearer row
+  carries every capability flag at the NON-BOOSTED reading (an owned row still
+  shows `canManage`/`canRetire`, exactly as a non-admin browser sees it), while
+  listing grants no configuration permission and the bearer's write routes stay
+  refused. **Launch holds no separate
+  rule**: a pane token resolves the node exactly as the person's browser would,
+  admin boost included (operator ruling 2026-11-10: "if the user can already
+  create a subshell on that node, then they should be able to via MCP as
+  well"). So a machine shared with the account launches, a machine the account
+  may launch on through the admin boost launches, and the control-plane host
+  launches when the account's local grant and `allow_server_subshells` allow it.
+  The credential can already act as its account elsewhere; refusing a node the
+  account may launch on was a second, stricter rule with no matching authority
+  boundary. Ordinary keys and pane tokens still cannot configure nodes. Scoped
+  system keys need the permission declared by each route to manage
   system-owned new-node setup keys or configure system-owned agent nodes.
+  **What that costs is stated rather than implied.** A stolen pane token now
+  reaches whatever its account may launch on, the control-plane host included
+  for any account holding a launch grant there: starting a pane on that host
+  runs commands as the server's OS user, on the machine that holds the node
+  signing keypair. That is the reach the person already has from the browser
+  and no more (node configuration stays refused), but the old absolute
+  promise that a harness key could never start a subshell on the Server is
+  gone. That is the ruling's price, and it is why the host's launch grant is an
+  admin decision.
+  **The `system` principal is a member of every Everyone grant.** Since
+  `findAccessible` matches the Everyone row for any viewer id, a system key
+  carrying `nodes:read` or `subshells:execute` lists, auto-picks and launches
+  on every machine shared to Everyone, not only the system-owned `local`. Its
+  authority is ownership plus grants because it has no browser session of its
+  own; the reach equals any admitted account's, and the bearer list test pins
+  the membership.
   All new grants default off; unannotated authenticated routes deny scoped keys.
   Child pane tokens inherit the ceiling and rotation cannot broaden it.
   Enrollment grants cannot read or revoke recovery keys.
@@ -652,7 +683,7 @@ section's posture depends on):
   cookie-only. The live schema at `/openapi.json` and `/docs` is public route
   documentation, with no keys or instance records. This is the same ruling the subshell-list bullet
   above made on 2026-09-23, and it is pinned the same way, by real tokens:
-  `enumerate-ok`, invisibility and `act-denied` in
+  `enumerate-ok`, the visibility boundary and `act-denied` in
   `apps/server/api/src/api/nodes/__tests__/nodes-list-bearer.test.ts`.
 - **The NODE LIST shows an admin every machine, as the detail gate always did
   (2026-10-09).** The cookie list used to select owner/share rows in SQL
@@ -796,15 +827,18 @@ output, or tmux pane metadata. Accepted (§11).
 "write"], subshells: ["read", "write"], prompts: ["read", "write"] }`
 (`services/subshell-tokens.ts:33`):
 the map is a coarse scope gate, not a row fence. The MCP tools self-restrict
-the pane to its own row for reporting, but the raw REST surface resolves the
-token as its OWNER with shares switched off (§3), which means a
-prompt-injected pane can create, restart and **terminate** the owner's OTHER
-subshells; terminate gates at `edit`, and the owner holds `edit` on its own
-rows by definition (the service's `#gate`). This is the first
-written accounting of the sibling surface the "other panes are agents"
-coordination posture rests on, and it is stated plainly for that reason:
-intra-instance coordination is trusted at the same altitude as the harness
-itself (§11).
+the pane to its own row for reporting, but the SUBshell routes of the raw REST
+surface resolve the token as its OWNER with shares switched off (§3), which
+means a prompt-injected pane can create, restart and **terminate** the
+owner's OTHER subshells; terminate gates at `edit`, and the owner holds `edit`
+on its own rows by definition (the service's `#gate`). NODE launch and the
+node list are different: since the operator ruling of 2026-11-10 they resolve
+as the account does, so the same pane can start a subshell on any machine its
+owner may launch on, the control-plane host included while that launch grant
+stands (§3). Node configuration stays refused. This is the first written
+accounting of the sibling surface the "other panes are agents" coordination
+posture rests on, and it is stated plainly for that reason: intra-instance
+coordination is trusted at the same altitude as the harness itself (§11).
 
 **Prompts: the bearer gets full CRUD, the share flip included** (operator
 ruling, spec 2026-09-28). `/api/prompts` writes are NOT cookie-only, unlike
@@ -2122,9 +2156,22 @@ launch. Two consequences worth stating:
   404 check runs first, so the 403 can only ever name a row already on the
   caller's own Nodes page; it is not an id-existence oracle.
 
+**The row's OWNER is the exception to the share switch.** The seeded `local`
+row belongs to the `system` service account, and an owner is not bound by its
+own share rows: with the Everyone row deleted, a system key holding
+`subshells:execute` still resolves the host (a human's pane token no longer
+does). `allow_server_subshells` (the settings switch, which `nodeCanLaunchOn`
+checks before any grant) does bind it. So the share toggle narrows the host
+for every human, while automation that may launch panes there is a
+credential decision.
+
 Nothing else changes: for a viewer who was never boosted the two readings are
-the same value, and the machine-actor path (`allowAdminAndShares: false`)
-resolves them identically, so a bearer token neither gains nor loses anything.
+the same value, and `granted` remains the only stricter reading. Every actor
+class now resolves node access exactly as its account does (operator ruling
+2026-11-10), so a bearer token neither gains nor loses launch authority
+against the person who owns that token. The `system` account has no person
+behind it: its set is ownership plus every Everyone grant (above), and that
+is why a system key reaches Everyone-shared machines.
 
 ### The node's loopback dashboard (spec 2026-09-19)
 
@@ -4345,8 +4392,10 @@ capability makes it a secret in the MCP conversation, with the same bearer-link
 risk and revocation rules as browser-created capabilities.
 
 `GET /api/nodes/:id/display-readiness` accepts subshell tokens for a read-only
-prerequisite probe. `loadNodeGate` restricts machine actors to owned enrolled
-nodes, excluding shares, admin privilege inheritance, and the server host.
+prerequisite probe. It resolves the node as the account does (the same
+`loadNodeAccess` reading the launch gate uses, so owned, shared and
+admin-boosted machines and the host under its grant are all probe-able), while
+`loadNodeGate` still holds node CONFIGURATION to owned agent nodes.
 Node management/detail and SSH guards are unchanged. Node discovery reports
 SSH settings and harness health without granting configuration or SSH access.
 

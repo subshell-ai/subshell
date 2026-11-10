@@ -11,12 +11,11 @@ import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
  * and the owner can still turn the bell on from the pane's menu.
  *
  * The route's rule is `actor === "subshell-key"` — a system key is admin
- * automation and is NOT stamped, but the strict bearer rule (the system user
- * owns no agent node and no presets) refuses its launch onto one long before
- * any stamp, and a green local launch here would spawn real tmux (the leak
- * class apps/server/api/AGENTS.md records); the human/pane pair below are the
- * doors that can actually answer, and the third shares the human door's
- * value (`false`) by construction.
+ * automation and is NOT stamped. Its own launch resolves as the system
+ * account (which owns `local`), so a green launch there would spawn real tmux
+ * (the leak class apps/server/api/AGENTS.md records); the human/pane pair
+ * below are the doors that can actually answer, and the third shares the
+ * human door's value (`false`) by construction.
  */
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";

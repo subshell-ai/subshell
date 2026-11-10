@@ -23,7 +23,7 @@ A pane token resolves to its owner's identity for permitted operations, without 
 
 The session list includes shared sessions that the pane's owner can see. If a session belongs to someone else, the pane may receive a 404 when it tries to inspect or change it, even though it appears in the list.
 
-Node enumeration with a pane token is owner-only. The server-host node belongs to the system identity by default and isn't automatically in a human pane's node list.
+Node enumeration with a pane token follows the account it acts for: machines the account owns or that are shared with it, the server-host node included when its Everyone grant is on. Launching uses that same authority. A pane token doesn't gain the administrator's instance-wide list, though: `list_nodes` shows the non-admin set, so an administrator's token can launch on a private foreign machine only when something else names it, such as a saved preset. The Nodes page shows an administrator more machines than `list_nodes` does.
 
 ## System keys
 

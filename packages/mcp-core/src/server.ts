@@ -180,7 +180,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     {
       title: "Get node",
       description:
-        "Inspect an owned node by ID or name, including harness detection, SSH and Web previews & screens settings, protocol capabilities, launch restrictions, and a live virtual-display prerequisite check. Includes enabled providers and the default. Pass provider to check another choice. Display ready means its requirements are met; virtualDisplay.enabled separately reports whether node policy allows that choice. This does not enable features or grant SSH access; Subshell SSH requires a browser session.",
+        "Inspect a machine from list_nodes by ID or name, including harness detection, SSH and Web previews & screens settings, protocol capabilities, launch restrictions, and a live virtual-display prerequisite check. Includes enabled providers and the default. Pass provider to check another choice. Display ready means its requirements are met; virtualDisplay.enabled separately reports whether node policy allows that choice. This does not enable features or grant SSH access; Subshell SSH requires a browser session.",
       inputSchema: GetNodeSchema,
     },
     guard((args: z.infer<typeof GetNodeSchema>) => getNode(deps, args)),

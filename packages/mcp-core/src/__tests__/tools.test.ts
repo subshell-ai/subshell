@@ -775,10 +775,9 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
   it("create_subshell on a named node with ZERO nodes says no machines are enrolled", async () => {
     // The other half of the refusal: an empty list has no names to enumerate,
     // and "available: " with nothing after it is not a sentence an agent can
-    // act on. The empty list is a real wire shape, not a hypothetical: the
-    // owner-only bearer read (spec 2026-09-25) answers { nodes: [] } for a pane whose
-    // owner owns no node rows, which is every human pane until someone
-    // enrolls a machine (the seeded `local` belongs to the system user).
+    // act on. The empty list is a real wire shape, not a hypothetical: a pane
+    // whose account holds no grant at all (e.g. after `local`'s Everyone row
+    // is removed) answers { nodes: [] }.
     const { deps, calls } = await depsFor((req) =>
       req.path === "/api/presets"
         ? [{ id: "pre-1", name: "Dev", harnessId: "terminal", nodeId: null, workingDir: null, promptBlocks: null }]

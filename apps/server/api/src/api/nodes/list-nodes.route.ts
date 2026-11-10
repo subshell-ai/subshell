@@ -31,16 +31,16 @@ const ListNodesQuerySchema = t.Object({
  * (docs/security.md §3).
  *
  * BEARER actors (any API key): the machine consumer this route's phase-1 note
- * deferred to arrived with the MCP DX work (spec 2026-09-25). A pane picking
- * a launch target needs exactly the candidate set `resolveLaunchNode` step 3
- * resolves for a machine actor: `NodesRepository.listByOwner`, STRICT
- * owner-only, no admin boost and no shares (what the human can see through a
- * grant buys their machine nothing; `local` belongs to the system user, so a
- * human owner's token never sees it). The rows carry `harnesses` and
- * `canLaunch` honest for this actor class, which is the payload the agent
- * needs to pick a machine. Listing grants no configuration permission:
- * detail and configuration require a browser session or the explicit
- * system-key node-management opt-in.
+ * deferred to arrived with the MCP DX work (spec 2026-09-25). A token holds
+ * the node authority of the account it acts for (operator ruling 2026-11-10:
+ * "if the user can already create a subshell on that node, they can via MCP
+ * too"), so a bearer reads the same candidate set a NON-ADMIN browser gets —
+ * `findAccessible`, owned plus shared, `local` included through its Everyone
+ * grant — with no admin boost and no role read. The admin arm stays
+ * browser-only: its rows carry capability flags a bearer's write routes would
+ * refuse, and listing grants no configuration permission. The rows carry
+ * `harnesses` and `canLaunch` honest for this actor class, which is the
+ * payload the agent needs to pick a machine.
  */
 export const listNodesRoute = new Elysia()
   .use(authGuard)
@@ -88,14 +88,20 @@ export const listNodesRoute = new Elysia()
           nodes: (await toNodeViews(entries)).filter(matches),
         };
       }
-      // Bearer: the strict owner-only set, the same candidate source
-      // `resolveLaunchNode` step 3 uses for machine actors. No role read and
-      // no share lookup happen at all: the machine path stays as strict as a
-      // plain owner check, and an owned row resolves to `owner` under both
-      // readings (the flatMap discard is the same type witness as above).
-      const rows = await new NodesRepository(db).listByOwner(user.id);
+      // Bearer: the candidate set a NON-ADMIN browser gets — owned plus shared
+      // rows, no role read, no admin boost. A token acts as its account
+      // (operator ruling 2026-11-10), so a machine shared with that account is
+      // a launch target and belongs here; `local` rides its Everyone grant,
+      // exactly as it does on the human's Nodes page. Rows render with
+      // `isAdmin: false`, so every capability flag is the NON-BOOSTED reading:
+      // on the account's own rows that legitimately still shows
+      // `canManage`/`canRetire` (the same flags a non-admin browser sees),
+      // while listing itself grants no configuration permission and this
+      // bearer's write routes stay refused.
+      const rows = await new NodesRepository(db).findAccessible(user.id);
+      const shares = await new NodeSharesRepository(db).listForNodes(rows.map((r) => r.id));
       const entries = rows.flatMap((row) => {
-        const access = resolveNodeAccess(user.id, false, row, []);
+        const access = resolveNodeAccess(user.id, false, row, shares.get(row.id) ?? []);
         return access === "none" ? [] : [{ row, access, isAdmin: false, granted: access, exposeUpdate: false }];
       });
       return {
@@ -108,7 +114,7 @@ export const listNodesRoute = new Elysia()
         200: t.Object({
           nodes: t.Array(NodeViewSchema, {
             description:
-              "Every node visible to the caller (cookie: owned, granted, or — for an admin — every machine node, `local` or `agent`, as on the detail route; bearer: owned only)",
+              "Every node visible to the caller (cookie: owned, granted, or — for an admin — every machine node, `local` or `agent`, as on the detail route; bearer: the non-admin view — owned plus shared machines, `local` included through its Everyone grant)",
           }),
         }),
         401: "ApiErrorResponse",
@@ -118,7 +124,7 @@ export const listNodesRoute = new Elysia()
         operationId: "listNodes",
         tags: ["nodes"],
         description:
-          "List nodes visible to the caller: a cookie sees owned or shared rows (an admin sees every machine node, `local` or `agent`, matching the detail gate's boost), a machine token sees only its owner's own nodes (disclosure-only)",
+          "List nodes visible to the caller: a cookie sees owned or shared rows (an admin sees every machine node, `local` or `agent`, matching the detail gate's boost); a machine token sees what a non-admin browser sees — owned plus shared machines, the control-plane host included through its Everyone grant (disclosure-only)",
       },
     },
   );

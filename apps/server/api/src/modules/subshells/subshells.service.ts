@@ -25,7 +25,13 @@ import type { PresetTable } from "@/db/types/presets.db-types.js";
 import type { SubshellSharePermission } from "@/db/types/subshell-shares.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import type { GuardActor } from "@/modules/auth/actor.js";
-import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/modules/nodes/access.js";
+import {
+  loadNodeAccess,
+  type NodeAccessDeps,
+  nodeCanLaunch,
+  nodeCanLaunchOn,
+  noLaunchGrantMessage,
+} from "@/modules/nodes/access.js";
 import { resolveNodeDisplayRequest } from "@/modules/nodes/display-selection.js";
 import { launcherFor } from "@/modules/nodes/launcher-registry.js";
 import { getLive, isNodeOffline } from "@/modules/nodes/node-registry.js";
@@ -207,14 +213,16 @@ function rethrowLaunchRefusal(err: unknown): never {
  *    deleting local's Everyone row turns this step off for EVERYONE, admins
  *    included: `nodeCanLaunchOn` reads the granted access there, never the
  *    admin boost, or the one person who can throw the switch would be the one
- *    person it does not apply to).
+ *    person it does not apply to). This step is the account's, like every
+ *    other: a credential whose user may launch on the host takes this step.
  * 3. Auto-pick: exactly one ONLINE agent among the caller's candidates that is
- *    not in maintenance — `findAccessible` for a browser actor, `listByOwner`
- *    for a bearer. Zero or several ⇒ 400 NODE_REQUIRED ("pick one"; the spec's
- *    single-online auto-pick is read literally — two online nodes is NOT a
- *    choice). This step never reaches `nodeCanLaunchOn`, so the flag is
- *    filtered here by hand: an implicit launch must never relocate onto a
- *    machine whose owner took it out of service.
+ *    not in maintenance — `findAccessible` for both actor classes (owned plus
+ *    shared; the `local` row falls straight out of the agent filter). Zero or
+ *    several ⇒ 400 NODE_REQUIRED ("pick one"; the spec's single-online
+ *    auto-pick is read literally — two online nodes is NOT a choice). This
+ *    step never reaches `nodeCanLaunchOn`, so the flag is filtered here by
+ *    hand: an implicit launch must never relocate onto a machine whose owner
+ *    took it out of service.
  *
  * The preset PIN died with spec 2026-09-13 §2.3 (a preset could pin a node
  * and relocate a launch the human pointed elsewhere); spec 2026-09-29
@@ -225,10 +233,15 @@ function rethrowLaunchRefusal(err: unknown): never {
  * resolver never reads a preset, and nothing here can relocate a stated
  * request.
  *
- * MACHINE actors (`machineActor: true` — any bearer token, subshell or
- * system key) get the STRICT loader everywhere: no admin boost, no shares,
- * owner-only — so a leaked harness key can never spawn a control-plane
- * subshell (local belongs to the system user) nor ride a shared node.
+ * EVERY actor class resolves node access the same way, because a credential
+ * holds the authority of the account it acts for (operator ruling 2026-11-10:
+ * "if the user can already create a subshell on that node, then they should be
+ * able to via MCP as well"). That means a pane's own token may launch on a
+ * machine shared with its owner, through the admin boost when the owner is an
+ * admin, and on the control-plane host when the owner's launch grant there
+ * permits it. The credential can already act as that account everywhere else;
+ * refusing a node the account may launch on was a second, stricter rule with
+ * no matching authority boundary.
  *
  * @param deps - the repositories the access resolver reads (nodes, shares,
  *               userMeta) — injected so tests drive a scratch DB
@@ -241,21 +254,18 @@ function rethrowLaunchRefusal(err: unknown): never {
 export async function resolveLaunchNode(
   {
     userId,
-    machineActor,
     requestedNodeId,
     serverAsNodeEnabled = true,
   }: {
     /** The creating user (bearer actors arrive as their owning user). */
     userId: string;
-    /** True for every non-cookie actor — switches off admin boost + shares. */
-    machineActor: boolean;
     /** Explicit `body.nodeId` (may name `local`). */
     requestedNodeId?: string;
     /**
      * The `allow_server_subshells` setting, pre-read by the caller (it is
-     * given the way `machineActor` is — a fact about the request, not a
-     * lookup inside the rule). Default true: a resolver call that knows
-     * nothing of the setting behaves exactly as it did before it existed.
+     * given the way `userId` is — a fact about the request, not a lookup
+     * inside the rule). Default true: a resolver call that knows nothing of
+     * the setting behaves exactly as it did before it existed.
      */
     serverAsNodeEnabled?: boolean;
   },
@@ -263,9 +273,7 @@ export async function resolveLaunchNode(
 ): Promise<{ nodeId: string }> {
   /** The step-1 gate: existence → launch access → agent liveness. */
   const gate = async (nodeId: string): Promise<{ nodeId: string }> => {
-    const { row, access, granted } = await loadNodeAccess(deps, userId, nodeId, {
-      allowAdminAndShares: !machineActor,
-    });
+    const { row, access, granted } = await loadNodeAccess(deps, userId, nodeId);
     // Any share grants launch (spec §2): access "none" ⇔ invisible ⇒ 404.
     if (!row || !nodeCanLaunch(access)) {
       throw new SubshellCreateError("node_not_found", "Node not found", 404);
@@ -308,11 +316,7 @@ export async function resolveLaunchNode(
           403,
         );
       }
-      throw new SubshellCreateError(
-        "node_launch_disabled",
-        `No one is granted launch access on ${row.name}. Share it with Everyone or with specific people to allow launching.`,
-        403,
-      );
+      throw new SubshellCreateError("node_launch_disabled", noLaunchGrantMessage(row.name), 403);
     }
     if (row.kind === "agent" && !getLive(nodeId)) {
       throwApiError({
@@ -331,7 +335,7 @@ export async function resolveLaunchNode(
   // relocates to step 3). An IMPLICIT local launch is deliberately silent
   // about both: the caller named no node, so there is nothing to explain yet
   // — step 3 answers, or NODE_REQUIRED does.
-  const local = await loadNodeAccess(deps, userId, LOCAL_NODE_ID, { allowAdminAndShares: !machineActor });
+  const local = await loadNodeAccess(deps, userId, LOCAL_NODE_ID);
   if (
     local.row &&
     nodeCanLaunch(local.access) &&
@@ -340,12 +344,13 @@ export async function resolveLaunchNode(
     return { nodeId: LOCAL_NODE_ID };
   }
 
-  // Step 3: single-online-agent auto-pick over the actor's candidate set. The
-  // maintenance filter is spelled out because this step never reaches
+  // Step 3: single-online-agent auto-pick over the account's candidate set
+  // (owned plus shared — the same set the Nodes page lists for a non-admin).
+  // The maintenance filter is spelled out because this step never reaches
   // `nodeCanLaunchOn` — an implicit launch must not relocate onto a machine
-  // its owner took out of service, and "the only online node" is exactly
+  // its owner took it out of service, and "the only online node" is exactly
   // where that would happen unnoticed.
-  const candidates = machineActor ? await deps.nodes.listByOwner(userId) : await deps.nodes.findAccessible(userId);
+  const candidates = await deps.nodes.findAccessible(userId);
   const online = candidates.filter((n) => n.kind === "agent" && n.maintenance !== 1 && getLive(n.id));
   if (online.length === 1) return { nodeId: online[0].id };
   throwApiError({
@@ -496,9 +501,11 @@ export class SubshellsService extends BaseService {
      *  A preset's node hint fills this when the request names none. */
     nodeId?: string;
     /**
-     * True for any bearer (non-cookie) actor — enforced by the user-ratified
-     * STRICT rule: bearer creation resolves nodes with no admin boost and no
-     * shares, owner-only, the implicit `local` fallback included.
+     * True for any bearer (non-cookie) actor. Since the operator ruling of
+     * 2026-11-10 this no longer narrows NODE launch — a credential resolves
+     * nodes exactly as its account does. It still keeps PRESET reads
+     * owner-only for machine actors (a pane token launches from the account's
+     * own presets, never from one merely shared with it).
      */
     machineActor: boolean;
     /**
@@ -630,7 +637,6 @@ export class SubshellsService extends BaseService {
         await resolveLaunchNode(
           {
             userId,
-            machineActor,
             // A preset's hint reaches the SAME gate as an explicit body nodeId
             // (resolved above); `undefined` feeds the existing ladder.
             requestedNodeId: resolved.nodeId,

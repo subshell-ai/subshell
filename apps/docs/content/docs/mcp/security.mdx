@@ -21,7 +21,7 @@ This trust-on-first-use check doesn't authenticate the first key independently. 
 
 A pane token allows operations on its owner's sessions and prompt library without inheriting administrator privileges or another user's session-sharing grants. Shared sessions may appear in the list even when the token can't inspect or change them.
 
-The node list is owner-scoped for pane tokens. A human's token doesn't automatically receive the server-host node just because the human can launch there through the browser.
+The node list shows the machines the account owns or that are shared with it, including the server-host node while its Everyone grant is on. Launch authority is the account's own, so a pane starts a subshell wherever its user could start one from the browser; an administrator's authority also covers private machines that `list_nodes` leaves out. A pane token still doesn't get an administrator's list of every machine, and node settings stay browser-only.
 
 > [!warning] Trusted agents
 > Agents run with their execution account's filesystem access. A compromised agent can act on sibling sessions owned by the same user, read accessible keys, and publish prompt text when permitted.

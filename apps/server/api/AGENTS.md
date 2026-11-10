@@ -108,18 +108,29 @@ it uses a class or functions; its capability owns it alongside its policies and
 helpers. There is no shared `services/`, `lib/`, or `utils/` bucket.
 
 
-The nodes READ surface widened twice: spec 2026-09-25 (MCP DX) made `GET
-/api/nodes` answer a bearer machine token with its owner's own nodes
-(owner-only, no shares, no admin boost, disclosure-only), the door the MCP
-`list_nodes` tool rides; 2026-10-09 gave the COOKIE list its admin arm: an
-admin sees every machine node (`findAllMachines`), matching the detail gate
-that already gave admins `edit` on foreign rows, while a non-admin's list is
-the unchanged owner/share filter. Node setup-key management, detail reads, and configuration also accept system
-keys with the specific `systemPermission` declared by each route. New keys carry
+The nodes READ surface widened twice, and then stopped distinguishing actor
+classes for launch. Spec 2026-09-25 (MCP DX) made `GET /api/nodes` answer a
+bearer machine token at all, the door the MCP `list_nodes` tool rides;
+2026-10-09 gave the COOKIE list its admin arm: an admin sees every machine node
+(`findAllMachines`), matching the detail gate that already gave admins `edit`
+on foreign rows, while a non-admin's list is the unchanged owner/share filter.
+Operator ruling 2026-11-10 made the bearer read that same non-admin set (owned
+plus shared, `local` included through its Everyone grant) and, more importantly,
+made NODE LAUNCH resolve as the account does for every credential: "if the user
+can already create a subshell on that node, then they should be able to via MCP
+as well" (`resolveLaunchNode` no longer reads `machineActor`). The admin list
+arm stays browser-only: bearer rows carry every capability flag at the
+non-boosted reading (an owned row still shows `canManage`/`canRetire`, as a
+non-admin browser sees it), while listing grants no configuration permission
+and its write routes stay refused. The `system` principal has no browser
+session, so its set is ownership plus every Everyone grant: a system key
+carrying `nodes:read` or `subshells:execute` reaches every Everyone-shared
+agent machine, not just `local`. Node setup-key management, detail reads, and
+configuration also accept system keys with the specific `systemPermission` declared by each route. New keys carry
 versioned explicit grants; authGuard denies unannotated routes by default. The shared
 `nodeManagementGuard` denies legacy keys and subshell tokens; `loadNodeGate`
 limits bearer access to owned agent nodes, without shares or the local host.
-The read-only `GET /api/nodes/:id/display-readiness` preflight also accepts subshell tokens, with the same owned-agent-node boundary enforced by `loadNodeGate`.
+The read-only `GET /api/nodes/:id/display-readiness` preflight also accepts subshell tokens, resolving the node as the account does (`loadNodeAccess`: owned, shared, admin-boosted, the host under its grant) instead of `loadNodeGate`'s configuration-only owner arm.
 Node lifecycle, server-address changes, and machine trust repair routes stay cookie-only. Setup-key
 creation still honors the enrollment setting. The accounting is `docs/security.md` §3 and the pins are
 `api/nodes/__tests__/nodes-list-bearer.test.ts` plus the admin-arm cell in
@@ -176,7 +187,7 @@ summary; it was auto-loaded everywhere and belongs to these routes):
 - **Shared spawn-core bounds** (§11.10, §11.13): the `CHILD_ENV_KEYS` allowlist (no `BETTER_AUTH_SECRET`, no database path) with two wrinkles: every `LC_*` variable passes through, and a caller's/plugin's `extra` may add variables but **never PATH**; stdin is closed **unless the plugin supplies `opts.stdin`** (a sudo prompt goes to the child's own tty, not a server-held pipe); the 64 KiB output cap is **PER STREAM** (stdout and stderr each); a 30 s default deadline capped at ten minutes.
 - Instance plugin secrets: **designed, NOT built**: `SUBSHELL_SECRETS_KEY` env-only (never a settings row, never the DB), write-only over the API, fails closed when unset, a lost key unrecoverable. Pane-side credentials stay in the node's own environment, which the plane never sees.
 - **Harness self-report is exactly four own-key surfaces**: `POST /api/subshells/:id/attention`, `/:id/harness-session`, `/:id/subagents/report`, `/:id/exit` (the route checks `principal === sess:<id>`), plus the token self-extension route. Subagent reports carry roster facts and harness-authored one-line task labels only, never prompts or transcripts; reported names and labels take the `normalizeLabel` NAME path at the boundary (they render for every viewer), while id fields carry length bounds, not normalization. A harness reports about itself, never another subshell; a forged session id merely selects a transcript the pane's own user could already read.
-- **Beyond its row** (§4): raw REST resolves a pane's token as its OWNER with boost and shares off, so a prompt-injected pane can create, restart and **terminate** the owner's OTHER subshells (the sibling-action surface the "other panes are agents" posture rests on, accepted at the harness's own altitude (§11)).
+- **Beyond its row** (§4): the SUBshell routes of raw REST resolve a pane's token as its OWNER with shares off, so a prompt-injected pane can create, restart and **terminate** the owner's OTHER subshells (the sibling-action surface the "other panes are agents" posture rests on, accepted at the harness's own altitude (§11)). NODE list and launch resolve as the ACCOUNT (operator ruling 2026-11-10): the same pane can start a subshell on any machine its owner may launch on, the control-plane host included while that launch grant stands; node configuration stays refused.
 - `/api/files/explore` **403s machine credentials**. `SUBSHELL_FS_ROOT` unset = the host filesystem is browsable by design; the check is lexical AND realpath, unresolvable paths refused; it never confines a remote node.
 
 Repositories (`src/db/repositories/`) are the primary Kysely writers; each

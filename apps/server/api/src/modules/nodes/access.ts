@@ -114,6 +114,16 @@ export function nodeCanLaunch(access: NodeAccess): boolean {
   return access !== "none";
 }
 
+/**
+ * The share-based launch refusal, in one place so the launch gate and the
+ * preset save gate cannot drift: the preset route mirrors this rule, and a
+ * sentence that only one of them improves is a dead end for whoever hits the
+ * other.
+ */
+export function noLaunchGrantMessage(name: string): string {
+  return `No one is granted launch access on ${name}. Share it with Everyone or with specific people to allow launching.`;
+}
+
 /** True when the viewer may change node config (detail extras, logs, updates). */
 export function nodeCanConfigure(access: NodeAccess): boolean {
   return RANK[access] >= RANK.edit;
@@ -212,27 +222,22 @@ export interface NodeAccessDeps {
  * access: "none" }` so the caller can map it to the same 404 as an invisible
  * node (never leaking that the id exists).
  *
- * Answers BOTH readings of the viewer's access: `access` includes the admin
- * boost, and `granted` is the same resolution without it — which is what
- * `nodeCanLaunchOn` reads for the control-plane host.
- *
- * @param opts.allowAdminAndShares - `true` (default) for a human in a browser:
- * admins get effective edit and shared grants count. Pass `false` for a machine
- * bearer token — it may act ONLY on its own owner's nodes, never on foreign or
- * shared ones and never via the admin boost (no grant or role lookup happens at
- * all, keeping the machine path as strict as a plain owner check).
+ * The resolution is the same for every actor class: the token's account owns
+ * the row, a share grants access, and the admin role boosts admins. Since the
+ * operator ruling of 2026-11-10 a machine credential holds exactly the node
+ * authority its account holds — "if the user can already create a subshell on
+ * that node, they can via MCP too" — so there is no stricter bearer reading
+ * left to opt into.
  */
 export async function loadNodeAccess(
   deps: NodeAccessDeps,
   viewerId: string,
   nodeId: string,
-  opts: { allowAdminAndShares?: boolean } = {},
 ): Promise<{ row: NodeTable | undefined; access: NodeAccess; granted: NodeAccess }> {
   const row = await deps.nodes.findById(nodeId);
   if (!row) return { row: undefined, access: "none", granted: "none" };
-  const allow = opts.allowAdminAndShares ?? true;
-  const isAdmin = allow && (await deps.userMeta.getRole(viewerId)) === "admin";
-  const shares = allow ? await deps.shares.listForNode(nodeId) : [];
+  const isAdmin = (await deps.userMeta.getRole(viewerId)) === "admin";
+  const shares = await deps.shares.listForNode(nodeId);
   return {
     row,
     access: resolveNodeAccess(viewerId, isAdmin, row, shares),
