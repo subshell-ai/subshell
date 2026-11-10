@@ -112,9 +112,9 @@ sequenceDiagram
 
 A success event has `type: "result"`, `ref`, `ok: true`, and optional `data`. A refusal has `ok: false` and an `error` string. Node events inherit the authenticated encrypted connection's identity; they aren't separately JWS-signed commands.
 
-The server normally waits up to 10 seconds for a command result. A node `update` gets five minutes. `harness_update` uses the installer budget: a ten-minute deadline on the node, with the server waiting thirty seconds longer. `archive_create` and `archive_extract` use a five-minute deadline; `tree_manifest` gets a minute and each `transfer_write` chunk thirty seconds. The command's signature expiry governs acceptance, not the maximum duration of an already-accepted operation. A timeout doesn't prove that the node performed no work; inspect state before retrying an operation that could create or change something.
+The server normally waits up to 10 seconds for a command result. A node `update` gets five minutes. `harness_update` and `harness_install` use the installer budget: a ten-minute deadline on the node, with the server waiting thirty seconds longer. `archive_create` and `archive_extract` use a five-minute deadline; `tree_manifest` gets a minute and each `transfer_write` chunk thirty seconds. The command's signature expiry governs acceptance, not the maximum duration of an already-accepted operation. A timeout doesn't prove that the node performed no work; inspect state before retrying an operation that could create or change something.
 
-Most commands execute in arrival order on a shared queue, so a long archive operation can delay captures, resizes, and other management commands. Terminal input and `harness_update` have their own ordered queues and don't wait behind those operations; harness updates still queue among themselves, because two package managers can race over one filesystem. Transfer relay windows are capped at 512 KiB of raw bytes per frame, and one archive at 4 GiB uncompressed.
+Most commands execute in arrival order on a shared queue, so a long archive operation can delay captures, resizes, and other management commands. Terminal input and harness runs (`harness_update`, `harness_install`) have their own ordered queues and don't wait behind those operations; harness runs still queue among themselves, because two package managers can race over one filesystem. Transfer relay windows are capped at 512 KiB of raw bytes per frame, and one archive at 4 GiB uncompressed.
 
 ### Command families
 
@@ -127,7 +127,7 @@ Most commands execute in arrival order on a shared queue, so a long archive oper
 | Archive transfer | `archive_create`, `file_read`, `transfer_write`, `archive_extract`, `tree_manifest`. |
 | Machine information | `inventory`, `detect`, `ping`. |
 | Node management | `service`, `agent_log_read`, `set_server_url`, `set_log_level`, `set_maintenance`, `set_ssh_enabled`, `update`. |
-| Harness CLIs | `harness_update` (runs one harness CLI's own update line; a non-zero exit is a reported result). |
+| Harness CLIs | `harness_update`, `harness_install` (run one harness CLI's own update or install line; a non-zero exit is a reported result). |
 | SSH discovery and trust | `ssh_discover_aliases`, `ssh_resolve_config`, `ssh_register_identity`, `ssh_agent_identities`, `ssh_host_key`, `ssh_machine_pin_repair`. |
 | SSH relay and remote setup | `ssh_relay_open`, `ssh_relay_close`, `ssh_exec_stdin` (setup scripts on stdin), legacy `ssh_exec`, `ssh_exec_status`. |
 
@@ -175,7 +175,7 @@ The server applies two distinct gates to readiness:
 1. The node release must meet the server's minimum supported release version.
 2. Its protocol version must match the server's protocol exactly.
 
-The implemented protocol is **28**. Its number is independent of the package release version. Additive wire changes also require a protocol bump and coordinated rollout; there is no per-feature compatibility window.
+The implemented protocol is **29**. Its number is independent of the package release version. Additive wire changes also require a protocol bump and coordinated rollout; there is no per-feature compatibility window.
 
 A refused node can remain connected in a **held** state for updates while staying unavailable for launches and ordinary management commands. Only `update` can use that held connection. Older nodes on the legacy path receive that update command in its frozen plaintext recovery format; they aren't admitted for normal plaintext operation. Invalid credentials and disabled owners are authentication failures, not update holds.
 
