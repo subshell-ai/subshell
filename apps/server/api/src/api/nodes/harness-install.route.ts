@@ -5,6 +5,7 @@ import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { HARNESS_RUN_ERROR_MAX, HARNESS_RUN_HEARTBEAT_MS } from "@/api/nodes/harness-run-frames.js";
 import { apiModels } from "@/api/schemas/index.js";
 import { audit } from "@/modules/audit.js";
+import { nodeCanConfigure } from "@/modules/nodes/access.js";
 import { loadNodeGate } from "@/modules/nodes/gate.js";
 import { getLive } from "@/modules/nodes/node-registry.js";
 import { NodeRpcError } from "@/modules/nodes/node-rpc.js";
@@ -26,9 +27,11 @@ import { ForbiddenError } from "@/shared/errors.js";
  *
  * **Browser session only**, the same rule the harness update route carries: a
  * machine credential cannot order a package manager run. The gate is
- * `gate.canManage` — the owner or a `manage` grantee. Installing software
- * changes the machine's tool set, so `edit` is not enough, and an instance
- * admin's edit-level boost stops below it too.
+ * `nodeCanConfigure(gate.access)` — owner, `manage`, or `edit` — the same band
+ * harness and node updates carry. Installing is not a stronger band in
+ * practice: Update falls back to this same installer line at `edit`, so the
+ * built-in-only rule below is what bounds what may run, and the distinct verb
+ * keeps its own audit.
  *
  * **The answer is NDJSON, not one JSON document**, for the same reason the
  * update route's is: a run that prints nothing for ten minutes (the node's own
@@ -61,7 +64,7 @@ export const harnessInstallRoute = new Elysia()
           }),
         );
       }
-      if (!gate.canManage) throw new ForbiddenError();
+      if (!nodeCanConfigure(gate.access)) throw new ForbiddenError();
 
       // REFUSALS ARE DECIDED BEFORE A BYTE IS STREAMED. Once the body opens the
       // status is 200 and cannot be taken back, so anything that answers 4xx —
@@ -200,7 +203,7 @@ export const harnessInstallRoute = new Elysia()
         operationId: "installNodeHarness",
         tags: ["nodes"],
         description:
-          "Installs one built-in harness CLI on an enrolled node by running its installer line through the signed harness_install command. Browser sessions only; the manage band on the node (owner or manage grantee). The control-plane host is refused: its install runs through the setup screen. STREAMS application/x-ndjson: {type:waiting} heartbeats, then one terminal {type:done,...} carrying ok/exitCode/output/durationMs/timedOut or {type:error,message}. ok:false inside a done frame is a run that failed; a 4xx is a refusal decided before the body opened.",
+          "Installs one built-in harness CLI on an enrolled node by running its installer line through the signed harness_install command. Browser sessions only; the configure band on the node (owner, manage, or edit). The control-plane host is refused: its install runs through the setup screen. STREAMS application/x-ndjson: {type:waiting} heartbeats, then one terminal {type:done,...} carrying ok/exitCode/output/durationMs/timedOut or {type:error,message}. ok:false inside a done frame is a run that failed; a 4xx is a refusal decided before the body opened.",
       },
     },
   );

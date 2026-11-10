@@ -3441,9 +3441,9 @@ still runs only the plugin's fixed vendor line, as a configure act.
 `POST /api/nodes/:id/harnesses/:pluginId/install` installs the CLI a plugin
 drives on the machine that will run it, through the signed `harness_install`
 command (protocol 29). It is the remote half of §11.10c's act and is accounted
-separately because the install act gets its own verb, manage gate and audit,
-not because the manage band isolates the installer: Update's installer
-fallback still runs the same vendor line at `edit` (§11.10c's residual).
+separately because the install act gets its own verb and audit, not because a
+different band isolates the installer: Update's installer fallback still runs
+the same vendor line at `edit` (§11.10c's residual).
 
 - **The line is built-in manifest data, never request input.** The route takes
   a plugin id and a node id; the shell line comes from the manifest compiled
@@ -3456,14 +3456,14 @@ fallback still runs the same vendor line at `edit` (§11.10c's residual).
   is the setup screen's admin-cookie installer (§11.10), which runs in the
   server process as the server's OS user. This route has no local branch to
   keep in step with it, so the two cannot drift into two gates for one line.
-- **Browser sessions only, at the manage band.** `requireCookieActor` refuses a
-  bearer or system key even with `nodes:configure`. The gate is
-  `gate.canManage` (the owner or a `manage` grantee) because installing
-  software gets its own audited act: `edit` is not enough for this verb, and
-  an instance admin's edit-level boost stops below this band on someone else's
-  node. The band governs the install verb and its audit; it is not isolation
-  from the installer, because Update's fallback still runs the same line at
-  `edit` (§11.10c's residual).
+- **Browser sessions only, at the configure band.** `requireCookieActor` refuses
+  a bearer or system key even with `nodes:configure`. The gate is
+  `nodeCanConfigure(gate.access)`: owner, `manage`, or `edit`, the same band
+  the harness-update and node-update routes carry. The install verb and its
+  audit are distinct, but the band is not narrower than the capability: an
+  edit grantee can already run the same installer line through Update's
+  fallback (§11.10c's residual). The built-in-only rule above is what bounds
+  what may execute, not the rank.
 - **Refusals precede the stream, in a fixed order.** The node's kind is
   answered before any grant is weighed; an unknown plugin is 404; a non-built-in
   or a harness with no installer line is 400; a built-in this instance does not

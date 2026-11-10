@@ -146,11 +146,12 @@ function updateCommandFor(h: { update?: { command: string } }, info: HarnessInfo
  * signed `harness_install` command (`POST /api/nodes/:nodeId/harnesses/:id/
  * install`). The gate follows the route each machine answers: on `local` it is
  * `canManage`, the SERVER's own word for "an admin"; on an enrolled node it is
- * the manage band — owner or a `manage` grantee, because installing software
- * changes the machine's tool set and an `edit` grant does not reach that. A
- * remote run also needs a live socket (a HELD one predates the command), so
- * the button sits disabled with the reason rather than trading a press for a
- * 409.
+ * the same configure band the route applies to updates — owner, `manage`, or
+ * `edit` — because Update already falls back to the same installer line at
+ * `edit`, so a narrower band here would not keep an edit grantee from running
+ * it. A remote run also needs a live socket (a HELD one predates the command),
+ * so the button sits disabled with the reason rather than trading a press for
+ * a 409.
  */
 export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
   const { harnesses, data, isLoading } = useNodeHarnesses(nodeId);
@@ -202,10 +203,12 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
   const recheckReachable = data?.status === "online";
   // `canManage` on `local` is server-derived and resolves to admin — the same
   // answer the setup route's own cookie gate gives. An enrolled node's install
-  // route gates on the manage band instead (owner or `manage` grantee).
+  // route gates on the configure band, the same one Update uses.
   const canInstallHere =
     data !== undefined &&
-    (data.kind === "local" ? data.canManage : data.access === "owner" || data.access === "manage");
+    (data.kind === "local"
+      ? data.canManage
+      : data.access === "owner" || data.access === "manage" || data.access === "edit");
   // Permission is only half of it: a remote install travels the signed link,
   // so the node must be online and not HELD (a held socket answers `update`
   // only). `local` runs here, where there is no socket to wait for.
@@ -587,6 +590,14 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                         </details>
                       )}
                     </div>
+                  )}
+                  {settledId === h.harnessId && install.data?.ok && (
+                    // The node view's refetched detection is the durable proof;
+                    // this line answers the press before that lands, matching
+                    // the update row's "Updated.".
+                    <p role="status" className="col-span-full text-detail text-success">
+                      Installed.
+                    </p>
                   )}
                   {updatingThis && (
                     <p role="status" className="col-span-full truncate font-mono text-detail text-muted-foreground">

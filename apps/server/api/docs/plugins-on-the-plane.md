@@ -71,14 +71,15 @@ answers 400 for `local` rather than opening a second gate onto that line.
 Only a BUILT-IN plugin can be installed here. The installer line travels from
 the manifest compiled into this binary, so what may run is changed by editing
 this repo, never by anything a request sends; a registry plugin is refused even
-when the instance offers it. The route is a browser-session act at the manage
-band (`gate.canManage`: the owner or a `manage` grantee), and the refusals are
-settled before the NDJSON body opens: unknown plugin 404, non-built-in or no
-installer line 400, built-in not offered by this instance 404, offline node
-409, a harness run already on the node 409. The band governs this verb and its
-audit; it is not isolation from the installer, because Update remains an
-`edit`-level configure act and falls back to the same line when a harness
-declares no updater.
+when the instance offers it. The route is a browser-session act at the configure
+band (`nodeCanConfigure`: owner, `manage`, or `edit`), the same band the
+harness-update and node-update routes carry. The install verb and its audit are
+distinct; the band is not isolation from the installer, because Update remains
+an `edit`-level configure act and falls back to the same line when a harness
+declares no updater. The built-in-only rule is what bounds what may run. The
+refusals are settled before the NDJSON body opens: unknown plugin 404,
+non-built-in or no installer line 400, built-in not offered by this instance
+404, offline node 409, a harness run already on the node 409.
 
 The run is bounded like the update's (the node's `runBounded`: allowlisted
 environment, login-shell PATH, closed stdin, ten-minute deadline, output cap),

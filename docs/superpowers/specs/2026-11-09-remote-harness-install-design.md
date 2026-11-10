@@ -52,31 +52,41 @@ local installer uses under the same bounded runner.
 | Approach | Why not |
 |---|---|
 | Run the installer on the plane and copy artifacts to the node | The vendor script installs through the machine's package manager and PATH; copying a binary is a second, unrelated install mechanism and would not reproduce the vendor's layout. |
-| Reuse `harness_update` with the installer line | Update is a configure act (`nodeCanConfigure`, which includes `edit`) and already falls back to the installer. Installing is a stronger act on the machine; reusing the verb would either loosen update's gate or overload its audit story. |
+| Reuse `harness_update` with the installer line | Update is a configure act (`nodeCanConfigure`, which includes `edit`) and already falls back to the installer. The install act needs its own verb and audit story; reusing update's would overload it. |
 | Ship a copy-command block only | Honest but does not answer the page: a person still has to leave the UI, open a shell, and re-check. |
-| **Add a signed `harness_install` node command** | Sibling of `harness_update`: same transport, same bounded runner, same result shape, distinct verb and gate. **Chosen.** |
+| **Add a signed `harness_install` node command** | Sibling of `harness_update`: same transport, same bounded runner, same result shape, distinct verb and audit. **Chosen.** |
 
-### Authorization is the owner/manage band
+### Authorization is the configure band
 
-The route requires a browser cookie and `gate.canManage`. On an enrolled node
-that is exactly `nodeCanManage(access)` — owner or a `manage` grantee. `edit`
-is not enough: editing configuration changes how the machine is used, while
-installing software changes what is on it. Admins on a foreign node carry
-`access: edit` (the admin boost never ranks an agent as owner), so they cannot
-install on someone else's machine; that matches ownership transfer and the
-other owner-only acts.
+The route requires a browser cookie and `nodeCanConfigure(gate.access)` — owner,
+`manage`, or `edit`. On an enrolled node that is the same band harness and node
+updates carry.
+
+The gate was originally `gate.canManage` (owner or `manage`), on the argument
+that installing software changes what is on the machine while updating only
+changes how it is used. That argument did not survive the fallback: when a
+built-in harness declares no update verb its `updateHint` falls back to
+`install.command` (§11.10c's residual records the same fallback), so an `edit`
+grantee, or an admin at edit level, can already run the same vendor line through
+Update. A narrower install band therefore hid a capability rather than
+preventing it. The **Amendment 2026-11-10** below records the alignment.
 
 The band governs the install VERB and its audit; it is not isolation from the
-installer itself. Update remains a configure act (`nodeCanConfigure`, `edit`
-and above), and when a built-in harness declares no update verb its
-`updateHint` falls back to `install.command` (§11.10c's residual records the
-same fallback). An `edit` grantee, or an admin at edit level, can therefore
-still install the same vendor line through Update. Giving Install its own verb
-and manage gate makes the act visible and audited on its own; it does not take
-the installer out of Update's configure path.
+installer. The built-in-only rule (§ "Built-in ids only") is what bounds what may
+execute. Giving Install its own verb keeps the act visible and audited on its
+own; it does not take the installer out of Update's configure path.
 
 The local path keeps its own rule (`canManage`, which is the admin answer on
 `local`).
+
+### Amendment 2026-11-10: install's gate matches update
+
+The server gate moved from `gate.canManage` to `nodeCanConfigure`, and the SPA
+offers Install to `owner`, `manage`, and `edit` on an enrolled node. This is an
+honest alignment with the capability Update already has, not a new grant: the
+same fixed built-in line could already run at `edit` through Update's fallback.
+What still differs from Update is the command source (built-in ids only) and the
+audit action (`node.harness.install`). The local setup route remains admin-only.
 
 ### Built-in ids only
 
@@ -145,7 +155,7 @@ racing press is a 409, never an error frame over a 200.
 
 - Cookie sessions only (`requireCookieActor`).
 - 404 for an invisible/absent node; 400 for the `local` node (the setup route
-  owns it); 403 when the viewer is below the manage band.
+  owns it); 403 when the viewer is below the configure band.
 - Refusals before the body opens: unknown plugin (404), not built-in (400),
   not offered by the instance (404), no install command (400), node offline
   (409 `NODE_OFFLINE`), run slot taken (409).
@@ -199,7 +209,8 @@ enrolled node, and keeps the server-user wording for `local`.
 
 ## Security accounting
 
-This is the same class as §11.10c (harness update), with a stronger gate:
+This is the same class as §11.10c (harness update), with the same configure
+gate and a stronger command restriction:
 
 - The only input is a plugin id and a node id. The command is the built-in
   manifest's `installHint.command`; a request cannot supply or alter it.
@@ -208,10 +219,10 @@ This is the same class as §11.10c (harness update), with a stronger gate:
   compromised plane can execute on a node.
 - Browser-cookie-only; bearer keys are refused because a machine credential
   cannot order a package manager run.
-- Owner/manage gate; `view` and `edit` grantees, and admins without a manage
-  grant on that agent node, are refused. This gate governs the install verb
-  and its audit; it does not remove the installer from Update's configure
-  path, which still falls back to the same line at `edit`.
+- Configure gate (`nodeCanConfigure`: owner, `manage`, or `edit`), the same one
+  Update carries. A view grantee is refused. This does not remove the installer
+  from Update's configure path, which still falls back to the same line at
+  `edit`; the built-in-only rule is what bounds what can run.
 - `runBounded` keeps the allowlisted environment (no node bearer token, no
   server secrets), login-shell PATH, closed stdin, ten-minute deadline, reader
   cancellation, and 64 KiB per-stream capture. The output is a bounded
@@ -237,12 +248,13 @@ vendor's own and the same one the local install route runs.
   non-built-in, no command, and not-offered; the shared slot refuses a second
   run and releases after; a remote run sends the command, validates the
   echoed id, and refreshes detection; malformed answers throw.
-- Server route: 401 without a session, 403 for bearer and for view/edit,
+- Server route: 401 without a session, 403 for bearer and for a view grantee,
   400 for the local node, 404 for unknown or not-offered, 409 for offline and
   a taken slot; a successful stream ends in one `done`.
-- SPA: owner/manage see Install on an agent row and POST the node-scoped path;
-  edit/view do not; the local path is unchanged; offline disables with a
-  reason; a failed remote run renders its output under the row.
+- SPA: owner/manage/edit see Install on an agent row and POST the node-scoped
+  path; view does not; the local path is unchanged; offline disables with a
+  reason; a successful run says "Installed."; a failed remote run renders its
+  output under the row.
 
 ## Release
 

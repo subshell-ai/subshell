@@ -138,25 +138,40 @@ describe("POST /api/nodes/:id/harnesses/:pluginId/install refusals", () => {
     });
   });
 
-  it("refuses view, edit and admin grantees: installing software is the manage band", async () => {
+  it("refuses a view grantee: installing follows the configure band", async () => {
     const user = await grantee();
     const shares = new NodeSharesRepository(db);
     try {
-      for (const permission of ["view", "edit"] as const) {
-        await shares.replaceForNode(agentNode, [{ granteeUserId: user.id, permission }], ownerId);
-        expect((await post(agentNode, "claude-code", user.token)).status).toBe(403);
-      }
-      // The instance-wide admin boost stops at edit, so an admin who holds no
-      // share on someone's machine is refused too.
-      await shares.replaceForNode(agentNode, [], ownerId);
-      expect((await post(agentNode, "claude-code", adminToken)).status).toBe(403);
+      await shares.replaceForNode(agentNode, [{ granteeUserId: user.id, permission: "view" }], ownerId);
+      expect((await post(agentNode, "claude-code", user.token)).status).toBe(403);
     } finally {
       await shares.replaceForNode(agentNode, [], ownerId);
       await deleteUserByEmailOrId(user.email);
     }
   });
 
-  it("lets a manage grantee reach the run: the band is owner OR manage", async () => {
+  it("lets edit, manage and admin-at-edit grantees reach the run", async () => {
+    // The same band Update carries: `edit` already runs the installer line
+    // through Update's fallback, so a narrower install gate would not keep it
+    // out. The offline node answers 409, proving every earlier gate passed.
+    const user = await grantee();
+    const shares = new NodeSharesRepository(db);
+    try {
+      for (const permission of ["edit", "manage"] as const) {
+        await shares.replaceForNode(agentNode, [{ granteeUserId: user.id, permission }], ownerId);
+        expect((await post(agentNode, "claude-code", user.token)).status).toBe(409);
+      }
+      // The instance-wide admin boost ranks an agent at edit, which is now
+      // enough for this route.
+      await shares.replaceForNode(agentNode, [], ownerId);
+      expect((await post(agentNode, "claude-code", adminToken)).status).toBe(409);
+    } finally {
+      await shares.replaceForNode(agentNode, [], ownerId);
+      await deleteUserByEmailOrId(user.email);
+    }
+  });
+
+  it("still lets a manage grantee reach the run", async () => {
     // The positive half of the gate, so a regression to owner-only fails here
     // rather than passing every refusal above.
     const user = await grantee();

@@ -616,17 +616,25 @@ describe("NodeHarnessCard", () => {
       }
     });
 
-    it("never offers it to an edit or view grantee on an enrolled node", async () => {
-      for (const access of ["edit", "view"] as const) {
-        const { restore } = await mount({ ...localOpts, kind: "agent", access, canManage: false });
-        try {
-          expect(await screen.findByText((c) => c === "Claude")).toBeDefined();
-          expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
-        } finally {
-          restore();
-          // Two mounts in one test: `afterEach(cleanup)` only runs once.
-          cleanup();
-        }
+    it("offers it to an edit grantee on an enrolled node", async () => {
+      // The same configure band Update uses: edit can already run the installer
+      // line through Update's fallback, so hiding Install from edit only made
+      // the capability look narrower than it was.
+      const { restore } = await mount({ ...localOpts, kind: "agent", access: "edit", canManage: false });
+      try {
+        expect(await screen.findByRole("button", { name: "Install" })).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("never offers it to a view grantee on an enrolled node", async () => {
+      const { restore } = await mount({ ...localOpts, kind: "agent", access: "view", canManage: false });
+      try {
+        expect(await screen.findByText((c) => c === "Claude")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
+      } finally {
+        restore();
       }
     });
 
@@ -672,6 +680,23 @@ describe("NodeHarnessCard", () => {
         fireEvent.click(await screen.findByRole("button", { name: "Install" }));
         expect(await screen.findByText(/exited with code 1/)).toBeDefined();
         expect(screen.getByText("no package")).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("says Installed. after a successful remote run", async () => {
+      const { restore } = await mount({
+        ...localOpts,
+        kind: "agent",
+        access: "owner",
+        installFrames: [
+          `${JSON.stringify({ type: "done", harnessId: "claude", ok: true, exitCode: 0, output: "", durationMs: 4, timedOut: false })}\n`,
+        ],
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+        expect(await screen.findByText("Installed.")).toBeDefined();
       } finally {
         restore();
       }
