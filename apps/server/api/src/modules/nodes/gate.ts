@@ -68,7 +68,7 @@ export async function loadNodeGate(
 ): Promise<NodeGate | undefined> {
   const row = await new NodesRepository(db).findById(nodeId);
   if (!row) return undefined;
-  // Machine credentials never inherit shares, admin privileges, or control of the server host.
+  // CONFIGURATION routes behind this gate never inherit shares, admin privileges, or control of the server host for a machine credential. Node LIST and LAUNCH are the account's instead (operator ruling 2026-11-10, `loadNodeAccess`), not this gate's.
   if (actor !== "cookie" && (row.kind !== "agent" || row.ownerUserId !== viewerId)) return undefined;
   const isAdmin = actor === "cookie" && (await new UserMetaRepository(db).getRole(viewerId)) === "admin";
   const shares = await new NodeSharesRepository(db).listForNode(nodeId);

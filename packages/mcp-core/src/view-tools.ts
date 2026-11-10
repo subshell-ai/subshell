@@ -38,7 +38,7 @@ export const GetNodeSchema = z.object({
     .describe("Check display prerequisites live (default true); false returns discovery facts only"),
 });
 
-/** Read the same owner-only projection as list_nodes, never management details. */
+/** Read the same non-admin account projection as list_nodes, never management details. */
 export async function getNode(deps: ToolDeps, args: z.infer<typeof GetNodeSchema>) {
   const id = await resolveNodeId(deps, args.node);
   const node = (await listNodes(deps)).find((n) => n.id === id);

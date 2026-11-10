@@ -266,22 +266,6 @@ describe("loadNodeAccess", () => {
     await deps.shares.replaceForNode(n.id, [grant(grantee, "manage")], owner);
     expect((await loadNodeAccess(deps, grantee, n.id)).access).toBe("manage");
   });
-
-  it("allowAdminAndShares:false (machine actor) — admin loses the boost, grants ignored", async () => {
-    const owner = unique("u");
-    const admin = await mkAdmin();
-    const grantee = unique("u");
-    const n = await mkNode(owner);
-    await deps.shares.replaceForNode(n.id, [grant(grantee, "edit"), grant(null, "view")], owner);
-
-    const opts = { allowAdminAndShares: false } as const;
-    // Admin who is not the owner drops to none…
-    expect((await loadNodeAccess(deps, admin, n.id, opts)).access).toBe("none");
-    // …as does a grantee — no share rows are consulted at all…
-    expect((await loadNodeAccess(deps, grantee, n.id, opts)).access).toBe("none");
-    // …while the owner-match still resolves (a machine key acts on its own owner's rows).
-    expect((await loadNodeAccess(deps, owner, n.id, opts)).access).toBe("owner");
-  });
 });
 
 /**

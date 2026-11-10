@@ -7,10 +7,12 @@ import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { ensureSystemUser } from "@/modules/auth/system-user.js";
 import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
@@ -38,6 +40,7 @@ describe("launching on the server, switched off", () => {
   let adminId = "";
   let presetId = "";
   let systemId = "";
+  const tokenSubshellIds: string[] = [];
 
   /** Drop every Everyone row, keeping any per-user grant — the switch's own write. */
   async function setLocalLaunch(on: boolean): Promise<void> {
@@ -87,6 +90,7 @@ describe("launching on the server, switched off", () => {
     await deleteUserByEmailOrId(adminEmail);
     if (previousClaudePath === undefined) delete process.env.CLAUDE_PATH;
     else process.env.CLAUDE_PATH = previousClaudePath;
+    await db.deleteFrom("subshells").where("id", "in", tokenSubshellIds).execute();
   });
 
   async function post(body: unknown): Promise<Response> {
@@ -120,6 +124,36 @@ describe("launching on the server, switched off", () => {
     const body = (await res.json()) as { message: string };
     expect(body.message).toMatch(/granted launch access/i);
     expect(body.message).not.toMatch(/maintenance/i);
+  });
+
+  it("a pane token hears the shares sentence, not the settings one (ruling 2026-11-10)", async () => {
+    // The same visible-but-unlaunchable state, reached by the credential class
+    // this commit widened: the admin's boost makes the row visible, the removed
+    // Everyone grant is what refuses it, and the remedy is the share dialog.
+    await setLocalLaunch(false);
+    const sid = `s_loff_tok_${crypto.randomUUID().slice(0, 8)}`;
+    await new SubshellsRepository(db).create({
+      id: sid,
+      userId: adminId,
+      presetId,
+      harnessId: "claude-code",
+      name: "loff-token",
+      workingDir: "/tmp",
+      tmuxSocket: null,
+    });
+    tokenSubshellIds.push(sid);
+    const key = await issueSubshellToken(sid, adminId);
+    const res = await app.fetch(
+      new Request("http://localhost:3080/api/subshells", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+        body: JSON.stringify({ harnessId: "claude-code", presetId, workingDir: "/tmp", nodeId: LOCAL_NODE_ID }),
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toMatch(/granted launch access/i);
+    expect(body.message).not.toMatch(/switched off/i);
   });
 
   it("still shows the node to the admin, and still lets them manage it", async () => {

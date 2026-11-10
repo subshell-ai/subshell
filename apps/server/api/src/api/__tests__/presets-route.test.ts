@@ -7,6 +7,7 @@ import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import { PresetSharesRepository } from "@/db/repositories/preset-shares.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
+import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SshPresetsRepository } from "@/db/repositories/ssh-presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
@@ -15,6 +16,7 @@ import { authDatabase } from "@/modules/auth/database.js";
 import { ensureSystemUser } from "@/modules/auth/system-user.js";
 import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
 import { installLocalPlugin, uninstallLocalPlugin } from "@/modules/plugins/store.js";
+import { ALLOW_SERVER_SUBSHELLS_KEY } from "@/modules/server/server-as-node.js";
 import { issueSubshellToken } from "@/modules/subshells/tokens.js";
 import { TRUE_BINARY } from "@/testing/true-binary.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
@@ -576,6 +578,27 @@ describe("preset writes carry the launch fields (spec 2026-09-29)", () => {
       }),
     );
     expect(res.status).toBe(400);
+  });
+
+  it("a preset naming the host while server subshells are off answers the SETTINGS sentence", async () => {
+    // The save gate makes the same settings-vs-shares distinction the launch
+    // gate does; sending someone to the sharing dialog when an admin turned the
+    // host off is a dead end.
+    await new SettingsRepository(db).set(ALLOW_SERVER_SUBSHELLS_KEY, false);
+    try {
+      const res = await app.fetch(
+        authedRequest("/api/presets", ownerCookie, {
+          method: "POST",
+          body: JSON.stringify({ harnessId: "claude-code", name: "host-off", nodeId: "local" }),
+        }),
+      );
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { message: string };
+      expect(body.message).toMatch(/switched off/i);
+      expect(body.message).not.toMatch(/[Ss]hare/);
+    } finally {
+      await db.deleteFrom("settings").where("key", "=", ALLOW_SERVER_SUBSHELLS_KEY).execute();
+    }
   });
 
   /** Seeds an updatable claude-code preset owned by this suite's user. */

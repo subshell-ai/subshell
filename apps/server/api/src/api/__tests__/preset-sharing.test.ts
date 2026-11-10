@@ -213,7 +213,11 @@ it("uses a view-shared agent preset for browser launches and rechecks access on 
   }
 });
 
-it("shared presets do not bypass node access or machine-actor restrictions", async () => {
+it("a shared preset never reaches a machine actor; an unknown node still 404s for a browser launch", async () => {
+  // Preset VISIBILITY is the restriction left here (machine actors read only
+  // the account's own agent presets). NODE access is account-parity for every
+  // credential since the operator ruling of 2026-11-10, so the second refusal
+  // is about the node id existing at all, not about the actor class.
   const id = await seed("agent");
   await share(id, [{ granteeUserId: viewer.id, permission: "view" }]);
   const service = getRequestlessContext().services.subshells;

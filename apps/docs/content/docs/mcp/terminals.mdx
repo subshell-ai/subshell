@@ -19,10 +19,12 @@ The shell runs as a regular subshell using the built-in `terminal` harness. It a
 
 Pass this to `create_subshell` with no `preset`. A presetless launch is allowed
 only for a plain terminal harness; agent harnesses still launch from a saved
-preset. The named machine must be one the pane token's owner may launch on
-(pane tokens see the owner's own machines), and the launch directory - given as
-`working_dir`, or the machine's home directory when omitted - must pass that
-machine's directory allowlist like any other launch.
+preset. The named machine must be one the pane token's owner may launch on:
+usually a machine the account owns or that is shared with it, and for an
+administrator's account authority also a private machine, which `list_nodes`
+leaves out of its non-admin set. The launch directory - given as `working_dir`, or the machine's home
+directory when omitted - must pass that machine's directory allowlist like any
+other launch.
 
 Supply a `prompt` to enter a command once the shell is ready.
 

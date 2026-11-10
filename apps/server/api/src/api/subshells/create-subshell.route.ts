@@ -60,10 +60,12 @@ export const createSubshellRoute = new Elysia()
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
       // Phase 2 (spec §6.6): `nodeId` resolves for real — the service gates
       // the requested node (404/403/409), falls back to `local` (its Everyone
-      // share is the switch), and auto-picks a lone online agent. Bearer
-      // actors get the STRICT owner-only rule everywhere on this path (no
-      // admin boost, no shares — a leaked harness key must not spawn a
-      // control-plane subshell), hence `machineActor` below.
+      // share is the switch), and auto-picks a lone online agent. Node access
+      // is the ACCOUNT's, whatever the actor class (operator ruling
+      // 2026-11-10): a machine the user can launch on from the browser is one
+      // their pane token can launch on through MCP. `machineActor` below still
+      // decides PRESET visibility (machine actors read only the account's own
+      // presets), not node authority.
       // Normalized at the door (the shared label rule) so the recent-path
       // label below the launch carries the same string the row does; the
       // manager re-normalizes as the choke point, which is idempotent. An

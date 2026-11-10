@@ -9,7 +9,7 @@ Look up the tools exposed by the Subshell MCP server.
 
 These are MCP calls, not shell commands. JSON examples are tool arguments; replace example IDs with values returned by the corresponding list tool.
 
-A pane uses a scoped token to act as its owner. Session lists can include shared sessions that the pane can't inspect or change, and node lists include only the owner's nodes. These tools don't provide instance administration, which requires an admin cookie session.
+A pane uses a scoped token to act as its owner. Session lists can include shared sessions that the pane can't inspect or change, while node lists include the machines the account owns or that are shared with it. These tools don't provide instance administration, which requires an admin cookie session.
 
 Successful MCP responses contain JSON encoded in a text content block. Failures produce actionable tool errors.
 
@@ -19,8 +19,8 @@ Successful MCP responses contain JSON encoded in a text content block. Failures 
 | --- | --- |
 | `list_subshells` | List visible sessions and output previews. |
 | `get_subshell` | Inspect one session. |
-| `list_nodes` | List owned machines, harness health, and SSH and Web previews & screens settings. |
-| `get_node` | Inspect an owned machine and check display prerequisites. |
+| `list_nodes` | List machines the account owns or shares, harness health, and SSH and Web previews & screens settings. |
+| `get_node` | Inspect a machine from `list_nodes` and check display prerequisites. |
 | `transfer_node` | Hand an owned machine to another account (needs the `nodes:transfer` grant). |
 | `list_subshell_views` | Discover a subshell's apps, browser, and virtual display. |
 | `open_subshell_view` | Create a private app or screen connection. |
@@ -64,7 +64,7 @@ Returns the same session view as `list_subshells`. Names match exact spelling fi
 
 ## list_nodes
 
-Arguments: `{}`. Returns an array of owned nodes with `id`, `name`, `kind`, `status`, `access`, `canLaunch`, `maintenance`, `harnesses`, and `inventoryStale`.
+Arguments: `{}`. Returns an array of machines the account owns or that are shared with it, with `id`, `name`, `kind`, `status`, `access`, `canLaunch`, `maintenance`, `harnesses`, and `inventoryStale`.
 
 `os` and `arch` identify the operating system and CPU architecture. `systemSpecs` contains `osRelease`, `cpuModel`, `logicalCpuCount`, `totalMemoryBytes`, and `reportedAt`. These are host capacities, not current free resources or container quotas. Offline nodes retain their last report; a null report means the node hasn't supplied specs. `capabilities` lists node protocol features, while `harnesses` describes available agent software.
 
@@ -84,7 +84,7 @@ permissions as well as missing software; read the `missing` list. MCP cannot
 enable the helper or grant those permissions. Follow
 [macOS helper setup](/previews/macos) on that node.
 
-A ready display check means its requirements are met. Virtual displays and the chosen provider must also be enabled, the node must permit launches, and launch performs its own checks. Only the token owner's enrolled nodes are available; shares, admin status, and the server's built-in node don't widen this access.
+A ready display check means its requirements are met. Virtual displays and the chosen provider must also be enabled, the node must permit launches, and launch performs its own checks. `get_node` addresses the machines `list_nodes` returns, and the display probe resolves them as the account does: a machine shared with the account, or the server host under its launch grant, can be checked like any other. Node configuration (settings, SSH, shares) still needs the account's own machine.
 
 ## transfer_node
 

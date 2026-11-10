@@ -24,7 +24,13 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SshPresetsRepository } from "@/db/repositories/ssh-presets.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
-import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/modules/nodes/access.js";
+import {
+  loadNodeAccess,
+  type NodeAccessDeps,
+  nodeCanLaunch,
+  nodeCanLaunchOn,
+  noLaunchGrantMessage,
+} from "@/modules/nodes/access.js";
 import { getAllHarnessIds } from "@/modules/plugins/availability.js";
 import { presetAccess, presetOwnerName, withPresetAccess } from "@/modules/presets/access.js";
 import { duplicatePresetName } from "@/modules/presets/name-error.js";
@@ -77,9 +83,7 @@ async function validatePresetLaunchFields(
       shares: new NodeSharesRepository(db),
       userMeta: new UserMetaRepository(db),
     };
-    const { row, access, granted } = await loadNodeAccess(deps, userId, fields.nodeId, {
-      allowAdminAndShares: true,
-    });
+    const { row, access, granted } = await loadNodeAccess(deps, userId, fields.nodeId);
     if (!row || !nodeCanLaunch(access)) {
       throw new PresetError("not_found", "Node not found", 404);
     }
@@ -88,16 +92,19 @@ async function validatePresetLaunchFields(
     // legitimate hint that a later launch may lawfully take. The launch-time
     // gate answers the window on its own merits.
     const MAINTENANCE_WINDOW_NOT_A_WRITE_REFUSAL = false;
-    if (
-      !nodeCanLaunchOn(
-        row.kind,
-        access,
-        granted,
-        MAINTENANCE_WINDOW_NOT_A_WRITE_REFUSAL,
-        await serverSubshellsEnabled(db),
-      )
-    ) {
-      throw new PresetError("node_launch_disabled", `No launch access on ${row.name}`, 403);
+    const serverAsNode = await serverSubshellsEnabled(db);
+    if (!nodeCanLaunchOn(row.kind, access, granted, MAINTENANCE_WINDOW_NOT_A_WRITE_REFUSAL, serverAsNode)) {
+      // Same distinction the launch gate makes: the settings switch is a
+      // different remedy from a missing share, and sending someone to the
+      // sharing dialog when an admin turned the machine off is a dead end.
+      if (row.kind === "local" && !serverAsNode) {
+        throw new PresetError(
+          "node_launch_disabled",
+          `Launching on ${row.name} is switched off in server settings. Ask an admin to turn it back on, or pick another machine.`,
+          403,
+        );
+      }
+      throw new PresetError("node_launch_disabled", noLaunchGrantMessage(row.name), 403);
     }
     nodeId = fields.nodeId;
   }

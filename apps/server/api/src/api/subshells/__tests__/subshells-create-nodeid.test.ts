@@ -9,6 +9,7 @@ import { Elysia } from "elysia";
 import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
+import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -34,8 +35,9 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing
  * resolves a launch node (requested → local → single-online-agent auto-pick)
  * and every refusal is the resolution's own structured error.
  * The matrix itself is unit-tested in `subshells-resolve-launch-node.test.ts`;
- * this file pins the HTTP surface: status codes + bodies, the strict
- * bearer-actor rule, `nodeOffline` on views, and the unchanged 200/shape.
+ * this file pins the HTTP surface: status codes + bodies, account-parity node
+ * authority for pane tokens (ruling 2026-11-10), `nodeOffline` on views, and
+ * the unchanged 200/shape.
  *
  * The resolution-success path is proven WITHOUT launching: bodies whose stop
  * is the harness gate name `harnessId: "pi"` with `PI_PATH` pointed at a
@@ -186,11 +188,11 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     expect([...ids].sort()).toEqual(ids); // sorted: a stable message an agent can diff
   });
 
-  it("an unknown harness beats node resolution: a bearer actor with no eligible node still hears 'Unknown harness'", async () => {
+  it("an unknown harness beats node resolution: an unknown id hears 'Unknown harness', never a node answer", async () => {
     // The existence check depends on nothing node resolution produces, so it
-    // runs first. Behind it, this exact call answers 400 NODE_REQUIRED (the
-    // strict bearer rule, pinned below) — and a typo reported as "pick a
-    // node" names the wrong thing entirely.
+    // runs first. Behind it this call would resolve the account's node (local
+    // via its Everyone grant) and stop at the harness gate — a typo reported
+    // as a node problem would name the wrong thing entirely.
     const sid = `s_cnode_ord_${crypto.randomUUID().slice(0, 8)}`;
     await new SubshellsRepository(db).create({
       id: sid,
@@ -371,7 +373,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     }
   });
 
-  it("SECURITY (leaked harness keys can't spawn control-plane subshells): a regular user's bearer token gets 400 NODE_REQUIRED even with local's Everyone grant present", async () => {
+  it("a pane token holds its account's node authority (ruling 2026-11-10): local's Everyone grant resolves, then the harness gate answers", async () => {
     const sid = `s_cnode_tok_${crypto.randomUUID().slice(0, 8)}`;
     await new SubshellsRepository(db).create({
       id: sid,
@@ -385,9 +387,10 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     createdSubshellIds.push(sid);
     const key = await issueSubshellToken(sid, userId);
     const res = await post(base(unusablePresetId, "pi"), key);
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { code: string };
-    expect(body.code).toBe("NODE_REQUIRED");
+    // Node resolution PASSES on the same grant the person's browser uses; the
+    // refusal that remains is the per-node harness gate, not a node 404.
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { message: string }).message).toBe("That harness is disabled on this machine");
     // The source subshell is terminated cleanly so its token retires.
     await app.fetch(
       new Request(`http://localhost:3080/api/subshells/${sid}/terminate`, {
@@ -397,7 +400,69 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     );
   });
 
-  it("the system key still resolves local (it OWNS the local row — the strict rule targets foreign bearer actors only)", async () => {
+  it("a pane token answers a foreign private node with the same 404 (no existence oracle)", async () => {
+    // The actor-blind unit cell is not enough: this commit changed the DOOR
+    // wiring, so a later actor branch in the route or service must fail here.
+    const node = await mkNode(otherId);
+    const sid = `s_cnode_404_${crypto.randomUUID().slice(0, 8)}`;
+    await new SubshellsRepository(db).create({
+      id: sid,
+      userId,
+      presetId: bogusPresetId,
+      harnessId: "claude-code",
+      name: "token-source",
+      workingDir: "/tmp",
+      tmuxSocket: null,
+    });
+    createdSubshellIds.push(sid);
+    const key = await issueSubshellToken(sid, userId);
+    const res = await post({ ...base(unusablePresetId, "pi"), nodeId: node }, key);
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { message: string }).message).toMatch(/node/i);
+  });
+
+  it("a pane token resolves a machine shared with its account (operator ruling 2026-11-10)", async () => {
+    // The preset-launch shape this ruling unblocked: the machine belongs to
+    // another account and is shared with this user. Resolution must pass the
+    // node gate and stop at the per-node harness gate, not at "Node not
+    // found".
+    const sharedNode = await mkNode(otherId);
+    await new NodeSharesRepository(db).replaceForNode(
+      sharedNode,
+      [{ granteeUserId: userId, permission: "edit" }],
+      otherId,
+    );
+    const ws = { send: () => {}, close: () => {} };
+    const conn = attachConnection(sharedNode, ws);
+    conn.agent = { dataDir: "/node-data", capabilities: ["mcp"], hostname: "h", agentVersion: "1.0.0" };
+    const sid = `s_cnode_share_${crypto.randomUUID().slice(0, 8)}`;
+    await new SubshellsRepository(db).create({
+      id: sid,
+      userId,
+      presetId: bogusPresetId,
+      harnessId: "claude-code",
+      name: "token-source",
+      workingDir: "/tmp",
+      tmuxSocket: null,
+    });
+    createdSubshellIds.push(sid);
+    const key = await issueSubshellToken(sid, userId);
+    try {
+      const res = await post(
+        { harnessId: "pi", presetId: unusablePresetId, workingDir: "/tmp", nodeId: sharedNode },
+        key,
+      );
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { message: string }).message).toBe(
+        "That harness is disabled or not installed on that node",
+      );
+    } finally {
+      detachConnection(sharedNode, ws);
+      await new NodeSharesRepository(db).replaceForNode(sharedNode, [], otherId);
+    }
+  });
+
+  it("a system key resolves local the same way (the node authority is the account's, for every credential)", async () => {
     const systemId = await ensureSystemUser();
     // The bearer acts AS its owning user, so the preset must be the system
     // user's (a foreign preset 404s before node resolution — correct, and

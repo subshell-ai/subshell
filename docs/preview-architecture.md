@@ -369,10 +369,12 @@ There is no separate MCP transport or authorization bypass, and these calls
 neither install prerequisites nor enable Preview nor mutate workspace tabs.
 
 `list_nodes` includes harness health, daemon protocol/version/hold, and SSH and
-Preview settings. `get_node` resolves through that same owner-only list and
-optionally calls display preflight. Only this read-only node preflight route
-additionally accepts subshell tokens, with `loadNodeGate` enforcing owned
-enrolled nodes. Node detail/configuration and SSH retain their existing guards.
+Preview settings. `get_node` resolves through that list - the account's owned
+and shared machines, not an administrator's full registry - and optionally
+calls display preflight. That read-only route accepts pane tokens and resolves
+them with the account's node access, so shared machines and the server host
+are probe-able; the browser path keeps `loadNodeGate`. Node detail/configuration
+and SSH retain their existing guards.
 `get_node.provider` selects which provider to probe. Its `virtualDisplay.enabled`
 combines the node flag and provider membership, separately from prerequisite
 `status`. Readiness distinguishes unknown/unavailable from unsupported or missing

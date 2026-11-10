@@ -13,6 +13,7 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { ensureLocalNode } from "@/modules/nodes/seed-local.js";
 import { ALLOW_SERVER_SUBSHELLS_KEY } from "@/modules/server/server-as-node.js";
+import { issueSubshellToken } from "@/modules/subshells/tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing/api/auth-tables.js";
 
 /**
@@ -157,6 +158,42 @@ describe("the Server switched off as a node", () => {
     const res = await post({ harnessId: "claude-code", presetId, workingDir: "/tmp" });
     const body = (await res.json()) as { code?: string; message?: string };
     expect(body.code).toBe("NODE_REQUIRED");
+  });
+
+  it("a pane token hears the SETTINGS refusal too, not 'Node not found'", async () => {
+    // Account parity (ruling 2026-11-10) makes the bearer reach this gate at
+    // all; the switch's own sentence is what it must hear, exactly as the
+    // browser does.
+    await setServerSubshells(false);
+    const sid = crypto.randomUUID();
+    insertedIds.push(sid);
+    await subshells.create({
+      id: sid,
+      userId: adminId,
+      presetId,
+      harnessId: "claude-code",
+      name: `san-t-${sid.slice(0, 8)}`,
+      workingDir: "/tmp",
+      tmuxSocket: null,
+    });
+    const key = await issueSubshellToken(sid, adminId);
+    const res = await app.fetch(
+      new Request("http://localhost:3080/api/subshells", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+        body: JSON.stringify({ harnessId: "claude-code", presetId, workingDir: "/tmp", nodeId: LOCAL_NODE_ID }),
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toMatch(/switched off/i);
+    expect(body.message).not.toMatch(/[Ss]hare/);
+    // The list's canLaunch reads the SAME switch, so the picker greys it.
+    const list = await app.fetch(
+      new Request("http://localhost:3080/api/nodes", { headers: { authorization: `Bearer ${key}` } }),
+    );
+    const rows = (await list.json()) as { nodes: { id: string; canLaunch: boolean }[] };
+    expect(rows.nodes.find((n) => n.id === LOCAL_NODE_ID)?.canLaunch).toBe(false);
   });
 
   it("back ON ⇒ the host is launchable again on both surfaces", async () => {

@@ -85,8 +85,8 @@ function plantPending(conn: NodeConnection): () => unknown {
  * 2026-10-09 ruling, running-subshell guard, force rules,
  * api-key teardown + live-socket disconnect), rotate-key (mint → flip →
  * disable, live-socket disconnect). The list is the one bearer-readable route
- * since spec 2026-09-25 (MCP DX, owner-only); every other route here stays
- * cookie-only.
+ * since spec 2026-09-25 (MCP DX, disclosure-only); every other route here
+ * stays cookie-only.
  */
 describe("/api/nodes registry CRUD", () => {
   const pw = "nodes-crud-1";
@@ -551,7 +551,7 @@ describe("/api/nodes registry CRUD", () => {
     }
   });
 
-  it("a subshell bearer key reads the LIST (owner-only, spec 2026-09-25) but is refused on every other registry route", async () => {
+  it("a subshell bearer key reads the LIST (disclosure-only, spec 2026-09-25) but is refused on every other registry route", async () => {
     // The machine consumer the cookie-only phase deferred to arrived with the
     // MCP DX work; the list is disclosure-only, so the read answers 200 while
     // detail, writes and rotate/delete stay cookie-only.
