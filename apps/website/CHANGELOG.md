@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.29
+
+### Patch Changes
+
+- [#514](https://github.com/subshell-ai/subshell/pull/514) [`a30c1db`](https://github.com/subshell-ai/subshell/commit/a30c1dba459fd2da0a72fa812ad53b53cb91c95b) Thanks [@theogravity](https://github.com/theogravity)! - Republish with the current release list so the install and download pages pick up the harness install release.
+
 ## 0.2.28
 
 ### Patch Changes
