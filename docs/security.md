@@ -3335,8 +3335,9 @@ verifying the published digest before the first `chmod +x`.
 
 `POST /api/nodes/:id/harnesses/:pluginId/update` runs the `subshell.update.command`
 of the plugin that drives a harness, or its `install.command` when the installer
-is also the updater. It is the same class as §11.10, with the machine as the
-variable:
+is also the updater. It is the same class as §11.10, and its authorization and
+unknown-audit rules line up with the node's own binary update
+(`/api/nodes/:id/update`, §11.12), with the machine as the variable:
 
 - **The command is manifest data, never request input.** The route takes a
   plugin id and a node id; the shell line comes from the plugin the instance
@@ -3362,9 +3363,8 @@ variable:
   token or path) and is deliberately not logged. The audit rows are
   `node.harness.update` with plugin/outcome metadata and
   `node.harness.update.unknown` only when a timeout or a dropped socket leaves
-  it unknowable whether the command ran — the same two cases the node's own
-  binary update treats as unknown. A node's spoken refusal or a malformed
-  answer writes no unknown row; neither audit row carries output.
+  it unknowable whether the command ran. A node's spoken refusal or a
+  malformed answer writes no unknown row; neither audit row carries output.
 - **One host run slot** serializes local harness installs and updates, so two
   package managers don't interleave over the same filesystem. The tmux
   installer (§11.10b) has its own single-flight flag and remains a separate

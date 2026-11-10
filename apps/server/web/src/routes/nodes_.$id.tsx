@@ -52,9 +52,9 @@ export const Route = createFileRoute("/nodes_/$id")({
  * The harness card is not a plugin manager (spec 2026-09-10: plugins are
  * instance-level and managed under `/settings/plugins`), but it does act on
  * THIS machine: Re-check refreshes detection, and Update / Update all run
- * each harness CLI's own update line (issue 250). Both gate themselves on
- * the view's server-derived `access` (edit rank or above, manage included —
- * the rule the recheck and update routes apply), not on `canManage`.
+ * each harness CLI's own update line (issue 250). Re-check gates on the
+ * view's server-derived `access` (edit rank or above); Update uses the same
+ * rank on agent nodes and `canManage` (admin) on `local`, matching the routes.
  *
  * Gating is entirely server-derived: invisible nodes 404 (handled as a load
  * error, never a leak); Share enables on `Node.canManage` (owner or a Manage
