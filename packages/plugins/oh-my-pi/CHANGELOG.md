@@ -1,5 +1,11 @@
 # @subshell-ai/plugin-oh-my-pi
 
+## 0.2.3
+
+### Patch Changes
+
+- [#516](https://github.com/subshell-ai/subshell/pull/516) [`02d787b`](https://github.com/subshell-ai/subshell/commit/02d787bec70ecd8c8b5cf164849f392bf92d55f3) Thanks [@theogravity](https://github.com/theogravity)! - Oh My Pi presets that carry a model-cli provider config now work on every node. Each launch writes a fixed provider module beside the harness config; it reads `MODEL_CLI_OMP_CONFIG` from the pane environment, loads only the shape `model-cli omp` generates, and loads nothing when the variable is absent or the value doesn't match. The config it reads names `MODEL_CLI_OMP_API_KEY` rather than carrying the credential, so no secret is written to a node. A preset's legacy `--extension` path into model-cli's cache is dropped when the launch writes the module, so the pane no longer depends on a file left behind by the host that generated it.
+
 ## 0.2.2
 
 ### Patch Changes

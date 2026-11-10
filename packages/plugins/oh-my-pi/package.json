@@ -1,7 +1,7 @@
 {
   "name": "@subshell-ai/plugin-oh-my-pi",
   "description": "Oh My Pi harness plugin for Subshell",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "license": "Apache-2.0",
   "type": "module",
   "main": "dist/index.js",

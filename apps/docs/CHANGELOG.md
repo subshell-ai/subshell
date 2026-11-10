@@ -1,5 +1,11 @@
 # @internal/docs
 
+## 0.11.13
+
+### Patch Changes
+
+- [#517](https://github.com/subshell-ai/subshell/pull/517) [`6b833f3`](https://github.com/subshell-ai/subshell/commit/6b833f38c137c9e9126f61e5761d443953b04c06) Thanks [@theogravity](https://github.com/theogravity)! - The agent preset list no longer shows an Auto-restart column. The name column takes the freed width, so preset titles fit instead of truncating; auto-restart still appears on the preset's own page. The preset-library documentation and website screenshots were recaptured with the new columns.
+
 ## 0.11.12
 
 ### Patch Changes
