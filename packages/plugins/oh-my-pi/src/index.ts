@@ -42,6 +42,169 @@ const SETTINGS: SettingsField[] = [
 const TITLE_PREFIX = /^π(?:$|\s+(?:[>!:]|[⠁-⣿]|[◔◑◕○●]|[-\\/|])|:(?=\s|$))\s*/u;
 
 /**
+ * model-cli hands its provider to a harness through this pane environment
+ * variable. The value is the provider config, and its `apiKey` field names
+ * MODEL_CLI_OMP_API_KEY rather than carrying the credential itself.
+ */
+const MODEL_CLI_PROVIDER_CONFIG_ENV = "MODEL_CLI_OMP_CONFIG";
+const MODEL_CLI_PROVIDER_KEY_ENV = "MODEL_CLI_OMP_API_KEY";
+
+/**
+ * Loads that provider from the environment. The source is fixed: it names the
+ * variable and never interpolates its value, so no preset data (and no
+ * credential) is written to a node. A launch without the variable loads
+ * nothing, which keeps the module inert for every other omp preset.
+ *
+ * The value is preset-controlled, so malformed or incomplete JSON leaves the
+ * module inert too. It must match what `model-cli omp` generates and nothing
+ * else: the provider keeps model-cli's namespace, so a preset cannot override
+ * a built-in provider; the apiKey is the env-var name rather than a literal
+ * secret; and no field may carry omp's `!command` config syntax, which would
+ * run shell commands as the pane user. Registration is queued outside the
+ * extension factory's error guard, so a value omp would reject there would
+ * take the pane down at startup instead of warning. One debug line names the
+ * problem, never the value.
+ *
+ * A preset built from `model-cli omp` used to name its provider by an
+ * `--extension` path in the generating host's cache, so it only worked on
+ * machines where model-cli had run. This module rides the per-launch
+ * extension directory the host already ships to every node instead.
+ */
+const MODEL_CLI_PROVIDER_SHIM = `export default function(pi) {
+  const raw = process.env.${MODEL_CLI_PROVIDER_CONFIG_ENV};
+  if (!raw) return;
+  let config;
+  try {
+    config = JSON.parse(raw);
+  } catch {
+    pi.logger?.debug?.("model-cli provider config ignored: MODEL_CLI_OMP_CONFIG is not JSON");
+    return;
+  }
+
+  const CONNECTION_KEYS = ["baseUrl", "api", "apiKey", "models"];
+  const MODEL_KEYS = [
+    "id",
+    "name",
+    "contextWindow",
+    "maxTokens",
+    "reasoning",
+    "input",
+    "cost",
+    "compat",
+    "thinking",
+  ];
+  const COST_KEYS = ["input", "output", "cacheRead", "cacheWrite"];
+  const COMPAT_KEYS = [
+    "maxTokensField",
+    "reasoningContentField",
+    "replayReasoningContent",
+    "requiresReasoningContentForAllAssistantTurns",
+    "supportsDeveloperRole",
+    "supportsStore",
+    "supportsStrictMode",
+    "thinkingFormat",
+  ];
+  const THINKING_KEYS = ["mode", "efforts", "effortMap"];
+
+  const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+  const only = (value, keys) => Object.keys(value).every((key) => keys.includes(key));
+  const text = (value) => typeof value === "string" && value !== "";
+  const amount = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  const positive = (value) => amount(value) && value > 0;
+  const command = (value) => {
+    if (typeof value === "string") return value.startsWith("!");
+    if (Array.isArray(value)) return value.some(command);
+    if (isObject(value)) return Object.values(value).some(command);
+    return false;
+  };
+  const cost = (value) => isObject(value) && only(value, COST_KEYS) && Object.values(value).every(amount);
+  const compat = (value) =>
+    isObject(value) &&
+    only(value, COMPAT_KEYS) &&
+    Object.values(value).every((item) => typeof item === "string" || typeof item === "boolean");
+  const thinking = (value) =>
+    isObject(value) &&
+    only(value, THINKING_KEYS) &&
+    (value.mode === "anthropic-adaptive" || value.mode === "effort") &&
+    Array.isArray(value.efforts) &&
+    value.efforts.every(text) &&
+    isObject(value.effortMap) &&
+    Object.values(value.effortMap).every(text);
+  const model = (value) =>
+    isObject(value) &&
+    only(value, MODEL_KEYS) &&
+    text(value.id) &&
+    (value.name === undefined || text(value.name)) &&
+    (value.contextWindow === undefined || positive(value.contextWindow)) &&
+    (value.maxTokens === undefined || positive(value.maxTokens)) &&
+    (value.reasoning === undefined || typeof value.reasoning === "boolean") &&
+    (value.input === undefined ||
+      (Array.isArray(value.input) && value.input.every((item) => item === "text" || item === "image"))) &&
+    (value.cost === undefined || cost(value.cost)) &&
+    (value.compat === undefined || compat(value.compat)) &&
+    (value.thinking === undefined || thinking(value.thinking));
+
+  const connection = config?.connection;
+  const models = connection?.models;
+  const usable =
+    typeof config?.provider === "string" &&
+    /^model-cli-omp-(?:litellm|direct)-\\S+$/.test(config.provider) &&
+    isObject(connection) &&
+    only(connection, CONNECTION_KEYS) &&
+    typeof connection.baseUrl === "string" &&
+    /^https?:\\/\\/.+/.test(connection.baseUrl) &&
+    (connection.api === "anthropic-messages" || connection.api === "openai-completions") &&
+    connection.apiKey === "${MODEL_CLI_PROVIDER_KEY_ENV}" &&
+    Array.isArray(models) &&
+    models.length > 0 &&
+    models.every(model) &&
+    !command(config);
+  if (!usable) {
+    pi.logger?.debug?.("model-cli provider config ignored: MODEL_CLI_OMP_CONFIG is not the model-cli shape");
+    return;
+  }
+  pi.registerProvider(config.provider, connection);
+}
+`;
+
+/**
+ * A preset built from `model-cli omp` used to prove its provider with an
+ * extension path in the generating host's cache. That file is writable by
+ * anything running as the pane user and persists between launches, so the
+ * provider module below is a replacement, not a companion: the legacy flag is
+ * dropped when this launch writes its own module. omp accepts the path as
+ * `--extension`, `--trusted-extension`, `-e` or `--hook`, so every spelling is
+ * matched, and the path is normalized first because `./` and doubled
+ * separators name the same file.
+ */
+const LEGACY_PROVIDER_FLAGS = ["--extension", "--trusted-extension", "-e", "--hook"];
+const LEGACY_PROVIDER_INLINE = ["--extension=", "--trusted-extension=", "-e=", "--hook="];
+
+function isLegacyProviderPath(value: string): boolean {
+  const segments = value
+    .trim()
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter((segment) => segment !== "" && segment !== ".");
+  return /(?:^|\/)model-cli\/omp-provider\.mjs$/.test(segments.join("/"));
+}
+
+function withoutLegacyProviderExtension(flags: string[]): string[] {
+  const kept: string[] = [];
+  for (let i = 0; i < flags.length; i++) {
+    const flag = flags[i];
+    if (LEGACY_PROVIDER_FLAGS.includes(flag) && isLegacyProviderPath(flags[i + 1] ?? "")) {
+      i += 1;
+      continue;
+    }
+    const inline = LEGACY_PROVIDER_INLINE.find((prefix) => flag.startsWith(prefix));
+    if (inline && isLegacyProviderPath(flag.slice(inline.length))) continue;
+    kept.push(flag);
+  }
+  return kept;
+}
+
+/**
  * Oh My Pi uses its own executable and native MCP discovery, independently of
  * pi. An explicit extension directory contributes mcp.json without redirecting
  * the user's config or credentials. Verified against omp 18.12.6.
@@ -67,7 +230,9 @@ const createPlugin: HarnessPluginFactory = () => ({
     }
     // omp has no --name flag or create-time conversation ID. Forward neither
     // a display name nor a resume selector that might pick another subshell.
-    args.push(...preset.flags, ...(extraFlags ?? []));
+    // A legacy model-cli provider flag is dropped when the launch wrote the
+    // per-launch provider module (mcp is present only then).
+    args.push(...(mcp ? withoutLegacyProviderExtension(preset.flags) : preset.flags), ...(extraFlags ?? []));
     return args;
   },
 
@@ -90,10 +255,11 @@ const createPlugin: HarnessPluginFactory = () => ({
           name: "subshell-mcp",
           private: true,
           type: "module",
-          omp: { extensions: ["bridge.mjs", "subagents.mjs"] },
+          omp: { extensions: ["bridge.mjs", "subagents.mjs", "provider.mjs"] },
         }),
         "bridge.mjs": "export default function () {}\n",
         "subagents.mjs": SUBAGENT_BRIDGE,
+        "provider.mjs": MODEL_CLI_PROVIDER_SHIM,
         "mcp.json": fileContent,
       },
       args: ["--extension", `${configPath}.d`],
