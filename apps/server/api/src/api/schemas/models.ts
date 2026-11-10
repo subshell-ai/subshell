@@ -80,7 +80,10 @@ export const SubshellSchema = t.Object({
   presetId: t.Nullable(t.String({ description: "Preset launched with (null = presetless launch)" })),
   harnessId: t.String({ description: "Harness plugin id" }),
   harnessVersion: t.Nullable(
-    t.String({ description: "Harness CLI version this pane launched on; null when it could not be read" }),
+    t.String({
+      description:
+        "Harness CLI version this pane launched on; normalized and capped before storage, null when it could not be read",
+    }),
   ),
   nodeId: t.String({ description: "Node the subshell runs on ('local' = control-plane host)" }),
   name: t.String({ description: "Subshell display name" }),

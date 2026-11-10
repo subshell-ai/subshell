@@ -1,13 +1,17 @@
 /**
- * One package-manager run at a time on the control-plane host.
+ * One harness package-manager run at a time on the control-plane host.
  *
- * Install and Update both run a vendor shell line as the server's own OS user
- * against the same filesystem. The harness card disables both directions while
- * either is in flight, but that is a single page's state: two tabs, or the API
- * directly, can ask one while the other is running. The node-side update chain
- * serializes updates among themselves; this is the plane-side half that also
- * covers install, whose own lock is per plugin id and therefore cannot see an
- * update for a different harness.
+ * Harness Install and Update both run a vendor shell line as the server's own
+ * OS user against the same filesystem. The harness card disables both
+ * directions while either is in flight, but that is a single page's state: two
+ * tabs, or the API directly, can ask one while the other is running. The
+ * node-side update chain serializes updates among themselves; this is the
+ * plane-side half that also covers install, whose own lock is per plugin id
+ * and therefore cannot see an update for a different harness.
+ *
+ * The fixed-argv installers on their own admin routes (tmux, network) remain
+ * outside this slot; they are not harness vendor lines and have separate
+ * single-flight policy.
  *
  * The holder is a short label ("install \"codex\"") so a refusal can say what
  * the caller is waiting behind.

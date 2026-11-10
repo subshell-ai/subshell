@@ -1050,6 +1050,14 @@ export function parseNodePreviewPortsResult(data: unknown): NodePreviewPortsResu
  * result as the version the subshell launched on. Validated on BOTH ends per
  * this file's header contract.
  */
+
+/**
+ * Longest launch version echo accepted. The node's probe already caps its
+ * own output at 4 KiB, so a longer reply is a malformed or malicious echo —
+ * refuse it before a plugin parser ever sees it.
+ */
+const LAUNCH_RAW_VERSION_MAX = 4096;
+
 export interface NodeLaunchResult {
   /** The display the node started the pane on; absent means the launch asked for none (or was refused, which answers `ok:false`). */
   screen?: NodePreviewScreenWire;
@@ -1074,7 +1082,7 @@ export function parseNodeLaunchResult(data: unknown): NodeLaunchResult | null {
     result.screen = screen;
   }
   if (data.rawVersion !== undefined) {
-    if (!isStr(data.rawVersion)) return null;
+    if (!isStr(data.rawVersion) || data.rawVersion.length > LAUNCH_RAW_VERSION_MAX) return null;
     result.rawVersion = data.rawVersion;
   }
   return result;

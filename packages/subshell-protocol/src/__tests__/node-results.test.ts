@@ -484,6 +484,9 @@ describe("preview results (protocol 23)", () => {
       rawVersion: "2.1.0 (Claude Code)",
     });
     expect(parseNodeLaunchResult({ rawVersion: 7 })).toBeNull();
+    // The node probe caps at 4 KiB; a longer echo is malformed and must not
+    // reach a plugin parser, whichever node sent it.
+    expect(parseNodeLaunchResult({ rawVersion: "x".repeat(4097) })).toBeNull();
   });
 
   it("harness_update reports the run, not a transport failure", () => {

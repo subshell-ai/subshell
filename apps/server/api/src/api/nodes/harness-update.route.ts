@@ -195,7 +195,8 @@ export const harnessUpdateRoute = new Elysia()
         pluginId: t.String({ description: "Harness plugin id whose CLI to update" }),
       }),
       // NO typed 200: this route streams. The body is NDJSON — line/waiting
-      // frames, then one `done` carrying HarnessUpdateResultSchema or one
+      // frames, then one `done` carrying the run's result (the same shape
+      // `parseNodeHarnessUpdateResult` validates on the node path) or one
       // `error`.
       response: {
         400: "ApiErrorResponse",
