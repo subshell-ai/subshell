@@ -1,5 +1,9 @@
-import { describe, expect, it } from "bun:test";
-import { readInstallStream, STALLED_MESSAGE } from "@/hooks/use-install-agent";
+import { afterEach, describe, expect, it } from "bun:test";
+import { NODE_QUERY_KEY } from "@internal/node-admin";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, renderHook } from "@testing-library/react";
+import { createElement, type ReactNode } from "react";
+import { readInstallStream, STALLED_MESSAGE, useInstallAgent } from "@/hooks/use-install-agent";
 
 /** A body that emits the given chunks, then optionally never ends. */
 function bodyOf(frames: string[], { hang = false } = {}): ReadableStream<Uint8Array> {
@@ -104,5 +108,75 @@ describe("readInstallStream", () => {
         () => null,
       ),
     ).rejects.toThrow("unreadable result");
+  });
+});
+
+/** A test-owned QueryClient so invalidation can be observed directly. */
+function makeWrapper() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const invalidated: unknown[] = [];
+  const originalInvalidate = client.invalidateQueries.bind(client);
+  client.invalidateQueries = ((opts: unknown) => {
+    invalidated.push(opts);
+    return originalInvalidate(opts as Parameters<typeof originalInvalidate>[0]);
+  }) as typeof client.invalidateQueries;
+  const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
+  return { client, wrapper, invalidated };
+}
+
+function mockFetch(body: string) {
+  const calls: { method: string; url: string }[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    calls.push({ method: init?.method ?? "GET", url: url.pathname });
+    return Promise.resolve(new Response(body, { headers: { "content-type": "application/x-ndjson" } }));
+  }) as typeof fetch;
+  return { calls, restore: () => (globalThis.fetch = original) };
+}
+
+const nodeDone = (over: Record<string, unknown> = {}) =>
+  `${JSON.stringify({ type: "done", harnessId: "claude", ok: true, exitCode: 0, output: "", durationMs: 3, timedOut: false, ...over })}\n`;
+
+afterEach(cleanup);
+
+/**
+ * The two routes this hook speaks. Both answer the same NDJSON protocol, so
+ * the argument order is the whole contract: existing callers pass `onLine`
+ * alone and keep the setup route; the harness card passes a node id and gets
+ * the enrolled node's route, whose `done` frame carries the run's result and
+ * no harness row.
+ */
+describe("useInstallAgent", () => {
+  it("POSTs the node route when a node id is given, and reads the remote result", async () => {
+    const { wrapper, invalidated } = makeWrapper();
+    const { calls, restore } = mockFetch(nodeDone({ ok: false, exitCode: 7, output: "boom", timedOut: true }));
+    try {
+      const { result } = renderHook(() => useInstallAgent(undefined, "node1"), { wrapper });
+      const answer = await result.current.mutateAsync("claude");
+      expect(calls).toContainEqual({ method: "POST", url: "/api/nodes/node1/harnesses/claude/install" });
+      expect(answer).toEqual({ ok: false, exitCode: 7, output: "boom", timedOut: true });
+      // The node view is what carries the new row, so settling refreshes it.
+      const keys = invalidated.map((opts) =>
+        opts !== null && typeof opts === "object" && "queryKey" in opts ? opts.queryKey : undefined,
+      );
+      expect(keys).toContainEqual([...NODE_QUERY_KEY, "node1"]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the setup route for callers that pass no node id", async () => {
+    const { wrapper } = makeWrapper();
+    const { calls, restore } = mockFetch(
+      `${JSON.stringify({ type: "done", ok: true, exitCode: 0, output: "", harness: { id: "claude", installed: true } })}\n`,
+    );
+    try {
+      const { result } = renderHook(() => useInstallAgent(), { wrapper });
+      await result.current.mutateAsync("claude");
+      expect(calls).toContainEqual({ method: "POST", url: "/api/setup/agents/claude/install" });
+    } finally {
+      restore();
+    }
   });
 });

@@ -179,6 +179,30 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
         ),
       );
     }
+    // The enrolled-node installer: the SAME protocol over a different route,
+    // ending in the run's result only — no `harness` row, because the card
+    // refreshes the node view instead of reading one back.
+    const nodeInstall = /^\/api\/nodes\/[^/]+\/harnesses\/([^/]+)\/install$/.exec(url.pathname);
+    if (nodeInstall && method === "POST") {
+      const frames = opts.installFrames ?? [
+        `${JSON.stringify({ type: "done", harnessId: nodeInstall[1], ok: true, exitCode: 0, output: "", durationMs: 1, timedOut: false })}\n`,
+      ];
+      return Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              const encoder = new TextEncoder();
+              for (const frame of frames) {
+                if (frame === null) return;
+                controller.enqueue(encoder.encode(frame));
+              }
+              controller.close();
+            },
+          }),
+          { headers: { "content-type": "application/x-ndjson" } },
+        ),
+      );
+    }
     const harnessUpdate = /^\/api\/nodes\/[^/]+\/harnesses\/([^/]+)\/update$/.exec(url.pathname);
     if (harnessUpdate && method === "POST") {
       const status = opts.updateStatus ?? 200;
@@ -541,14 +565,92 @@ describe("NodeHarnessCard", () => {
       }
     });
 
-    it("never offers it on an enrolled node, whoever is looking", async () => {
-      // The route can only ever install on the control-plane host (spec
-      // 2026-09-11 § 11 puts remote installs out of scope), so offering it
-      // here would be a button that lies about which machine it changes.
-      const { restore } = await mount({ ...localOpts, kind: "agent" });
+    it("offers Install on an enrolled node to its owner and POSTs the node route", async () => {
+      const { calls, restore } = await mount({
+        ...localOpts,
+        kind: "agent",
+        access: "owner",
+        canManage: true,
+      });
       try {
-        expect(await screen.findByText((c) => c === "Claude")).toBeDefined();
-        expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
+        const install = await screen.findByRole("button", { name: "Install" });
+        // The row names the machine it changes and the user the line runs as.
+        expect(screen.getByText(/on this node, as the user the subshell daemon runs as/)).toBeDefined();
+        fireEvent.click(install);
+        await waitFor(() =>
+          expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/node1/harnesses/claude/install")).toBe(
+            true,
+          ),
+        );
+      } finally {
+        restore();
+      }
+    });
+
+    it("offers it to a Manage grantee", async () => {
+      const { restore } = await mount({ ...localOpts, kind: "agent", access: "manage", canManage: true });
+      try {
+        expect(await screen.findByRole("button", { name: "Install" })).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("never offers it to an edit or view grantee on an enrolled node", async () => {
+      for (const access of ["edit", "view"] as const) {
+        const { restore } = await mount({ ...localOpts, kind: "agent", access, canManage: false });
+        try {
+          expect(await screen.findByText((c) => c === "Claude")).toBeDefined();
+          expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
+        } finally {
+          restore();
+          // Two mounts in one test: `afterEach(cleanup)` only runs once.
+          cleanup();
+        }
+      }
+    });
+
+    it("disables Install on an offline node with the reason, rather than a 409 press", async () => {
+      const { restore } = await mount({ ...localOpts, kind: "agent", access: "owner", status: "offline" });
+      try {
+        const btn = await screen.findByRole("button", { name: "Install" });
+        expect(btn.matches(":disabled, [aria-disabled=true]")).toBe(true);
+        expect(btn.getAttribute("aria-description")).toContain("offline");
+      } finally {
+        restore();
+      }
+    });
+
+    it("reports a failed remote run under the row", async () => {
+      const { restore } = await mount({
+        ...localOpts,
+        kind: "agent",
+        access: "owner",
+        installFrames: [
+          `${JSON.stringify({ type: "done", harnessId: "claude", ok: false, exitCode: 1, output: "no package", durationMs: 4, timedOut: false })}\n`,
+        ],
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+        expect(await screen.findByText(/exited with code 1/)).toBeDefined();
+        expect(screen.getByText("no package")).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("reports a timed out remote run as possibly still running", async () => {
+      const { restore } = await mount({
+        ...localOpts,
+        kind: "agent",
+        access: "owner",
+        installFrames: [
+          `${JSON.stringify({ type: "done", harnessId: "claude", ok: false, exitCode: null, output: "", durationMs: 600_000, timedOut: true })}\n`,
+        ],
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+        expect(await screen.findByText("The installer timed out. It may still be running.")).toBeDefined();
       } finally {
         restore();
       }

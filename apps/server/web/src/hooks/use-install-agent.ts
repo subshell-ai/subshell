@@ -1,9 +1,18 @@
-import { ApiError, NetworkError, parseErrorBody } from "@internal/node-admin";
+import { ApiError, NetworkError, NODE_QUERY_KEY, parseErrorBody } from "@internal/node-admin";
+import { parseNodeHarnessUpdateResult } from "@internal/subshell-protocol";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HARNESS_QUERY_KEY } from "@/hooks/use-harnesses";
 import type { HarnessInfo } from "@/types/harness";
 
-/** The `done` frame of `POST /api/setup/agents/:id/install`. */
+/**
+ * The `done` frame both install routes end with.
+ *
+ * The control-plane route (`POST /api/setup/agents/:id/install`) re-probes the
+ * harness after the run and carries its detection row; the enrolled-node route
+ * (`POST /api/nodes/:nodeId/harnesses/:id/install`) reports the run alone — no
+ * row, no `timedOut` gap filled in client-side, because the card refreshes the
+ * node view instead of reading a harness back.
+ */
 export interface AgentInstallResult {
   /** Whether the installer command itself exited zero */
   ok: boolean;
@@ -11,8 +20,10 @@ export interface AgentInstallResult {
   exitCode: number | null;
   /** Captured stdout+stderr from the installer */
   output: string;
-  /** The harness's detection row after the install attempt */
-  harness: HarnessInfo;
+  /** The harness's detection row after a control-plane install; absent for a remote run */
+  harness?: HarnessInfo;
+  /** True when the run's own deadline ended it — a remote answer only */
+  timedOut?: boolean;
 }
 
 /**
@@ -31,24 +42,39 @@ type InstallFrame<TDone> =
   | { type: "error"; message: string };
 
 /**
- * Runs a built-in agent's installer on the control-plane host (admin only),
+ * Runs a built-in agent's installer on {@link nodeId}'s machine (admin on the
+ * control-plane host; owner or manage grantee on an enrolled node),
  * reporting the installer's own output as it arrives; refetches detection
  * afterwards.
  *
- * **Read with `fetch`, not `EventSource`.** The route streams NDJSON from the
- * ordinary POST, so the HttpOnly cookie goes with it and the admin gate is the
- * one that was already there. An `EventSource` cannot send that cookie, which
- * is why the live socket mints a ws-token first — a second authenticated way
- * in, on a surface whose whole job is running a remote script as the server's
- * user. Not worth it for a progress line.
+ * **Read with `fetch`, not `EventSource`.** Both routes stream NDJSON from
+ * the ordinary POST, so the HttpOnly cookie goes with it and the route's own
+ * gate is the one that was already there. An `EventSource` cannot send that
+ * cookie, which is why the live socket mints a ws-token first — a second
+ * authenticated way in, on a surface whose whole job is running a remote
+ * script as the server's or the node's user. Not worth it for a progress
+ * line.
+ *
+ * @param onLine - Called with each `line` frame's text as it arrives. A
+ *   remote run prints nothing (its output arrives in the `done` frame), so
+ *   this only fires for the control-plane installer.
+ * @param nodeId - The enrolled node whose CLI to install; absent means the
+ *   control-plane host, which is the first-run wizard's path.
  */
-export function useInstallAgent(onLine?: (id: string, line: string) => void) {
+export function useInstallAgent(onLine?: (id: string, line: string) => void, nodeId?: string) {
   const queryClient = useQueryClient();
+  const remote = nodeId !== undefined;
   return useMutation({
     mutationFn: async (id: string): Promise<AgentInstallResult> => {
+      // Same protocol, different machine: a remote install travels the signed
+      // `harness_install` command, so the package manager and PATH are the
+      // node's. The control-plane host still runs its installer in-process.
+      const path = remote
+        ? `/api/nodes/${encodeURIComponent(nodeId)}/harnesses/${encodeURIComponent(id)}/install`
+        : `/api/setup/agents/${encodeURIComponent(id)}/install`;
       let res: Response;
       try {
-        res = await fetch(`/api/setup/agents/${id}/install`, {
+        res = await fetch(path, {
           method: "POST",
           credentials: "include",
           headers: { "content-type": "application/json" },
@@ -63,9 +89,27 @@ export function useInstallAgent(onLine?: (id: string, line: string) => void) {
         throw new ApiError(res.status, message, { code, errId });
       }
       if (!res.body) throw new ApiError(res.status, "The server sent no install output.");
-      return await readInstallStream(res.body, (line) => onLine?.(id, line));
+      return await readInstallStream<AgentInstallResult>(
+        res.body,
+        (line) => onLine?.(id, line),
+        INSTALL_STALL_MS,
+        remote ? { malformed: "The server's install result was unreadable." } : {},
+        remote
+          ? (frame) => {
+              const parsed = parseNodeHarnessUpdateResult(frame);
+              return parsed === null
+                ? null
+                : { ok: parsed.ok, exitCode: parsed.exitCode, output: parsed.output, timedOut: parsed.timedOut };
+            }
+          : undefined,
+      );
     },
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: HARNESS_QUERY_KEY }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: HARNESS_QUERY_KEY });
+      // The node view carries the remote run's new detection row, so refresh
+      // it too — the card reads its rows from there, not from the `done` frame.
+      if (nodeId !== undefined) void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, nodeId] });
+    },
   });
 }
 
