@@ -184,19 +184,21 @@ because a file the operator named IS their decision. The `update` command's
 wire shape is FROZEN across protocol bumps. **Working on update or rollback:
 read `apps/node/agent/docs/update.md` first.**
 
-## Harness CLI updates (`src/commands/harness-update.ts`, protocol 28, issue #250)
+## Harness CLI installs and updates (`src/commands/harness-run.ts`, protocols 28-29, issue #250)
 
-`harness_update` runs one harness CLI's own update line on this machine. The
-line arrives from the control plane (the manifest's `subshell.update.command`,
-or its `install.command` when that is idempotent), because the node has held
-no plugin manifests since the inversion. It runs through `sh -c` under
+`harness_update` and `harness_install` run one harness CLI's own shell line on
+this machine through one shared runner (`runHarnessLine`). An update line is
+the manifest's `subshell.update.command`, or its `install.command` when that
+is idempotent; an install line is the built-in manifest's `install.command`.
+Both arrive from the control plane as data, because the node has held no
+plugin manifests since the inversion. They run through `sh -c` under
 `runBounded`: the allowlisted environment (never this process's secrets), the
 login-shell PATH, closed stdin, a ten-minute deadline with reader
 cancellation, and the 64 KiB cap per stream. A non-zero exit is the ANSWER
 (`ok:false` inside the result), never a command failure.
-It runs on its own serial chain (like terminal input), so a ten-minute
-package-manager run never holds launches, terminates, resizes or captures
-behind it; updates still queue among themselves.
+Installs and updates share one serial chain (like terminal input), so a
+ten-minute package-manager run never holds launches, terminates, resizes or
+captures behind it; harness runs still queue among themselves.
 
 Protocol 28 also lets `launch` echo the RAW `<binary> --version` text it read
 for the binary it spawned, when the frame asks with `probeVersion` (the plane

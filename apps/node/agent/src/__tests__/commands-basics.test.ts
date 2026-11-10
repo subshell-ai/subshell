@@ -579,3 +579,28 @@ describe("harness_update (protocol 28)", () => {
     expect(failure?.output).toContain("oops");
   });
 });
+
+describe("harness_install (protocol 29)", () => {
+  it("runs the installer line through sh and reports the exit code and output", async () => {
+    const { ctx } = makeCtx({}, []);
+    const ok = await dispatchCommand(ctx, {
+      type: "harness_install",
+      harnessId: "claude-code",
+      command: "printf 'installed\\n'",
+    });
+    expect(ok.ok).toBe(true);
+    const answered = ok.ok ? parseNodeHarnessUpdateResult(ok.data) : null;
+    expect(answered).toMatchObject({ harnessId: "claude-code", ok: true, exitCode: 0, timedOut: false });
+    expect(answered?.output).toContain("installed");
+
+    const failed = await dispatchCommand(ctx, {
+      type: "harness_install",
+      harnessId: "codex",
+      command: "printf 'install failed\\n' >&2; exit 9",
+    });
+    expect(failed.ok).toBe(true);
+    const failure = failed.ok ? parseNodeHarnessUpdateResult(failed.data) : null;
+    expect(failure).toMatchObject({ harnessId: "codex", ok: false, exitCode: 9 });
+    expect(failure?.output).toContain("install failed");
+  });
+});
