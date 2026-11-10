@@ -13,8 +13,8 @@ vendor's docs, then opening a shell on the node.
 
 This design reverses that scope decision for built-in agent harnesses. The
 node page gains an Install button on an enrolled node's missing row, gated to
-the machine's owner or a Manage grantee, running the same vendor line the
-local installer uses under the same bounded runner.
+the machine's configure band (owner, `manage`, or `edit`), running the same
+vendor line the local installer uses under the same bounded runner.
 
 ## Goals
 

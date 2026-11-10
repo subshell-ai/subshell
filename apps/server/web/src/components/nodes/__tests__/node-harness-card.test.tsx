@@ -680,9 +680,9 @@ describe("NodeHarnessCard", () => {
     });
 
     it("disables Install on a HELD node with the update remedy", async () => {
-      // A held socket is projected as offline: the daemon speaks a protocol
-      // below the floor and will be refused again on every reconnect. Waiting
-      // for it to come back would never make Install possible.
+      // A held socket is projected as offline. `protocol-mismatch` can mean the
+      // node is newer, so the reason must not claim it is too old or promise an
+      // update that would answer UPDATE_DOWNGRADE.
       const { restore } = await mount({
         ...localOpts,
         kind: "agent",
@@ -692,7 +692,8 @@ describe("NodeHarnessCard", () => {
       try {
         const btn = await screen.findByRole("button", { name: "Install" });
         expect(btn.matches(":disabled, [aria-disabled=true]")).toBe(true);
-        expect(btn.getAttribute("aria-description")).toContain("too old");
+        expect(btn.getAttribute("aria-description")).toContain("isn't compatible");
+        expect(btn.getAttribute("aria-description")).not.toContain("too old");
       } finally {
         restore();
       }

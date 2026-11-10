@@ -49,9 +49,10 @@ export class NodeRpcError extends Error {
    * Whether the command frame was handed to the socket before this rejection.
    *
    * Pre-send refusals (no connection, detached while queued, an unestablished
-   * link, or a live socket held during signing) did nothing on the node, so an
-   * audit row must not call the outcome unknown. Timeouts, agent answers, and
-   * `failConnPendings` all happen after the send and carry `true`.
+   * link, a live socket held during signing, or a socket whose `send` threw)
+   * did nothing on the node, so an audit row must not call the outcome unknown.
+   * Timeouts, agent answers, and `failConnPendings` all happen after the send
+   * and carry `true`.
    */
   readonly sent: boolean;
 

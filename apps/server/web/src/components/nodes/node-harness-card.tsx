@@ -499,7 +499,9 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                       }
                       disabledReason={
                         data?.held
-                          ? "This node's Subshell daemon is too old for installs. Update it from the Updates card above."
+                          ? data.held.reason === "below-floor"
+                            ? "This node's Subshell daemon is too old for installs. Update it from the Updates card above."
+                            : "This node's Subshell daemon isn't compatible with installs. Check the Updates card above."
                           : !installReachable
                             ? "The node is offline. Wait for it to reconnect before installing."
                             : updateBusy || updatingAll
