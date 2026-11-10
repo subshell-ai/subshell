@@ -65,7 +65,7 @@ export const setNodeMaintenanceRoute = new Elysia()
       // wrote the row, and the view must render what is stored — including the
       // stamp it chose — rather than what this handler believes it asked for.
       const row = (await new NodesRepository(db).findById(gate.row.id)) ?? gate.row;
-      const view = await toNodeView(row, gate.access, gate.isAdmin, gate.granted);
+      const view = await toNodeView(row, gate.access, gate.isAdmin, gate.granted, actor === "cookie");
       return { ...view, stopped, ...(failed.length > 0 ? { failed } : {}) };
     },
     {

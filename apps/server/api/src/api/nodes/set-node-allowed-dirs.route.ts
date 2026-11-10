@@ -111,7 +111,7 @@ export const setNodeAllowedDirsRoute = new Elysia()
         targetId: gate.row.id,
         metadataJson: JSON.stringify({ dirs: stored }),
       });
-      return await toNodeView(gate.row, gate.access, gate.isAdmin, gate.granted);
+      return await toNodeView(gate.row, gate.access, gate.isAdmin, gate.granted, actor === "cookie");
     },
     {
       params: t.Object({ id: t.String({ description: "Node id" }) }),

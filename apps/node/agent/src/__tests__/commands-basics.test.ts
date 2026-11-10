@@ -8,6 +8,7 @@ import {
   type NodeEvent,
   parseNodeCaptureResult,
   parseNodeDetectResults,
+  parseNodeHarnessUpdateResult,
   parseNodePaneCursorResult,
   parseNodePaneSizeResult,
   parseNodePathExistsResult,
@@ -549,5 +550,32 @@ describe("detect (inversion spec §4)", () => {
     } finally {
       delete process.env[DETECT_ENV];
     }
+  });
+});
+
+describe("harness_update (protocol 28)", () => {
+  it("runs the line through sh, answers the exit code and the combined output", async () => {
+    const { ctx } = makeCtx({}, []);
+    const ok = await dispatchCommand(ctx, {
+      type: "harness_update",
+      harnessId: "claude-code",
+      command: "printf 'updated\\n'",
+    });
+    expect(ok.ok).toBe(true);
+    const answered = ok.ok ? parseNodeHarnessUpdateResult(ok.data) : null;
+    expect(answered).toMatchObject({ harnessId: "claude-code", ok: true, exitCode: 0, timedOut: false });
+    expect(answered?.output).toContain("updated");
+
+    // A non-zero exit is a RESULT, not a command failure: the update ran and
+    // said no, which is what the person who pressed the button must see.
+    const failed = await dispatchCommand(ctx, {
+      type: "harness_update",
+      harnessId: "codex",
+      command: "printf 'oops\\n' >&2; exit 7",
+    });
+    expect(failed.ok).toBe(true);
+    const failure = failed.ok ? parseNodeHarnessUpdateResult(failed.data) : null;
+    expect(failure).toMatchObject({ harnessId: "codex", ok: false, exitCode: 7 });
+    expect(failure?.output).toContain("oops");
   });
 });

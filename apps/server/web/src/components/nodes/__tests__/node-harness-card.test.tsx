@@ -15,10 +15,10 @@ import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
  * The node page's harness card after the plugin inversion (spec 2026-09-10):
  * detection output, nothing more. One row per plugin the INSTANCE has
  * installed (the server's view already filters to that set), each carrying
- * this machine's binary answer, its version and the `checkedAt` stamp; a
- * manager's Re-check is the only control. No install, no remove, no
- * plugin-load notices — those are instance facts and live on
- * `/settings/plugins`.
+ * this machine's binary answer, its version and the `checkedAt` stamp. A
+ * manager's Re-check and Update controls act on this machine (issue 250); no
+ * install, no remove, no plugin-load notices — those are instance facts and
+ * live on `/settings/plugins`.
  *
  * The fetch mock models the PRODUCER, not the card's wishes: rows are what
  * `GET /api/nodes/:id` sent (`effectiveHarnessStates` builds them from the
@@ -58,6 +58,12 @@ interface CardOpts {
    * rendering is asserted without racing a close.
    */
   installFrames?: (string | null)[];
+  /** Status the POST to a harness update answers with (default 200). */
+  updateStatus?: number;
+  /** Body a harness update answers with; the default is a successful run. */
+  updateBody?: Record<string, unknown>;
+  /** Hold the update stream open to assert the in-flight rendering. */
+  updateHold?: boolean;
 }
 
 /** A `HarnessInfo` as `/api/setup/harnesses` sends it. */
@@ -72,6 +78,7 @@ function info(over: Record<string, unknown> = {}): Record<string, unknown> {
     installed: false,
     installedHere: true,
     install: { command: "curl -fsSL https://example.test/install.sh | bash", docsUrl: "" },
+    update: { command: "curl -fsSL https://example.test/install.sh | bash", docsUrl: "" },
     ...over,
   };
 }
@@ -172,6 +179,35 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
         ),
       );
     }
+    const harnessUpdate = /^\/api\/nodes\/[^/]+\/harnesses\/([^/]+)\/update$/.exec(url.pathname);
+    if (harnessUpdate && method === "POST") {
+      const status = opts.updateStatus ?? 200;
+      if (status !== 200) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ errId: "e1", code: "NODE_OFFLINE", message: "node is offline" }), { status }),
+        );
+      }
+      if (opts.updateHold) {
+        return Promise.resolve(
+          new Response(new ReadableStream<Uint8Array>({ start() {} }), {
+            headers: { "content-type": "application/x-ndjson" },
+          }),
+        );
+      }
+      const result = opts.updateBody ?? {
+        harnessId: harnessUpdate[1],
+        ok: true,
+        exitCode: 0,
+        output: "",
+        durationMs: 5,
+        timedOut: false,
+      };
+      return Promise.resolve(
+        new Response(`${JSON.stringify({ type: "done", ...result })}\n`, {
+          headers: { "content-type": "application/x-ndjson" },
+        }),
+      );
+    }
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
 
@@ -227,10 +263,37 @@ describe("NodeHarnessCard", () => {
       expect(screen.getByText((content) => content === "Pi")).toBeDefined();
       expect(screen.queryByText((content) => content === "pi")).toBeNull();
       expect(screen.getByText(/1\.2\.3/)).toBeDefined();
-      expect(screen.getByText("ready")).toBeDefined();
+      // A version stands in for "ready": one cell, not two.
+      expect(screen.queryByText("ready")).toBeNull();
       // The `checked … ago` stamp came off 2026-09-22 so the install button
       // shares the row; a fresh scan must not resurrect it.
       expect(screen.queryByText(/checked/i)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("groups rows into installed and not installed, leaving unprobed rows out of both", async () => {
+    const { restore } = await mount({
+      harnesses: [
+        { harnessId: "claude", name: "Claude", installed: true, version: "1.2.3" },
+        { harnessId: "cline", name: "Cline", installed: false, reason: "not-on-path" },
+        { harnessId: "gemini", name: "Gemini", installed: false },
+      ],
+    });
+    try {
+      const installed = screen.getByText("Installed");
+      const missing = screen.getByText("Not installed");
+      const unknown = screen.getByText("Not checked");
+      // Every band brackets the rows it names: installed first, the misses
+      // next, then the rows nothing has probed.
+      const isBefore = (a: HTMLElement, b: HTMLElement) =>
+        (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+      expect(isBefore(installed, screen.getByText("Claude"))).toBe(true);
+      expect(isBefore(screen.getByText("Claude"), missing)).toBe(true);
+      expect(isBefore(missing, screen.getByText("Cline"))).toBe(true);
+      expect(isBefore(screen.getByText("Cline"), unknown)).toBe(true);
+      expect(isBefore(unknown, screen.getByText("Gemini"))).toBe(true);
     } finally {
       restore();
     }
@@ -424,14 +487,39 @@ describe("NodeHarnessCard", () => {
       }
     });
 
-    it("shows the installer's own last line while it runs", async () => {
+    it("disables Install, spins, and shows the installer's own last line while it runs", async () => {
       const { restore } = await mount({
         ...localOpts,
         installFrames: [`${JSON.stringify({ type: "line", text: "downloading claude" })}\n`, null],
       });
       try {
         fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+        const button = await screen.findByRole("button", { name: /installing/i });
+        expect(button.matches(":disabled, [aria-disabled=true]")).toBe(true);
+        expect(button.querySelector("svg")).not.toBeNull();
         expect(await screen.findByText("downloading claude")).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("holds Update all while an install is running (one package manager at a time)", async () => {
+      const { restore } = await mount({
+        kind: "local",
+        canManage: true,
+        harnesses: [
+          { harnessId: "claude", name: "Claude", installed: true },
+          { harnessId: "codex", name: "Codex", installed: false, reason: "not-on-path" },
+        ],
+        infos: [info(), info({ id: "codex", name: "Codex", binary: "codex" })],
+        installFrames: [null],
+      });
+      try {
+        const install = await screen.findByRole("button", { name: "Install" });
+        fireEvent.click(install);
+        const updateAll = await screen.findByRole("button", { name: /update all/i });
+        await waitFor(() => expect(updateAll.matches(":disabled, [aria-disabled=true]")).toBe(true));
+        expect(updateAll.getAttribute("aria-description")).toContain("installation");
       } finally {
         restore();
       }
@@ -515,6 +603,232 @@ describe("NodeHarnessCard", () => {
     });
   });
 
+  describe("Update (issue 250)", () => {
+    it("offers Update and Update all on an installed harness that declares an update path", async () => {
+      const { calls, restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info()],
+      });
+      try {
+        expect(await screen.findByText("ready")).toBeDefined();
+        const updateButton = screen.getByRole("button", { name: /^update$/i });
+        expect(screen.getByRole("button", { name: /update all/i })).toBeDefined();
+        fireEvent.click(updateButton);
+        await waitFor(() =>
+          expect(
+            calls.some((c) => c.method === "POST" && c.url === `/api/nodes/${NODE_ID}/harnesses/claude/update`),
+          ).toBe(true),
+        );
+        expect(await screen.findByText("Updated.")).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+    it("does not offer Update to a non-admin on the control-plane host", async () => {
+      // The seeded local node gives Everyone/edit; that is a launch grant, not
+      // permission to run a vendor installer in the server process.
+      const { restore } = await mount({
+        kind: "local",
+        canManage: false,
+        access: "edit",
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info()],
+      });
+      try {
+        expect(await screen.findByText("ready")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /^update$/i })).toBeNull();
+        expect(screen.queryByRole("button", { name: /update all/i })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("offers Update for an INSTANCE-installed plugin the built-in catalog omits", async () => {
+      // The node view carries the effective update line, so a registry plugin
+      // needs no `/api/setup/harnesses` row (which is built-ins only).
+      const { calls, restore } = await mount({
+        harnesses: [
+          {
+            harnessId: "custom-agent",
+            name: "Custom Agent",
+            installed: true,
+            version: "9.0.0",
+            update: { command: "custom-agent update" },
+          },
+        ],
+        infos: [],
+      });
+      try {
+        expect(await screen.findByText("9.0.0")).toBeDefined();
+        fireEvent.click(screen.getByRole("button", { name: /^update$/i }));
+        await waitFor(() =>
+          expect(
+            calls.some((c) => c.method === "POST" && c.url === `/api/nodes/${NODE_ID}/harnesses/custom-agent/update`),
+          ).toBe(true),
+        );
+      } finally {
+        restore();
+      }
+    });
+
+    it("disables Update, spins, and names the command while it runs", async () => {
+      const { restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info()],
+        updateHold: true,
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: /^update$/i }));
+        const button = await screen.findByRole("button", { name: /updating/i });
+        expect(button.matches(":disabled, [aria-disabled=true]")).toBe(true);
+        expect(button.querySelector("svg")).not.toBeNull();
+        expect(screen.getByText(/Running curl -fsSL/)).toBeDefined();
+        expect(screen.getByRole("button", { name: /update all/i }).matches(":disabled, [aria-disabled=true]")).toBe(
+          true,
+        );
+      } finally {
+        restore();
+      }
+    });
+
+    it("shows a spinner on Update all while it walks the rows", async () => {
+      const { restore } = await mount({
+        harnesses: [
+          { harnessId: "claude", name: "Claude", installed: true },
+          { harnessId: "codex", name: "Codex", installed: true },
+        ],
+        infos: [
+          info(),
+          info({ id: "codex", name: "Codex", binary: "codex", update: { command: "codex update", docsUrl: "" } }),
+        ],
+        updateHold: true,
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: /update all/i }));
+        // The card's own button and the row it is working on, both spinning.
+        const running = await screen.findAllByRole("button", { name: /updating/i });
+        expect(running).toHaveLength(2);
+        for (const button of running) {
+          expect(button.matches(":disabled, [aria-disabled=true]")).toBe(true);
+          expect(button.querySelector("svg")).not.toBeNull();
+        }
+      } finally {
+        restore();
+      }
+    });
+
+    it("reports a failed run under its own row, with the command's output", async () => {
+      const { restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info()],
+        updateBody: {
+          harnessId: "claude",
+          ok: false,
+          exitCode: 7,
+          output: "boom",
+          durationMs: 5,
+          timedOut: false,
+        },
+      });
+      try {
+        expect(await screen.findByText("ready")).toBeDefined();
+        fireEvent.click(screen.getByRole("button", { name: /^update$/i }));
+        expect(await screen.findByText(/exited with code 7/)).toBeDefined();
+        expect(screen.getByText("boom")).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("never offers it to a view grantee", async () => {
+      const { restore } = await mount({
+        access: "view",
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info()],
+      });
+      try {
+        expect(await screen.findByText("ready")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /^update$/i })).toBeNull();
+        expect(screen.queryByRole("button", { name: /update all/i })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("disables it on a disconnected agent node, with the reason", async () => {
+      const { calls, restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info()],
+        status: "offline",
+      });
+      try {
+        const btn = (await screen.findByRole("button", { name: /^update$/i })) as HTMLButtonElement;
+        expect(btn.matches(":disabled, [aria-disabled=true]")).toBe(true);
+        expect(btn.getAttribute("aria-description")).toContain("offline");
+        fireEvent.click(btn);
+        expect(
+          calls.some((c) => c.method === "POST" && c.url === `/api/nodes/${NODE_ID}/harnesses/claude/update`),
+        ).toBe(false);
+      } finally {
+        restore();
+      }
+    });
+
+    it("shows a refusal under the row instead of a success", async () => {
+      const { restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info()],
+        updateStatus: 409,
+      });
+      try {
+        expect(await screen.findByText("ready")).toBeDefined();
+        fireEvent.click(screen.getByRole("button", { name: /^update$/i }));
+        expect(await screen.findByText(/node is offline/)).toBeDefined();
+        expect(screen.queryByText("Updated.")).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("walks Update all one harness at a time, in the node's row order", async () => {
+      const { calls, restore } = await mount({
+        harnesses: [
+          { harnessId: "claude", name: "Claude", installed: true },
+          { harnessId: "codex", name: "Codex", installed: true },
+        ],
+        infos: [
+          info(),
+          info({ id: "codex", name: "Codex", binary: "codex", update: { command: "codex update", docsUrl: "" } }),
+        ],
+      });
+      try {
+        expect(await screen.findAllByText("ready")).toHaveLength(2);
+        fireEvent.click(screen.getByRole("button", { name: /update all/i }));
+        await waitFor(() => expect(calls.filter((c) => c.method === "POST")).toHaveLength(2));
+        expect(calls.filter((c) => c.method === "POST").map((c) => c.url)).toEqual([
+          `/api/nodes/${NODE_ID}/harnesses/claude/update`,
+          `/api/nodes/${NODE_ID}/harnesses/codex/update`,
+        ]);
+      } finally {
+        restore();
+      }
+    });
+
+    it("offers nothing for a harness whose plugin declares no update path", async () => {
+      const { restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true }],
+        infos: [info({ update: { command: "", docsUrl: "" } })],
+      });
+      try {
+        expect(await screen.findByText("ready")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /^update$/i })).toBeNull();
+        expect(screen.queryByRole("button", { name: /update all/i })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+  });
+
   it("still explains a missing program and a bad override", async () => {
     // Kept verbatim: these are DETECTION reasons — facts about this machine.
     const { restore } = await mount({
@@ -525,10 +839,10 @@ describe("NodeHarnessCard", () => {
       ],
     });
     try {
-      // `claude` and `hermes` are both "program not found" (an override that
+      // `claude` and `hermes` are both "not installed" (an override that
       // points at nothing is still a program that was not found); only
       // `pi`, which declares no program at all, reads ready.
-      expect(screen.getAllByText("program not found")).toHaveLength(2);
+      expect(screen.getAllByText("not installed")).toHaveLength(2);
       expect(screen.getByText(/environment variable overrides/i)).toBeDefined();
       expect(screen.getByText(/No separate program is needed here\./)).toBeDefined();
     } finally {
@@ -540,7 +854,7 @@ describe("NodeHarnessCard", () => {
     // The defect this closes: rows come from the INSTANCE catalog crossed
     // with the node's answer, so a plugin the node has never been asked about
     // arrives with neither `reason` nor `checkedAt` — and the card read that
-    // as "program not found", asserting a negative about a machine that may
+    // as "not installed", asserting a negative about a machine that may
     // well have the CLI. Every real miss carries a reason
     // (`binary-lookup.ts`), so its absence is exactly "nobody looked".
     const { restore } = await mount({
@@ -548,7 +862,7 @@ describe("NodeHarnessCard", () => {
     });
     try {
       expect(screen.getByText("not checked")).toBeDefined();
-      expect(screen.queryByText("program not found")).toBeNull();
+      expect(screen.queryByText("not installed")).toBeNull();
       expect(screen.getByText(/This plugin hasn't been checked on this machine yet/i)).toBeDefined();
     } finally {
       restore();
@@ -564,7 +878,7 @@ describe("NodeHarnessCard", () => {
     });
     try {
       expect(screen.getByText("check failed")).toBeDefined();
-      expect(screen.queryByText("program not found")).toBeNull();
+      expect(screen.queryByText("not installed")).toBeNull();
       expect(screen.getByText(/check didn't finish/i)).toBeDefined();
     } finally {
       restore();

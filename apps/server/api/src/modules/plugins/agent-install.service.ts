@@ -1,4 +1,5 @@
-import { builtInIds, getHarness, loginPathEntries, runBounded } from "@internal/pane-runtime";
+import { builtInIds, getHarness, loginPathEntries, runBounded, summarizeBoundedRun } from "@internal/pane-runtime";
+import { claimLocalRun, localRunHolder } from "@/modules/plugins/local-run-lock.js";
 
 /** What one install run produced. `ok:false` is a result, not an error: the installer ran and said no. */
 export interface AgentInstallResult {
@@ -81,6 +82,10 @@ export async function refuseInstall(
   if (command === undefined) return new AgentInstallRefused(`"${id}" is not a plugin this build carries`, 400);
   if (command.trim() === "") return new AgentInstallRefused(`"${id}" has nothing to install`, 400);
   if (inFlight.has(id)) return new AgentInstallRefused(`"${id}" is already being installed`, 409);
+  const running = localRunHolder();
+  if (running !== undefined) {
+    return new AgentInstallRefused(`The control-plane host is busy with ${running}; try again when it finishes.`, 409);
+  }
   return undefined;
 }
 
@@ -102,6 +107,15 @@ export async function installBuiltInAgent(
   if (command.trim() === "") throw new AgentInstallRefused(`"${id}" has nothing to install`, 400);
   if (inFlight.has(id)) throw new AgentInstallRefused(`"${id}" is already being installed`, 409);
   inFlight.add(id);
+  const running = localRunHolder();
+  const releaseHost = running === undefined ? claimLocalRun(`install "${id}"`) : undefined;
+  if (!releaseHost) {
+    inFlight.delete(id);
+    throw new AgentInstallRefused(
+      `The control-plane host is busy with ${running ?? "another install"}; try again when it finishes.`,
+      409,
+    );
+  }
   try {
     // A plugin's install hint is a SHELL LINE (`curl … | bash`), so it is run
     // through `sh -c`. Callers with a fixed argv — the tmux installer — hand
@@ -112,6 +126,7 @@ export async function installBuiltInAgent(
       onLine,
     });
   } finally {
+    releaseHost();
     inFlight.delete(id);
   }
 }
@@ -155,22 +170,15 @@ export async function runInstaller(
   { timeoutMs, extraPath, onLine }: InstallerRunOptions,
 ): Promise<AgentInstallResult> {
   const result = await runBounded(argv, { timeoutMs, extraPath, onLine });
-  // Joined, unlike every other caller of the shared core, because this one's
-  // `output` is a DISCLOSURE rather than something to parse: it is shown to an
-  // admin when an install failed, and an installer that explains itself on
-  // stderr while printing progress on stdout is the common case. Splitting it
-  // here would make the page choose which half to show.
-  const output = [
-    result.stdout,
-    result.stderr,
-    result.timedOut ? `[installer timed out after ${timeoutMs} ms; it may still be running]` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  // Joined (the shared summary's rule) because this one's `output` is a
+  // DISCLOSURE rather than something to parse: it is shown to an admin when an
+  // install failed, and an installer that explains itself on stderr while
+  // printing progress on stdout is the common case.
+  const summary = summarizeBoundedRun(result, timeoutMs, "installer");
   return {
-    ok: result.code === 0 && !result.timedOut,
-    exitCode: result.code,
-    output,
-    durationMs: result.durationMs,
+    ok: summary.ok,
+    exitCode: summary.exitCode,
+    output: summary.output,
+    durationMs: summary.durationMs,
   };
 }

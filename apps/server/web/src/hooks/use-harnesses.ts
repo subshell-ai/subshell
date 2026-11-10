@@ -35,4 +35,5 @@ export function useNodeHarnesses(nodeId: string) {
 // `useSetNodePlugin` / `nodePluginErrorMessage` are gone with the route they
 // POSTed to: plugins moved to the control plane (spec 2026-09-10), so the
 // per-node install route no longer exists and `/settings/plugins` owns the
-// verbs. The node page's card reports detection only.
+// verbs. The node page's card reads detection and runs two machine-local
+// actions on it: Re-check, and Update / Update all (issue 250).

@@ -242,8 +242,18 @@ import {
  * the node", so the exact-match handshake refuses one before the toggle is
  * ever offered. The version floor and `apps/node/agent/package.json` move to
  * 3.2.0 in this commit, per the versions.ts rule.
+ *
+ * **27 -> 28:** harness updates become a first-class action (issue #250). A
+ * `harness_update` command runs one harness CLI's own update line on the node
+ * that holds it, and a `launch` that asks with `probeVersion` answers the RAW
+ * `<binary> --version` text of the binary it spawned, so the control plane
+ * records the version each subshell launched on. An older node understands
+ * neither: it would answer `unsupported` to the update and drop the version
+ * echo, which is why the exact-match handshake refuses it before either is
+ * sent. The floor and `apps/node/agent/package.json` move to 3.5.0 in this
+ * commit, one minor above the published 3.4.1.
  */
-export const NODE_PROTOCOL_VERSION = 27;
+export const NODE_PROTOCOL_VERSION = 28;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -897,6 +907,14 @@ export type NodeCommandBody =
        */
       bestEffortLog?: boolean;
       /**
+       * Protocol 28: when true, read `<binary> --version` for the binary this
+       * launch resolved and echo the RAW text as `rawVersion`. The plane sets
+       * it for an agent harness only (a shell or ssh pane's banner is not the
+       * pane's harness version), and the plane parses the text with the
+       * plugin. Absent ⇒ no probe and no echo, the pre-28 answer exactly.
+       */
+      probeVersion?: boolean;
+      /**
        * Server-built argv (inversion spec §5): the complete command line the
        * node should spawn, with {@link HARNESS_BINARY_PLACEHOLDER} wherever
        * the binary belongs. REQUIRED since protocol 3 — the node holds no
@@ -1016,6 +1034,29 @@ export type NodeCommandBody =
        * answers ONLY these names, never a scan of its environment.
        */
       envNames: string[];
+    }
+  | {
+      /**
+       * Run one harness CLI's own update command on this node.
+       *
+       * The command is a SHELL LINE (`claude update`, `npm i -g …`,
+       * `curl … | sh`) that the control plane reads from the plugin manifest
+       * — the node has held no manifests since the inversion, so the line
+       * travels with the request. It runs through `sh -c` under the same
+       * bounded runner every installer uses: an allowlisted environment, a
+       * ten-minute deadline, closed stdin, and a captured output cap. The
+       * manifest parser already refuses a line that needs privileges, and the
+       * host has no terminal to answer a password prompt either way.
+       *
+       * One harness per command, so the plane can report per-row progress and
+       * an "Update all" sweep stays sequential at the UI rather than holding
+       * one enormous round trip.
+       */
+      type: "harness_update";
+      /** Harness plugin id, echoed in the answer for correlation */
+      harnessId: string;
+      /** Shell line that updates the CLI in place */
+      command: string;
     }
   | {
       /** Chunked file write (terminal uploads relay, spec §3.4) */
@@ -2103,6 +2144,9 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       // browser, a larger one no viewer can usefully watch.
       if ("screen" in value && !parseVirtualDisplayRequest(value.screen)) return null;
       if ("bestEffortLog" in value && !isBool(value.bestEffortLog)) return null;
+      // Protocol 28's echo request: a boolean, and `true` is the only value
+      // that asks for a probe. A `false` is legal but means the same as absent.
+      if ("probeVersion" in value && !isBool(value.probeVersion)) return null;
       // Server-built argv and its resolve rule (inversion spec §5): REQUIRED
       // since protocol 3. The node holds no plugin and builds nothing itself,
       // so a frame without either half is not an older spelling to tolerate —
@@ -2214,6 +2258,13 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       if (!isStrArray(value.envNames)) return null;
       return { type: "detect", specs, envNames: [...value.envNames] };
     }
+    case "harness_update":
+      // Shape only: an EMPTY harness id or command has nothing to run, and the
+      // plane never mints one (a plugin with no update path offers no
+      // button). Refusing here keeps the executor's contract total.
+      return isStr(value.harnessId) && value.harnessId !== "" && isStr(value.command) && value.command.trim() !== ""
+        ? { type: "harness_update", harnessId: value.harnessId, command: value.command }
+        : null;
     case "write_file":
       return isStr(value.path) &&
         isStr(value.chunk_b64) &&

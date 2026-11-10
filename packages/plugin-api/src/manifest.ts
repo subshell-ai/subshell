@@ -69,6 +69,25 @@ export interface InstallSpec {
   docsUrl: string;
 }
 
+/**
+ * How this plugin's harness CLI updates itself in place.
+ *
+ * The installer doubles as the updater for every built-in today (`curl … | sh`
+ * and `npm i -g` lines are idempotent), so this is OPTIONAL and falls back to
+ * {@link InstallSpec}. Declare it where the vendor ships a dedicated verb or a
+ * different channel — `claude update`, say — so pressing Update runs the
+ * vendor's own update path rather than reinstalling.
+ *
+ * Like `install.command`, this is a SHELL LINE the host runs through `sh -c`,
+ * on the node that holds the harness, and it may not need privileges.
+ */
+export interface UpdateSpec {
+  /** Shell line that updates the CLI in place. */
+  command: string;
+  /** Where the vendor documents it; http(s) only, when present. */
+  docsUrl?: string;
+}
+
 /** One step an operator must run themselves, because the host may not. */
 export interface PrivilegedStep {
   /** What it does, in a few words: "Install the daemon" */
@@ -215,6 +234,11 @@ export interface SubshellManifest {
   detect?: DetectSpec;
   /** Install guidance shown when the binary is missing */
   install?: InstallSpec;
+  /**
+   * How the CLI updates itself, when the installer is not the updater.
+   * Absent means `install.command` is the update path too.
+   */
+  update?: UpdateSpec;
   /**
    * Environment variables this plugin computes against (spec 2026-09-10 §5).
    *
@@ -455,6 +479,32 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
     install = { command: i.command, docsUrl: i.docsUrl };
   }
 
+  let update: UpdateSpec | undefined;
+  if (block.update !== undefined) {
+    const u = block.update;
+    if (!isRecord(u) || typeof u.command !== "string" || u.command.trim() === "") {
+      return { error: "`subshell.update` needs a non-empty command" };
+    }
+    // Same rule as install: the host runs this line through a shell with no
+    // terminal behind it, so a privileged command is a refusal, not a wait.
+    if (needsPrivileges(u.command)) {
+      return {
+        error:
+          "`subshell.update.command` must not need sudo, doas or pkexec — the host runs it through a shell and has no terminal for a password prompt",
+      };
+    }
+    if (u.docsUrl !== undefined) {
+      if (typeof u.docsUrl !== "string" || !isDocsUrl(u.docsUrl)) {
+        return {
+          error: "`subshell.update.docsUrl` must be an http(s) URL — it is rendered as a link on an admin page",
+        };
+      }
+      update = { command: u.command, docsUrl: u.docsUrl };
+    } else {
+      update = { command: u.command };
+    }
+  }
+
   // Names, not values: the package.json is checked in, the values are what
   // the node reads off its own machine at `ready`. An empty name would make
   // the node read `process.env[""]`, so it is refused here rather than
@@ -481,6 +531,7 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
     entry: block.entry,
     ...(detect ? { detect } : {}),
     ...(install ? { install } : {}),
+    ...(update ? { update } : {}),
     ...(hostEnv ? { hostEnv } : {}),
     ...(parsedNetwork ? { network: parsedNetwork } : {}),
     // Carried only when it says false: absence and `true` mean the same

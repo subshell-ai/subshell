@@ -82,7 +82,7 @@ export const listNodesRoute = new Elysia()
           // control-plane host, where an admin's instance-wide `edit` must not
           // stand in for a launch grant that was removed.
           const granted = resolveNodeAccess(user.id, false, row, rowShares);
-          return access === "none" ? [] : [{ row, access, isAdmin, granted }];
+          return access === "none" ? [] : [{ row, access, isAdmin, granted, exposeUpdate: true }];
         });
         return {
           nodes: (await toNodeViews(entries)).filter(matches),
@@ -96,7 +96,7 @@ export const listNodesRoute = new Elysia()
       const rows = await new NodesRepository(db).listByOwner(user.id);
       const entries = rows.flatMap((row) => {
         const access = resolveNodeAccess(user.id, false, row, []);
-        return access === "none" ? [] : [{ row, access, isAdmin: false, granted: access }];
+        return access === "none" ? [] : [{ row, access, isAdmin: false, granted: access, exposeUpdate: false }];
       });
       return {
         nodes: (await toNodeViews(entries)).filter(matches),

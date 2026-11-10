@@ -119,6 +119,30 @@ function renderCard(subshell: SubshellView) {
 
 afterEach(cleanup);
 
+describe("SubshellCard names the launched harness version (issue 250)", () => {
+  it("renders the harness id and the version the pane launched on", async () => {
+    const restore = mockNodes([agent()]);
+    try {
+      renderCard(makeSubshell({ nodeId: "mac", harnessVersion: "2.1.0" }));
+      await screen.findByRole("img", { name: "idle" });
+      expect(screen.getByText("claude 2.1.0")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("renders the id alone when no version was recorded", async () => {
+    const restore = mockNodes([agent()]);
+    try {
+      renderCard(makeSubshell({ nodeId: "mac" }));
+      await screen.findByRole("img", { name: "idle" });
+      expect(screen.getByText("claude")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe("SubshellCard carries no machine badge (2026-09-24)", () => {
   // The tile grid segments by machine now — the section header names it on
   // the sidebar's label ladder — so the card must NOT re-say it: a remote

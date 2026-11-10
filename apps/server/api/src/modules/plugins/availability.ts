@@ -72,6 +72,13 @@ export async function harnessInfo(id: string, installedHere: boolean) {
     checkedAt: entry.checkedAt,
     installedHere,
     install: h.installHint,
+    // The effective update path, already resolved by the adapter. Only an
+    // agent harness has one: a plain shell or an ssh pane drives no CLI whose
+    // version a pane keeps, which is the same subset the node page offers.
+    update:
+      h.type === "agent-harness" && h.updateHint
+        ? { command: h.updateHint.command, docsUrl: h.updateHint.docsUrl ?? "" }
+        : { command: "", docsUrl: "" },
   };
 }
 

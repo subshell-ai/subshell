@@ -65,4 +65,44 @@ describe("readInstallStream", () => {
     const result = await readInstallStream(body, undefined, 40);
     expect(result.ok).toBe(true);
   });
+
+  it("treats waiting heartbeats as silence-defeating and as nothing to report", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        for (let i = 0; i < 3; i += 1) {
+          await new Promise((r) => setTimeout(r, 15));
+          controller.enqueue(encoder.encode(`${JSON.stringify({ type: "waiting" })}\n`));
+        }
+        controller.enqueue(encoder.encode(`${DONE}\n`));
+        controller.close();
+      },
+    });
+    const lines: string[] = [];
+    // 45ms of total work against a 40ms silence bound: without heartbeats
+    // this would have been reported as a stalled update.
+    const result = await readInstallStream(body, (line) => lines.push(line), 40);
+    expect(result.ok).toBe(true);
+    expect(lines).toEqual([]);
+  });
+
+  it("lets a caller name its own failure copy", async () => {
+    await expect(
+      readInstallStream(bodyOf([JSON.stringify({ type: "line", text: "…" })]), undefined, undefined, {
+        ended: "The update ended without saying whether it worked.",
+      }),
+    ).rejects.toThrow(/update ended without saying/);
+  });
+
+  it("refuses a done payload its validator rejects", async () => {
+    await expect(
+      readInstallStream(
+        bodyOf([JSON.stringify({ type: "done", junk: true })]),
+        undefined,
+        undefined,
+        { malformed: "unreadable result" },
+        () => null,
+      ),
+    ).rejects.toThrow("unreadable result");
+  });
 });

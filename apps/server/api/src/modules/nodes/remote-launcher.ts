@@ -23,7 +23,7 @@ import { logger } from "@/shared/logger.js";
 import { LOG_TAIL_BYTES, tailLinesFromWindowText } from "../subshells/log-tail.js";
 import { detectOnNodeBestEffort, readAgentInventory } from "./inventory.js";
 import { subscribeOutput } from "./node-events.js";
-import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";
+import type { LaunchAck, LaunchPlan, NodeLauncher } from "./node-launcher.js";
 import { assertNodePathId } from "./node-path-id.js";
 import { getLive, type NodeFacts } from "./node-registry.js";
 import { DEFAULT_COMMAND_TIMEOUT_MS, NodeRpcError, sendCommand } from "./node-rpc.js";
@@ -259,7 +259,7 @@ export class RemoteLauncher implements NodeLauncher {
    * detection pass (unawaited, {@link #kickDetect}) before rethrowing
    * (spec §6.2, detection-shaped by Task 7).
    */
-  async launch(plan: LaunchPlan): Promise<void> {
+  async launch(plan: LaunchPlan): Promise<LaunchAck> {
     if (plan.mcp && !plan.mcpConfigPath) {
       // The frozen wire needs a target path; shipping content without one is
       // a caller bug — fail locally rather than send a frame the agent rejects.
@@ -309,6 +309,10 @@ export class RemoteLauncher implements NodeLauncher {
       harnessSession: plan.harnessSession,
       subshellName: plan.subshellName,
       bestEffortLog: plan.bestEffortLog,
+      // Protocol 28: ask the node to read `<binary> --version` and echo the
+      // raw text, for an AGENT harness only. Conditional spread, so a
+      // terminal frame stays byte-identical to the pre-28 wire.
+      ...(plan.harness.type === "agent-harness" ? { probeVersion: true } : {}),
       argv,
       // Narrowed by the gate above: required since protocol 3, and always
       // present here.
@@ -359,6 +363,22 @@ export class RemoteLauncher implements NodeLauncher {
         logger.warn(`preview display audit failed for pane ${plan.id}: ${String(err)}`);
       }
     }
+    // The version the node read for the binary it spawned (protocol 28). The
+    // node answers RAW text because it holds no plugin code, so the parsing
+    // happens here, exactly like a `detect` row's. Only an agent harness has
+    // a version worth recording (a shell's or ssh's banner describes the
+    // program, not the pane's harness). A parser that throws or returns
+    // nothing is an absent fact, not a launch failure.
+    let harnessVersion: string | undefined;
+    if (plan.harness.type === "agent-harness" && ack.rawVersion) {
+      try {
+        harnessVersion =
+          (plan.harness.parseVersion ? plan.harness.parseVersion(ack.rawVersion) : ack.rawVersion) ?? undefined;
+      } catch {
+        // best-effort: the pane is already running
+      }
+    }
+    return harnessVersion ? { harnessVersion } : {};
   }
 
   /**

@@ -157,6 +157,32 @@ describe("parseManifest", () => {
     expect(result.install?.docsUrl).toBe("https://example.invalid");
   });
 
+  it("carries an explicit update block through, with its optional docsUrl", () => {
+    const withDocs = parseManifest(pkg({ update: { command: "claude update", docsUrl: "https://x.invalid/update" } }));
+    expect("error" in withDocs).toBe(false);
+    if ("error" in withDocs) return;
+    expect(withDocs.update).toEqual({ command: "claude update", docsUrl: "https://x.invalid/update" });
+    const noDocs = parseManifest(pkg({ update: { command: "claude update" } }));
+    expect("error" in noDocs).toBe(false);
+    if ("error" in noDocs) return;
+    expect(noDocs.update).toEqual({ command: "claude update" });
+    // Absence stays absence: the fallback to `install` is the adapter's job.
+    const neither = parseManifest(pkg());
+    expect("error" in neither).toBe(false);
+    if ("error" in neither) return;
+    expect(neither.update).toBeUndefined();
+  });
+
+  it("refuses an update command that is empty or needs privileges", () => {
+    expect("error" in parseManifest(pkg({ update: { command: "   " } }))).toBe(true);
+    expect("error" in parseManifest(pkg({ update: { command: "sudo npm i -g x" } }))).toBe(true);
+    expect("error" in parseManifest(pkg({ update: { command: "npm i -g x && sudo npm i -g y" } }))).toBe(true);
+  });
+
+  it("refuses an update docsUrl that is not http(s)", () => {
+    expect("error" in parseManifest(pkg({ update: { command: "x update", docsUrl: "file:///tmp/x" } }))).toBe(true);
+  });
+
   it("refuses an icon that is not a path to a file the package ships", () => {
     // `icon` names a FILE now, not a glyph. An emoji parsed fine under the
     // old contract and would now be joined onto the plugin directory and

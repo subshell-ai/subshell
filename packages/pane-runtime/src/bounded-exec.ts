@@ -36,6 +36,12 @@ export interface BoundedResult {
   truncated?: boolean;
 }
 
+/** Per-call spawn options. `env` absent keeps today's inherited environment. */
+export interface BoundedExecOptions {
+  /** Environment for the child. Omit to inherit this process's (login-profile probe). */
+  env?: Record<string, string>;
+}
+
 /**
  * Runs `cmd`, returning its stdout and exit code, or `null` when it could not
  * be spawned or did not finish in time.
@@ -49,15 +55,23 @@ export interface BoundedResult {
  * end. A time bound alone lets a chatty-but-fast child hand the caller
  * megabytes the caller then has to carry (a version string rides a capped
  * protocol frame); the cap makes the budget real on SIZE, not just time.
+ * @param options - optional child environment; omit to inherit this process's
  */
 export async function readCommandBounded(
   cmd: string[],
   timeoutMs: number,
   maxBytes?: number,
+  options: BoundedExecOptions = {},
 ): Promise<BoundedResult | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const proc = Bun.spawn({ cmd, stdout: "pipe", stderr: "ignore", stdin: "ignore" });
+    const proc = Bun.spawn({
+      cmd,
+      stdout: "pipe",
+      stderr: "ignore",
+      stdin: "ignore",
+      ...(options.env === undefined ? {} : { env: options.env }),
+    });
 
     const read = (async (): Promise<BoundedResult> => {
       if (maxBytes === undefined) {

@@ -319,6 +319,26 @@ describe("execLaunch (spec §6.4/§7)", () => {
     expect(ctx.watchers.has(S1)).toBe(false);
   });
 
+  it("echoes the RAW <binary> --version text only when the plane asks (protocol 28)", async () => {
+    const stub = join(base, "version-stub");
+    writeFileSync(stub, `#!/bin/sh\nif [ "$1" = "--version" ]; then printf '9.9.9\\n'; exit 0; fi\nexit 0\n`, {
+      mode: 0o755,
+    });
+    process.env.CLAUDE_PATH = stub;
+    const dataDir = await freshDataDir("raw-version");
+    const { ctx } = makeCtx(dataDir, { newSubshell: () => {}, pipePane: () => {} }, []);
+    const asked = await dispatchCommand(ctx, launchCmd({ probeVersion: true }));
+    expect(asked).toMatchObject({ ok: true, data: { rawVersion: "9.9.9" } });
+    stopWatcher(ctx, S1);
+
+    // Without the request the answer is exactly `{ok:true}`, and no process
+    // runs for a fact nobody asked for (the stub would answer if it did).
+    const plainId = "22222222-2222-4222-8222-222222222222";
+    const plain = await dispatchCommand(ctx, launchCmd({ subshellId: plainId }));
+    expect(plain).toEqual({ ok: true });
+    stopWatcher(ctx, plainId);
+  });
+
   it("no geometry on the wire ⇒ no resizeWindow call", async () => {
     const dataDir = await freshDataDir("no-geometry");
     const { ctx, calls } = makeCtx(dataDir, { newSubshell: () => {}, pipePane: () => {} }, []);

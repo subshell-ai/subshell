@@ -27,6 +27,7 @@ import * as sshLaunchMigration from "@/db/migrations/0048-ssh-launch-and-saved-h
 import * as keyHomeMigration from "@/db/migrations/0052-subshell-key-home.js";
 import * as subshellParentMigration from "@/db/migrations/0060-subshell-parent.js";
 import * as presetEnabledMigration from "@/db/migrations/0068-preset-enabled.js";
+import * as harnessVersionMigration from "@/db/migrations/0073-subshell-harness-version.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
@@ -35,7 +36,7 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { Database } from "@/db/types/index.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
-import type { LaunchPlan } from "@/modules/nodes/node-launcher.js";
+import type { LaunchAck, LaunchPlan } from "@/modules/nodes/node-launcher.js";
 import { resetNodeRegistryForTests } from "@/modules/nodes/node-registry.js";
 import { NodeRpcError } from "@/modules/nodes/node-rpc.js";
 import type { NotifyKind } from "@/modules/notifications/notify.service.js";
@@ -83,9 +84,10 @@ class RacingLauncher extends FakeNodeLauncher {
   ) {
     super(dir);
   }
-  override async launch(plan: LaunchPlan): Promise<void> {
-    await super.launch(plan);
+  override async launch(plan: LaunchPlan): Promise<LaunchAck> {
+    const ack = await super.launch(plan);
     await this.duringLaunch(plan);
+    return ack;
   }
 }
 
@@ -193,6 +195,7 @@ beforeAll(async () => {
   await sshLaunchMigration.up(dbHandle); // 0048 subshells.ssh - SubshellsRepository.create writes it on every create now; the delete sweep reads it as the kind fact (plan-2 Task 7)
   await keyHomeMigration.up(dbHandle); // 0052 subshells.key_home_node_id - SubshellsRepository.create mirrors it on every insert (Task 14)
   await presetEnabledMigration.up(dbHandle); // presets.enabled (0068) - PresetsRepository.create mirrors it on every insert
+  await harnessVersionMigration.up(dbHandle); // 0073 subshells.harness_version — #reviveRow writes it on every revival
   presetsRepo = new PresetsRepository(dbHandle);
   subshellsRepo = new SubshellsRepository(dbHandle);
   presetId = await seedPreset(presetsRepo);

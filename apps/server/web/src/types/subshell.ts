@@ -31,6 +31,8 @@ export interface SubshellView {
   presetId: string | null;
   /** Harness the subshell runs on (e.g. claude/agent) */
   harnessId: string;
+  /** Harness CLI version this pane launched on; null when it could not be read */
+  harnessVersion?: string | null;
   /**
    * Node the subshell runs on ("local" = control-plane host). The backend now
    * always sends it; optional so older cached payloads keep typechecking

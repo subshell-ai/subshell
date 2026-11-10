@@ -175,7 +175,11 @@ describe("POST /api/setup/agents/:pluginId/install", () => {
 
     const second = await app.fetch(authedRequest(`/api/setup/agents/codex/install`, adminCookie, { method: "POST" }));
     expect(second.status).toBe(409);
-    expect((await first).status).toBe(200);
+    // Consume the body: the route answers when the stream OPENS, so the
+    // installer (and the host's run slot) is still going until this drains.
+    const firstRes = await first;
+    expect(firstRes.status).toBe(200);
+    await firstRes.text();
   });
 
   it("refuses BEFORE the body opens, so a refusal is still a status code", async () => {

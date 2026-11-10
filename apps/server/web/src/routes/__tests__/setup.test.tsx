@@ -48,6 +48,7 @@ const CLAUDE_ABSENT: HarnessInfo = {
   reason: "not-on-path",
   installedHere: true,
   install: { command: "see the vendor's install docs", docsUrl: "https://code.claude.com/docs/en/setup" },
+  update: { command: "", docsUrl: "" },
 };
 
 interface SetupMocks {
@@ -605,6 +606,7 @@ describe("setup wizard: the agent step is optional", () => {
             installed: true,
             installedHere: true,
             install: { command: "", docsUrl: "" },
+            update: { command: "", docsUrl: "" },
           },
         ],
       },

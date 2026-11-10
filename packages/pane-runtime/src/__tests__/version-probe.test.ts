@@ -55,4 +55,22 @@ describe("probeVersion", () => {
     const text = await probeVersion("/bin/sh", big);
     expect(text?.length).toBe(30 * 101 - 1); // 30 lines joined by \n, trailing newline trimmed
   });
+
+  it("does not expose the host process environment or proxy credentials", async () => {
+    const secretKey = "OMP_VERSION_PROBE_SECRET";
+    const proxyKey = "HTTPS_PROXY";
+    const priorSecret = process.env[secretKey];
+    const priorProxy = process.env[proxyKey];
+    process.env[secretKey] = "server-secret";
+    process.env[proxyKey] = "http://user:pass@proxy.invalid";
+    try {
+      const script = `printf '%s|%s' "\${${secretKey}-unset}" "\${${proxyKey}-unset}"`;
+      expect(await probeVersion("/bin/sh", ["-c", script])).toBe("unset|unset");
+    } finally {
+      if (priorSecret === undefined) delete process.env[secretKey];
+      else process.env[secretKey] = priorSecret;
+      if (priorProxy === undefined) delete process.env[proxyKey];
+      else process.env[proxyKey] = priorProxy;
+    }
+  });
 });

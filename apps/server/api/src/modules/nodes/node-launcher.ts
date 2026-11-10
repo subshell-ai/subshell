@@ -69,6 +69,21 @@ export interface LaunchPlan {
 }
 
 /**
+ * What a successful launch reports back beyond liveness.
+ *
+ * One member today: the harness CLI version the pane started on. Local probes
+ * `<binary> --version` in-process; a remote node returns the RAW text (it
+ * holds no plugin code) and this launcher parses it with the plugin. The
+ * caller stores it on the subshell row. Absent means the machine could not
+ * read a version (or, for a terminal pane, nobody asked), which is not a
+ * launch failure.
+ */
+export interface LaunchAck {
+  /** Parsed version of the binary this pane spawned, when it could be read. */
+  harnessVersion?: string;
+}
+
+/**
  * Every machine-local operation a subshell needs, so the orchestrator never
  * touches tmux/fs/agent sockets directly (spec §6.3). LocalLauncher is
  * today's code; RemoteLauncher (phase 2) signs NodeCommandBodies.
@@ -83,13 +98,18 @@ export interface LaunchPlan {
  *   the read-your-writes order these pumps rely on between their own
  *   successive calls.
  */
+
 export interface NodeLauncher {
   /** Validates/normalizes a requested working dir; throws if unusable. */
   validateWorkingDir(raw: string): Promise<string>;
   /** Absolute path of the harness binary on the target machine, null if absent. */
   resolveBinary(harness: HarnessPlugin): Promise<string | null>;
-  /** Starts one harness from a plan; throws on failure unless plan.bestEffortLog covers a step. */
-  launch(plan: LaunchPlan): Promise<void>;
+  /**
+   * Starts one harness from a plan; throws on failure unless
+   * plan.bestEffortLog covers a step. Answers the version the spawned harness
+   * reported, parsed by the plugin, so the row can record what it launched on.
+   */
+  launch(plan: LaunchPlan): Promise<LaunchAck>;
   /** Strict kill of the tmux subshell — throws when tmux refuses (unlike {@link killSubshell}). */
   terminate(socket: string, id: string): Promise<void>;
   /** Raw kill of the tmux subshell; swallows "already gone". */

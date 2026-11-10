@@ -75,6 +75,13 @@ export interface NodeHarness {
    * rendering rule as `broken`.
    */
   restartRequired?: boolean;
+  /**
+   * How this harness CLI updates itself on this node. Present only for an
+   * agent harness with an update path, and only when the viewer is a browser
+   * session the update route accepts: configure on an agent node, admin on
+   * `local`. Machine credentials never receive it.
+   */
+  update?: { command: string; docsUrl?: string };
 }
 
 /** One node as the registry renders it — no secrets, no machine keys. */

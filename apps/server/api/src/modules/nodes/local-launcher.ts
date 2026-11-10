@@ -21,7 +21,7 @@ import { HttpError } from "@/shared/errors.js";
 import { logger } from "@/shared/logger.js";
 import { readLogTailFrom, TAIL_POLL_MS } from "../subshells/log-tail.js";
 import { subshellLogDir, subshellLogPath, subshellSshConfigPath } from "../subshells/paths.js";
-import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";
+import type { LaunchAck, LaunchPlan, NodeLauncher } from "./node-launcher.js";
 
 /** Today's exact tmux/fs behavior behind the launcher seam (spec §6.3). */
 export class LocalLauncher implements NodeLauncher {
@@ -61,7 +61,7 @@ export class LocalLauncher implements NodeLauncher {
    * the LOG ATTACH (dir mkdir + pipe-pane) degrades — a failure there is
    * logged (debug) and swallowed, exactly like the pre-seam revive did.
    */
-  async launch(plan: LaunchPlan): Promise<void> {
+  async launch(plan: LaunchPlan): Promise<LaunchAck> {
     let displayEnv: Record<string, string> | undefined;
     if (plan.screen) {
       let allocated = false;
@@ -77,6 +77,14 @@ export class LocalLauncher implements NodeLauncher {
         throw err;
       }
     }
+    // The version this pane starts on (protocol 28's local half), probed
+    // ALONGSIDE the spawn: a slow `--version` must not delay a create once
+    // the pane is up. Only an agent harness has a version worth recording;
+    // a shell or an ssh pane answers its own program's banner, which is not a
+    // fact about the pane's harness. A failed probe or a plugin parser that
+    // throws is an absent fact, never a reason to un-launch a live pane.
+    const versionProbe =
+      plan.harness.type === "agent-harness" ? plan.harness.versionAt(plan.binary).catch(() => null) : null;
     try {
       await this.#launch(plan, displayEnv);
       if (plan.screen) {
@@ -87,6 +95,8 @@ export class LocalLauncher implements NodeLauncher {
       if (plan.screen) await this.#displays().closeFor(plan.id);
       throw err;
     }
+    const harnessVersion = versionProbe ? ((await versionProbe) ?? undefined) : undefined;
+    return harnessVersion ? { harnessVersion } : {};
   }
 
   #displays(): VirtualDisplayRuntime {

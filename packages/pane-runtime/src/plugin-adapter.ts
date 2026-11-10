@@ -88,6 +88,18 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
     // consumers (the web Agent picker) never special-case an id.
     ...(manifest.pickable === false ? { pickable: false as const } : {}),
     installHint: manifest.install ?? { command: "", docsUrl: "" },
+    // The update path, resolved ONCE here so no surface has to re-derive
+    // "is the installer also the updater". Every built-in's installer is
+    // idempotent, which is why the fallback is safe rather than a guess;
+    // a plugin whose vendor ships a dedicated verb declares it explicitly.
+    ...(manifest.update?.command.trim() || manifest.install?.command.trim()
+      ? {
+          updateHint: manifest.update ?? {
+            command: manifest.install?.command ?? "",
+            docsUrl: manifest.install?.docsUrl,
+          },
+        }
+      : {}),
     // A legacy field the plugin model replaces: "enabled by default" becomes
     // "installed" once the node owns its plugin set. Not worth a manifest
     // field with one possible value. (`ttyRequired` was the same, and is gone:

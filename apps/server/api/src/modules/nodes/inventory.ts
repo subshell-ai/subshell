@@ -95,6 +95,15 @@ export interface EffectiveHarnessState {
    * of the SERVER, so the state has to reach a screen an operator looks at.
    */
   restartRequired?: boolean;
+
+  /**
+   * The plugin's update line, when it drives an agent CLI that has one.
+   * Carried on the row so the card can offer Update for an INSTANCE-installed
+   * plugin the built-in registry never lists. Only the config-capable view
+   * keeps it (see `node-view.ts`); the harness itself is already public to a
+   * viewer, but the shell line is not.
+   */
+  update?: { command: string; docsUrl?: string };
 }
 
 /** The full per-node harness picture plus the freshness verdict on its source. */
@@ -265,6 +274,14 @@ export async function effectiveHarnessStates(
       name: report.name,
       installed: entry?.installed === true,
     };
+    const plugin = getHarness(report.id);
+    const updateCommand = plugin?.type === "agent-harness" ? plugin.updateHint?.command.trim() : undefined;
+    if (updateCommand) {
+      state.update = {
+        command: updateCommand,
+        ...(plugin?.updateHint?.docsUrl ? { docsUrl: plugin.updateHint.docsUrl } : {}),
+      };
+    }
     if (entry?.version) state.version = entry.version;
     if (entry?.reason) state.reason = entry.reason;
     if (entry?.checkedAt) state.checkedAt = entry.checkedAt;

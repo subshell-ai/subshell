@@ -76,3 +76,8 @@ it("reports a virtual display only while its subshell is running", () => {
   expect(toSubshellView(row(), "terminated", [], "owner", false, ":91").virtualDisplay).toBeNull();
   expect(toSubshellView(row(), "running").virtualDisplay).toBeNull();
 });
+
+it("maps the harness version this pane launched on, null when absent", () => {
+  expect(toSubshellView(row({ harnessVersion: "2.1.0" }), "running").harnessVersion).toBe("2.1.0");
+  expect(toSubshellView(row(), "running").harnessVersion).toBeNull();
+});

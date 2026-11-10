@@ -162,6 +162,14 @@ describe("parseNodeCommandBody", () => {
     expect(parseNodeCommandBody({ type: "remove_paths", paths: [] })).not.toBeNull();
     expect(parseNodeCommandBody({ type: "inventory" })).toEqual({ type: "inventory" });
     expect(parseNodeCommandBody({ type: "ping" })).toEqual({ type: "ping" });
+    // harness_update: the update line travels as data; an empty id or a
+    // blank line has nothing to run and is refused on shape alone.
+    expect(
+      parseNodeCommandBody({ type: "harness_update", harnessId: "claude-code", command: "claude update" }),
+    ).toEqual({ type: "harness_update", harnessId: "claude-code", command: "claude update" });
+    expect(parseNodeCommandBody({ type: "harness_update", harnessId: "", command: "claude update" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "harness_update", harnessId: "claude-code", command: "  " })).toBeNull();
+    expect(parseNodeCommandBody({ type: "harness_update", harnessId: "claude-code" })).toBeNull();
   });
 
   it("rejects launch with a malformed preset (env value not a string)", () => {
@@ -431,7 +439,12 @@ describe("parseNodeCommandBody", () => {
     // allocated virtual display without touching the pane itself. An older
     // node answers `unsupported`, and the exact-match gate refuses one before
     // the toggle is ever offered.
-    expect(NODE_PROTOCOL_VERSION).toBe(27);
+    // 28 is harness updates (issue #250): `harness_update` runs one harness
+    // CLI's own update line on the node, and a `launch` answer carries the
+    // RAW `<binary> --version` text for the binary it spawned. An older node
+    // understands neither the command nor the echo, and the exact-match gate
+    // refuses it before either is sent.
+    expect(NODE_PROTOCOL_VERSION).toBe(28);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -644,6 +657,17 @@ describe("launch server-built argv, resolve rule, and mcp dialect", () => {
   it("a non-string-array argv is refused rather than coerced", () => {
     expect(parseNodeCommandBody({ ...launchCmd, argv: "pi --flag" })).toBeNull();
     expect(parseNodeCommandBody({ ...launchCmd, argv: ["pi", 7] })).toBeNull();
+  });
+
+  it("accepts protocol 28's probeVersion request and refuses a non-boolean", () => {
+    expect(parseNodeCommandBody({ ...launchCmd, probeVersion: true })).toMatchObject({
+      type: "launch",
+      probeVersion: true,
+    });
+    // `false` is legal and means the same as absent: no probe, no echo.
+    expect(parseNodeCommandBody({ ...launchCmd, probeVersion: false })).toMatchObject({ type: "launch" });
+    expect(parseNodeCommandBody({ ...launchCmd, probeVersion: "yes" })).toBeNull();
+    expect(parseNodeCommandBody({ ...launchCmd, probeVersion: 1 })).toBeNull();
   });
 
   it("a malformed resolve rule is refused; a full one parses", () => {
