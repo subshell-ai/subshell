@@ -179,17 +179,18 @@ progressively on small screens, and reveal it again as the card widens. Match
 every header's visibility to its cells. For users, an email can move beneath
 the name when its column is hidden; management actions must remain reachable.
 
-When metadata columns are visible, give the name roughly one third of the
-table instead of letting it consume all remaining space. Fit the actions
-column to its controls. Truncate long names and metadata rather than letting
-them push the page wider; make the complete value available through the
-appropriate detail or disclosure. Keep any necessary horizontal scrolling
-inside the card, never on the whole page.
+When metadata columns are visible, give the name the room they leave: roughly
+one third of the table, or half once a metadata column has moved to the detail
+page. Fit the actions column to its controls. Truncate long names and metadata
+rather than letting them push the page wider; make the complete value
+available through the appropriate detail or disclosure. Keep any necessary
+horizontal scrolling inside the card, never on the whole page.
 
 ### Values and interactions
 
-Give independent behaviours separate columns. Presets show Auto-restart and
-Cross-agent use separately. Boolean values, including sharing, use **Yes** or
+Give independent behaviours separate columns. The preset list shows
+Cross-agent use; auto-restart lives on the preset page. Boolean values,
+including sharing, use **Yes** or
 **No** consistently. Show plain text for provider, role, permissions, and
 routine states, following the field-value rule below; do not turn them into
 badges. Use an absence mark when a value does not apply: the server's local

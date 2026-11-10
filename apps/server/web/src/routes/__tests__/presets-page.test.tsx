@@ -296,7 +296,7 @@ describe("cross-agent use column (spec 2026-09-29 preset-launch-fields)", () => 
     try {
       renderPage();
       await screen.findByText("Everywhere");
-      expect(screen.getByRole("columnheader", { name: "Auto-restart" })).toBeDefined();
+      expect(screen.queryByRole("columnheader", { name: "Auto-restart" })).toBeNull();
       expect(screen.getByRole("columnheader", { name: "Cross-agent use" })).toBeDefined();
       for (const [name, ready] of [
         ["Everywhere", "Yes"],
@@ -306,7 +306,7 @@ describe("cross-agent use column (spec 2026-09-29 preset-launch-fields)", () => 
       ]) {
         const row = screen.getByRole("button", { name }).closest("tr");
         if (!row) throw new Error(`No table row for ${name}`);
-        expect(within(row).getAllByRole("cell")[2].textContent).toBe(ready);
+        expect(within(row).getAllByRole("cell")[1].textContent).toBe(ready);
       }
     } finally {
       restore();

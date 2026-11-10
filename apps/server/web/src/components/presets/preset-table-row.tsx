@@ -11,9 +11,11 @@ import { canEditPreset, ownsPreset } from "@/lib/preset-access";
 import type { PresetRow } from "@/types/preset";
 
 /**
- * One preset in its agent's table: name, auto-restart, cross-agent use, enabled, and actions. The optional
- * command detail spans the columns and wraps without truncation; copying
- * still hands over the exact single-line form for pasting into a shell.
+ * One preset in its agent's table: name, cross-agent use, enabled, and actions.
+ * Auto-restart lives on the preset page instead of a column, which is what
+ * leaves the name room to show a full title. The optional command detail spans
+ * the columns and wraps without truncation; copying still hands over the exact
+ * single-line form for pasting into a shell.
  *
  * **The command is HIDDEN until asked for** (operator's call, 2026-09-18).
  * A preset's env vars are where API keys and base URLs live, and this page
@@ -41,7 +43,7 @@ export function PresetTableRow({ preset, binary, items }: { preset: PresetRow; b
       would leave no way back in. The preview and the row menu are NOT gated,
       so a parked preset can still be inspected, exported, or re-enabled. */}
       <tr className={cn("border-b align-middle last:border-0", disabled && "opacity-70")}>
-        <td className="h-8 @sm:w-1/3 w-full max-w-0 py-0 pr-4">
+        <td className="h-8 @sm:w-1/2 w-full max-w-0 py-0 pr-4">
           <button
             type="button"
             title={preset.name}
@@ -58,9 +60,6 @@ export function PresetTableRow({ preset, binary, items }: { preset: PresetRow; b
               Shared by {preset.ownerName ?? preset.userId} · {preset.access === "view" ? "View" : "Edit"}
             </p>
           )}
-        </td>
-        <td className="@sm:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
-          {preset.restartOnExit === 1 ? "Yes" : "No"}
         </td>
         {/* Readiness uses the same opt-in, node, and directory checks as list_presets. */}
         <td className="@lg:table-cell hidden h-8 whitespace-nowrap py-0 pr-4 text-muted-foreground">
@@ -92,7 +91,7 @@ export function PresetTableRow({ preset, binary, items }: { preset: PresetRow; b
           while the row claims it is hidden. */}
       {shown && (
         <tr className="border-b last:border-0">
-          <td colSpan={6} className="max-w-0 bg-muted/40 px-4 py-2">
+          <td colSpan={5} className="max-w-0 bg-muted/40 px-4 py-2">
             <pre id={commandId} className="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed">
               {command}
             </pre>

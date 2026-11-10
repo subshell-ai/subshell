@@ -169,9 +169,6 @@ export function AgentPresetLibrary({
                           <th scope="col" className="pr-4 pb-2 font-strong">
                             Name
                           </th>
-                          <th scope="col" className="@sm:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
-                            Auto-restart
-                          </th>
                           <th scope="col" className="@lg:table-cell hidden whitespace-nowrap pr-4 pb-2 font-strong">
                             Cross-agent use
                           </th>
