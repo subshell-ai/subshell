@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.28
+
+### Patch Changes
+
+- [#507](https://github.com/subshell-ai/subshell/pull/507) [`fb0961b`](https://github.com/subshell-ai/subshell/commit/fb0961b31c0a0358c66ef4be35a17d676c2c30b2) Thanks [@theogravity](https://github.com/theogravity)! - The Proxmox server helper's update now pulls the newest published image. Installs recorded the image ref they used in `/etc/default/subshell-docker`, and update kept re-pulling that recorded ref forever, so a fresh helper could stay on an old release with no way to see why. Updates follow `latest` now, and `SUBSHELL_VERSION=<tag>` (or `IMG`) names the image for one run; the log prints it before pulling.
+
 ## 0.2.27
 
 ### Patch Changes

@@ -1,5 +1,19 @@
 # @internal/docs
 
+## 0.11.11
+
+### Patch Changes
+
+- [#508](https://github.com/subshell-ai/subshell/pull/508) [`4012e15`](https://github.com/subshell-ai/subshell/commit/4012e153f323823659f63aa63908a20cd47014d8) Thanks [@theogravity](https://github.com/theogravity)! - Harness updates become a first-class action: the node page's harness rows can run each CLI's own update line (and Update all walks them sequentially), on the control-plane host or an enrolled node. A plugin declares the line with a new optional `subshell.update` block and falls back to its installer when that is idempotent. Each subshell also records the harness version it launched on. Nothing restarts a running pane on a version change.
+  
+  The node protocol moves to 28, so enrolled nodes need subshell 3.5.0; older nodes are held for their own update until they catch up.
+
+- [#510](https://github.com/subshell-ai/subshell/pull/510) [`f57147b`](https://github.com/subshell-ai/subshell/commit/f57147b550d8d306c1644e696f010c6e4c89c853) Thanks [@theogravity](https://github.com/theogravity)! - Machine credentials now hold their account's node authority. A pane's MCP token can launch a subshell wherever its user could launch one from the browser: machines the account owns or that are shared with it, machines reached through an administrator's instance-wide access, and the control-plane host when the account's launch grant there allows it. Previously every bearer was held to an owner-only node list, so a preset pinned to a machine the account could already use answered "Node not found". `list_nodes` now returns the same non-admin set the browser shows, and a refusal names its rule (a maintenance window, the server settings switch, or a missing launch grant) instead of reading as a missing machine.
+
+- [#511](https://github.com/subshell-ai/subshell/pull/511) [`a2119a2`](https://github.com/subshell-ai/subshell/commit/a2119a222d6b5c55745811d091cb7ec9c526252a) Thanks [@theogravity](https://github.com/theogravity)! - Oh My Pi subshells now list their running subagents beneath the parent in the sidebar. Each launch adds a companion extension that reports omp's own subagent lifecycle and progress events, so names, status, and the harness's one-line label appear as they change; opening a child stays with omp's own controls. The sidebar's subsections also sit just inside the machine dropdown instead of 16px inside it, reclaiming 10px for pane names.
+
+- [#507](https://github.com/subshell-ai/subshell/pull/507) [`fb0961b`](https://github.com/subshell-ai/subshell/commit/fb0961b31c0a0358c66ef4be35a17d676c2c30b2) Thanks [@theogravity](https://github.com/theogravity)! - The Proxmox server helper's update now pulls the newest published image. Installs recorded the image ref they used in `/etc/default/subshell-docker`, and update kept re-pulling that recorded ref forever, so a fresh helper could stay on an old release with no way to see why. Updates follow `latest` now, and `SUBSHELL_VERSION=<tag>` (or `IMG`) names the image for one run; the log prints it before pulling.
+
 ## 0.11.10
 
 ### Patch Changes
