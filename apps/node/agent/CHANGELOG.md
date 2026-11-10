@@ -1,5 +1,13 @@
 # @internal/node
 
+## 3.6.1
+
+### Patch Changes
+
+- [#514](https://github.com/subshell-ai/subshell/pull/514) [`a30c1db`](https://github.com/subshell-ai/subshell/commit/a30c1dba459fd2da0a72fa812ad53b53cb91c95b) Thanks [@theogravity](https://github.com/theogravity)! - Harness rows on an enrolled node now offer Install, for the node's owner, a Manage grantee, or an Edit grantee, the same band Update uses. It runs the built-in plugin's own installer on that machine, under the same ten-minute bounded runner as the local installer, and reports the result on the row. The node protocol moves to 29, so enrolled nodes need subshell 3.6.0; older nodes are held for their own update until they catch up. Third-party plugin install commands remain copy guidance.
+  
+  The Workspace section's empty state now lines up with the subshells empty state.
+
 ## 3.5.1
 
 ### Patch Changes
