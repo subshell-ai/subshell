@@ -3037,6 +3037,11 @@ Audit events are written, grouped by family:
   written whether the vendor's command exited zero or not),
   `node.harness.update.unknown` (a timeout or a dropped socket left it
   unknowable whether the command ran; metadata names only the plugin),
+  `node.harness.install` (an install on an enrolled node: metadata names the
+  plugin and the run's outcome, written whether the installer exited zero or
+  not; never output),
+  `node.harness.install.unknown` (a timeout or a dropped socket left it
+  unknowable whether the installer ran; metadata names only the plugin),
   `node.shares_set`, `node.local_share_changed`, and
   `node.service` (with `{ verb: "restart", forced }` metadata; the restart
   verb shares its action with the rest of the service surface). The SSH
@@ -3413,10 +3418,12 @@ unknown-audit rules line up with the node's own binary update
   `node.harness.update.unknown` only when a timeout or a dropped socket leaves
   it unknowable whether the command ran. A node's spoken refusal or a
   malformed answer writes no unknown row; neither audit row carries output.
-- **One host run slot** serializes local harness installs and updates, so two
-  package managers don't interleave over the same filesystem. The tmux
-  installer (§11.10b) has its own single-flight flag and remains a separate
-  path.
+- **One harness-run slot per node** serializes installs and updates, whatever
+  the verb, so two package managers don't interleave over the same filesystem;
+  a racing press answers 409 before any body opens. A run on the control-plane
+  host also joins the host installer lock, so a harness run and an agent
+  install cannot overlap there. The tmux installer (§11.10b) has its own
+  single-flight flag and remains a separate path.
 - **A launched-version echo from a node is untrusted text.** It is parsed by
   the plugin, then normalized and capped before it is stored or rendered; a
   non-string or empty answer is stored as NULL, not treated as a
@@ -3426,8 +3433,57 @@ unknown-audit rules line up with the node's own binary update
   process environment.
 
 Residual: an update line that is also an installer can install a CLI on a node
-where it was missing, even though the card offers Install only on `local`. It
+where it was missing, even though Install is a separate act (§11.10d). It
 still runs only the plugin's fixed vendor line, as a configure act.
+
+## 11.10d An enrolled node installs a harness CLI on request
+
+`POST /api/nodes/:id/harnesses/:pluginId/install` installs the CLI a plugin
+drives on the machine that will run it, through the signed `harness_install`
+command (protocol 29). It is the remote half of §11.10c's act and is accounted
+separately because installing software is a stronger grant than updating it.
+
+- **The line is built-in manifest data, never request input.** The route takes
+  a plugin id and a node id; the shell line comes from the manifest compiled
+  into this binary. A registry-installed plugin has no line this surface will
+  run, however trusted it is for its own launches: only a built-in id can reach
+  the command, so what may execute is changed by editing this repo, never by a
+  request. The manifest parser's `sudo`/`doas`/`pkexec` refusal (§11.9) applies
+  as it does to every installer line.
+- **Enrolled nodes only.** `local` answers 400: the control-plane host's install
+  is the setup screen's admin-cookie installer (§11.10), which runs in the
+  server process as the server's OS user. This route has no local branch to
+  keep in step with it, so the two cannot drift into two gates for one line.
+- **Browser sessions only, at the manage band.** `requireCookieActor` refuses a
+  bearer or system key even with `nodes:configure`. The gate is
+  `gate.canManage` — the owner or a `manage` grantee — because installing
+  software changes the machine's tool set: `edit` is not enough, and an
+  instance admin's edit-level boost stops below this band on someone else's
+  node.
+- **Refusals precede the stream, in a fixed order.** The node's kind is
+  answered before any grant is weighed; an unknown plugin is 404; a non-built-in
+  or a harness with no installer line is 400; an offline node is 409; a harness
+  run already holding the node is 409. All are decided before the NDJSON body
+  opens, because a status line cannot be taken back.
+- **The run is bounded like every installer**: the node runs the line under its
+  own `runBounded` environment, closed stdin, ten-minute deadline and
+  per-stream capture, and the plane's RPC deadline is that budget plus
+  transport headroom. The answer is NDJSON with a five-second heartbeat (Bun
+  closes a silent response at ten) and one terminal `done` or `error`;
+  node-provided error text is capped at 4,096 characters before it reaches the
+  page. Output is deliberately not logged or audited.
+- **Audit.** `node.harness.install` names the plugin, `ok`, exit code, duration
+  and timeout flag, written whether the installer exited zero or not, and never
+  carries output. `node.harness.install.unknown` is written only when a timeout
+  or a dropped socket leaves it unknowable whether the command ran, with
+  metadata naming only the plugin.
+
+Residual: a successful install refreshes the node's cached detection
+best-effort, so a refresh failure leaves the page showing the old version until
+the next load or periodic pass; the install itself succeeded and is audited as
+such. A node that accepts the command and then dies before answering gets the
+unknown row above, and its own ten-minute budget may still finish the install
+unobserved.
 
 ## 11.11 An admin can reconfigure and restart the server from a browser
 

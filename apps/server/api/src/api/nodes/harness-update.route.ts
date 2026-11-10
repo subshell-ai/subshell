@@ -2,6 +2,7 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
 import { apiErrorBody } from "@/api/api-error.js";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
+import { HARNESS_RUN_ERROR_MAX, HARNESS_RUN_HEARTBEAT_MS } from "@/api/nodes/harness-run-frames.js";
 import { apiModels } from "@/api/schemas/index.js";
 import { audit } from "@/modules/audit.js";
 import { nodeCanConfigure } from "@/modules/nodes/access.js";
@@ -18,19 +19,6 @@ function codeForRefusalStatus(status: 400 | 404 | 409): BackendErrorCodes {
   if (status === 404) return BackendErrorCodes.NOT_FOUND_ERROR;
   return BackendErrorCodes.INPUT_VALIDATION_ERROR;
 }
-
-/**
- * How often a silent update says something. A remote run sends no line frames
- * (its output arrives in the one terminal answer), and Bun closes a response
- * that writes nothing for 10 s — measured against Bun 1.4.4, which answers a
- * 12 s gap with ECONNRESET. Proxies have their own idle deadlines too, so the
- * beat is half Bun's window: two of them per close, without turning the
- * stream into chatter.
- */
-const UPDATE_HEARTBEAT_MS = 5_000;
-
-/** Bound on node-provided error text relayed to the page; a wire frame can carry 1 MiB. */
-const UPDATE_ERROR_MAX = 4096;
 
 /**
  * `POST /api/nodes/:id/harnesses/:pluginId/update` — run one harness CLI's own
@@ -119,7 +107,7 @@ export const harnessUpdateRoute = new Elysia()
               // watching would leave a half-installed CLI either way.
             }
           };
-          const heartbeat = setInterval(() => send({ type: "waiting" }), UPDATE_HEARTBEAT_MS);
+          const heartbeat = setInterval(() => send({ type: "waiting" }), HARNESS_RUN_HEARTBEAT_MS);
           heartbeat.unref?.();
           try {
             const result = await updateHarness(
@@ -154,7 +142,7 @@ export const harnessUpdateRoute = new Elysia()
                   ? err.message
                   : "The update failed.";
             const boundedMessage =
-              message.length > UPDATE_ERROR_MAX ? `${message.slice(0, UPDATE_ERROR_MAX)}…` : message;
+              message.length > HARNESS_RUN_ERROR_MAX ? `${message.slice(0, HARNESS_RUN_ERROR_MAX)}…` : message;
             send({ type: "error", message: boundedMessage });
             // Mirrors `/api/nodes/:id/update`'s unknown branch: a timeout or a
             // dropped socket may have happened after the node received the
