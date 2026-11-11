@@ -89,6 +89,13 @@ const OVERLAY_MARKER = "Select an agent to watch.";
 const EMPTY_COMPOSER = "Ask Codex to do anything";
 /** ESC [ 1 ; 3 D — Codex's Alt+Left, which returns a subagent view to Main. */
 const ALT_LEFT = "\u001b[1;3D";
+/** The picker's own navigation bytes: Home atoms the scan to the top, PageDown
+ * paints the next page, and the arrows move the highlight onto a painted row. */
+const PICKER_HOME = "\u001b[H";
+const PICKER_PAGE_DOWN = "\u001b[6~";
+const PICKER_UP = "\u001b[A";
+const PICKER_DOWN = "\u001b[B";
+const ESCAPE = "\u001b";
 
 /**
  * The text sitting in Codex's composer, if any. The placeholder is not input;
@@ -121,7 +128,9 @@ function isMainView(screen: string): boolean {
 
 /**
  * A real picker, not the marker text appearing in transcript history. The
- * footer and the first numbered row are what distinguish the overlay.
+ * footer and a numbered row are what distinguish the overlay. The row number
+ * is not anchored to 1: Codex paints only eight rows at a time, so a scrolled
+ * page starts at whatever row is at its top and row 1 is off-screen.
  */
 function hasPicker(screen: string): boolean {
   // The LAST marker owns a visible overlay; an earlier one is transcript text.
@@ -134,7 +143,9 @@ function hasPicker(screen: string): boolean {
     .slice(-2)
     .join(" ");
   return (
-    /enter select\s*·\s*esc back/.test(tail) && block.includes("enter select") && /^\s*(?:›\s*)?1\.\s+•\s+/m.test(block)
+    /enter select\s*·\s*esc back/.test(tail) &&
+    block.includes("enter select") &&
+    /^\s*(?:›\s*)?\d+\.\s+•\s+/m.test(block)
   );
 }
 
@@ -210,27 +221,36 @@ function pickerRowId(text: string): string | undefined {
   return text.replace(/\s+/g, "").match(new RegExp(PICKER_ID.source, "ig"))?.at(-1);
 }
 
-function pickerIndex(screen: string, agentId: string | null): number | undefined {
-  if (!hasPicker(screen)) return undefined;
+/**
+ * The numbered rows actually painted on the current page, in order. A scrolled
+ * page starts at any number; wrapped task names can begin with "2. ", so each
+ * row must be the one after the previous to count.
+ */
+function paintedPickerRows(screen: string): { index: number; text: string; label: string }[] {
   const lines = pickerLines(screen) ?? [];
-  let expected = 1;
-  let main: number | undefined;
+  const rows: { index: number; text: string; label: string }[] = [];
+  let previous: number | undefined;
   for (let i = 0; i < lines.length; i++) {
     const match = lines[i]?.match(PICKER_ROW);
     if (!match) continue;
     const index = Number(match[1]);
-    // Picker rows are numbered consecutively. A wrapped task name that
-    // happens to start with "2. " must not open a bogus second row.
-    if (index !== expected) continue;
-    expected = index + 1;
-    const text = pickerRowText(lines, i, match);
+    if (previous !== undefined && index !== previous + 1) continue;
+    previous = index;
+    rows.push({ index, text: pickerRowText(lines, i, match), label: match[2] ?? "" });
+  }
+  return rows;
+}
+
+function pickerIndex(screen: string, agentId: string | null): number | undefined {
+  if (!hasPicker(screen)) return undefined;
+  for (const row of paintedPickerRows(screen)) {
     if (agentId === null) {
-      if (/^\s*Main\s*\[default\]/.test(match[2] ?? "")) main = index;
+      if (/^\s*Main\s*\[default\]/.test(row.label)) return row.index;
       continue;
     }
-    if (pickerRowId(text)?.toLowerCase() === agentId.toLowerCase()) return index;
+    if (pickerRowId(row.text)?.toLowerCase() === agentId.toLowerCase()) return row.index;
   }
-  return agentId === null ? main : undefined;
+  return undefined;
 }
 
 /** The row Codex marks with `›` after a picker keypress, plus its printed id. */
@@ -242,6 +262,81 @@ function highlightedPickerRow(screen: string): { index: number; text: string; la
     if (match) return { index: Number(match[1]), text: pickerRowText(lines, i, match), label: match[2] ?? "" };
   }
   return undefined;
+}
+
+/** What a painted page shows: its ordered row numbers and the highlight. */
+function pickerPageSignature(screen: string): string {
+  return `${paintedPickerRows(screen)
+    .map((row) => row.index)
+    .join(",")}|${highlightedPickerRow(screen)?.index ?? ""}`;
+}
+
+/** Whether Codex paints its down arrow, i.e. rows exist below the painted page. */
+function pickerHasMoreBelow(screen: string): boolean {
+  const overlay = screen.lastIndexOf(OVERLAY_MARKER);
+  return overlay !== -1 && /^\s*↓\s*$/m.test(screen.slice(overlay));
+}
+
+/**
+ * Bring the target onto the painted page. Codex's selection view paints at
+ * most eight rows over a roster that can hold dozens, so the row a click names
+ * is usually off-screen when the picker opens on Main. Home first makes a scan
+ * visit every row exactly once even when a previous attempt left the picker
+ * scrolled; PageDown then walks the list until the printed id appears.
+ */
+async function revealPickerRow(
+  pane: HarnessSubagentPane,
+  agentId: string | null,
+  screen: string,
+  wait: (ms: number) => number,
+): Promise<string> {
+  if (paintedPickerRows(screen)[0]?.index !== 1) {
+    const before = pickerPageSignature(screen);
+    await pane.type(PICKER_HOME);
+    screen = await waitForScreen(pane, (next) => !hasPicker(next) || pickerPageSignature(next) !== before, wait(1500));
+    if (!hasPicker(screen)) throw new Error("Codex closed its agent picker before selecting.");
+    if (paintedPickerRows(screen)[0]?.index !== 1) throw new Error("Codex didn't move its picker to the top.");
+  }
+  for (;;) {
+    if (pickerIndex(screen, agentId) !== undefined) return screen;
+    // The down arrow is the list's own end-of-page marker: no arrow means the
+    // painted page is the last one, so an absent id is absent from the roster.
+    if (!pickerHasMoreBelow(screen)) throw new Error("Codex didn't list that subagent in its picker.");
+    const before = pickerPageSignature(screen);
+    await pane.type(PICKER_PAGE_DOWN);
+    screen = await waitForScreen(pane, (next) => !hasPicker(next) || pickerPageSignature(next) !== before, wait(1500));
+    if (!hasPicker(screen)) throw new Error("Codex closed its agent picker before selecting.");
+    if (pickerPageSignature(screen) === before) throw new Error("Codex didn't move its picker page.");
+  }
+}
+
+/**
+ * Move the highlight onto the target row, one painted step at a time, then
+ * verify the row's printed id before Enter. Arrows are used, never the row's
+ * digit: the digit shortcut only reaches rows 1-9 and accepts immediately.
+ */
+async function highlightPickerRow(
+  pane: HarnessSubagentPane,
+  targetIndex: number,
+  wait: (ms: number) => number,
+): Promise<string> {
+  let screen = await pane.read();
+  let row = highlightedPickerRow(screen);
+  if (!row) throw new Error("Codex didn't highlight a row in its picker.");
+  while (row.index !== targetIndex) {
+    const previous = row.index;
+    await pane.type(previous < targetIndex ? PICKER_DOWN : PICKER_UP);
+    screen = await waitForScreen(
+      pane,
+      (next) => !hasPicker(next) || (highlightedPickerRow(next)?.index ?? previous) !== previous,
+      wait(1500),
+    );
+    if (!hasPicker(screen)) throw new Error("Codex closed its agent picker before selecting.");
+    row = highlightedPickerRow(screen);
+    if (!row) throw new Error("Codex didn't highlight a row in its picker.");
+    if (row.index === previous) throw new Error("Codex didn't move its picker highlight.");
+  }
+  return screen;
 }
 
 /**
@@ -271,44 +366,45 @@ async function selectCodexSubagent(input: HarnessSubagentSelectInput): Promise<H
   if (agentId === null && !hasPicker(screen) && isMainView(screen)) {
     return { selectedId: null };
   }
+  let openedPicker = false;
   if (!hasPicker(screen)) {
     // Only outside the picker: its `›` row would read as composer text.
     if (composerText(screen)) {
       throw new Error("Finish or clear the prompt before switching agents.");
     }
     await typeCommand(pane, "/subagents");
+    openedPicker = true;
     screen = await waitForScreen(pane, hasPicker, wait(3000));
   }
-  const index = pickerIndex(screen, agentId);
-  if (index === undefined) throw new Error("Codex didn't list that subagent in its picker.");
-  await pane.type(String(index));
-  // Codex 0.167 selects the numbered row and closes the picker on the digit
-  // itself; older/other builds keep it open and move the highlight. Wait for
-  // either shape, then verify before sending Enter.
-  screen = await waitForScreen(
-    pane,
-    (next) => !hasPicker(next) || highlightedPickerRow(next)?.index === index,
-    wait(1500),
-  );
-  if (!hasPicker(screen)) {
-    screen = await waitForPickerClosed(pane, wait(1000));
+  try {
+    screen = await revealPickerRow(pane, agentId, screen, wait);
+    const index = pickerIndex(screen, agentId);
+    if (index === undefined) throw new Error("Codex didn't list that subagent in its picker.");
+    screen = await highlightPickerRow(pane, index, wait);
+    const row = highlightedPickerRow(screen);
+    const shownId = agentId === null ? null : (pickerRowId(row?.text ?? "") ?? null);
+    if (
+      agentId === null
+        ? !/^\s*Main\s*\[default\]/.test(row?.label ?? "")
+        : shownId?.toLowerCase() !== agentId.toLowerCase()
+    ) {
+      throw new Error("Codex highlighted a different row in its picker.");
+    }
+    await pane.type("\r");
+    screen = await waitForPickerClosed(pane, wait(3000));
     if (agentId === null ? !isMainView(screen) : isMainView(screen)) {
       throw new Error("Codex didn't switch to the selected agent.");
     }
     return { selectedId: agentId };
+  } catch (err) {
+    // If this act opened the picker, don't leave it covering the pane after a
+    // failure: the user asked to change views, not to browse the menu.
+    if (openedPicker) {
+      const current = await pane.read().catch(() => undefined);
+      if (current && hasPicker(current)) await pane.type(ESCAPE);
+    }
+    throw err;
   }
-  const row = highlightedPickerRow(screen);
-  if (!row) throw new Error("Codex didn't highlight the selected row in its picker.");
-  const shownId = agentId === null ? null : (pickerRowId(row.text) ?? null);
-  if (agentId === null ? !/^\s*Main\s*\[default\]/.test(row.label) : shownId?.toLowerCase() !== agentId.toLowerCase()) {
-    throw new Error("Codex highlighted a different row in its picker.");
-  }
-  await pane.type("\r");
-  screen = await waitForPickerClosed(pane, wait(3000));
-  if (agentId === null ? !isMainView(screen) : isMainView(screen)) {
-    throw new Error("Codex didn't switch to the selected agent.");
-  }
-  return { selectedId: agentId };
 }
 
 /**
