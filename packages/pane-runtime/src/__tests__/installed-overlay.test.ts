@@ -7,10 +7,12 @@ import { PLUGIN_API_VERSION } from "@subshell-ai/plugin-api";
 import { pluginsDir, uninstallPlugin } from "../plugins-dir.js";
 import {
   allHarnesses,
+  allNetworkPlugins,
   builtInHarnesses,
   clearInstalledPlugins,
   getBuiltInHarness,
   getHarness,
+  getNetworkPlugin,
   refreshInstalledPlugins,
   resetRegistryForTests,
 } from "../registry.js";
@@ -65,7 +67,7 @@ function tempDataDir(): string {
 async function writePlugin(
   dataDir: string,
   id: string,
-  opts: { body?: string; detect?: boolean; pkgName?: string; extra?: Record<string, unknown> } = {},
+  opts: { body?: string; detect?: boolean; pkgName?: string; version?: string; extra?: Record<string, unknown> } = {},
 ): Promise<string> {
   const dir = join(pluginsDir(dataDir), id);
   mkdirSync(dir, { recursive: true });
@@ -73,7 +75,7 @@ async function writePlugin(
     join(dir, "package.json"),
     JSON.stringify({
       name: opts.pkgName ?? id,
-      version: "1.0.0",
+      version: opts.version ?? "1.0.0",
       type: "module",
       subshell: {
         apiVersion: PLUGIN_API_VERSION,
@@ -98,6 +100,56 @@ async function writePlugin(
         `  buildCommand: (input) => [input.binary, ${JSON.stringify(`--from-${id}`)}],\n` +
         "  validatePreset: () => ({ valid: true, issues: [] }),\n" +
         "});\n",
+    "utf8",
+  );
+  return dir;
+}
+
+/** The default body, named: a built-in copy read from disk must still be recognisable. */
+const DISK_PI_BODY =
+  "export default () => ({\n" +
+  "  capabilities: () => [],\n" +
+  '  buildCommand: (input) => [input.binary, "--from-pi"],\n' +
+  "  validatePreset: () => ({ valid: true, issues: [] }),\n" +
+  "});\n";
+
+/**
+ * Write one NETWORK plugin package the way an install leaves it.
+ *
+ * The manifest carries only what the network parser requires; the entry
+ * implements the four required members, which is the whole contract the
+ * loader checks. A version is the one thing a caller varies, because that is
+ * the rule under test.
+ */
+async function writeNetworkPlugin(dataDir: string, id: string, version: string): Promise<string> {
+  const dir = join(pluginsDir(dataDir), id);
+  mkdirSync(dir, { recursive: true });
+  await writeFile(
+    join(dir, "package.json"),
+    JSON.stringify({
+      name: id,
+      version,
+      type: "module",
+      subshell: {
+        apiVersion: PLUGIN_API_VERSION,
+        id,
+        type: "network",
+        name: `${id} plugin`,
+        description: "a scripted network install",
+        entry: "index.js",
+        network: { platforms: ["linux", "darwin"], exposure: "private" },
+      },
+    }),
+    "utf8",
+  );
+  await writeFile(
+    join(dir, "index.js"),
+    "export default () => ({\n" +
+      "  capabilities: () => [],\n" +
+      '  status: async () => ({ state: "joined", addresses: [], hints: [] }),\n' +
+      '  join: async () => ({ state: "joined" }),\n' +
+      "  leave: async () => {},\n" +
+      "});\n",
     "utf8",
   );
   return dir;
@@ -225,12 +277,12 @@ describe("the installed overlay", () => {
     // The built-in's manifest name ("pi"), not the squatter's ("pi plugin").
     expect(getHarness("pi")?.name).toBe("pi");
     expect(warnings.filter((w) => w.includes("pi"))).toHaveLength(1);
-    expect(warnings[0]).toContain("shadow");
+    expect(warnings[0]).toContain("at least as new");
     // "once" means once: a second refresh of the same shadow stays quiet.
     const more = await captureWarnings(async () => {
       await refreshInstalledPlugins(dir);
     });
-    expect(more.filter((w) => w.includes("shadow"))).toEqual([]);
+    expect(more.filter((w) => w.includes("at least as new"))).toEqual([]);
   });
 
   it("the instance's own seeded built-in copies refresh silently", async () => {
@@ -248,6 +300,31 @@ describe("the installed overlay", () => {
     expect(warnings).toEqual([]);
     expect(getHarness("pi")?.name).toBe("pi");
     expect(allHarnesses().length).toBe(BUILT_IN_IDS.length);
+  });
+
+  it("loads an installed copy newer than the bundle for a built-in id", async () => {
+    const dir = tempDataDir();
+    await writePlugin(dir, "pi", { version: "99.0.0", body: DISK_PI_BODY });
+    await refreshInstalledPlugins(dir);
+    expect(getHarness("pi")?.name).toBe("pi plugin");
+    expect(getHarness("pi")?.buildCommand({ binary: "x" } as never)).toEqual(["x", "--from-pi"]);
+    expect(allHarnesses().filter((h) => h.id === "pi")).toHaveLength(1);
+  });
+
+  it("keeps the compiled copy when the installed one is not newer", async () => {
+    const dir = tempDataDir();
+    await writePlugin(dir, "pi", { version: "0.0.1", body: DISK_PI_BODY });
+    await refreshInstalledPlugins(dir);
+    expect(getHarness("pi")?.name).toBe("pi");
+    expect(allHarnesses().filter((h) => h.id === "pi")).toHaveLength(1);
+  });
+
+  it("loads a newer installed network plugin for a built-in id", async () => {
+    const dir = tempDataDir();
+    await writeNetworkPlugin(dir, "tailscale", "99.0.0");
+    await refreshInstalledPlugins(dir);
+    expect(getNetworkPlugin("tailscale")?.manifest.name).toBe("tailscale plugin");
+    expect(allNetworkPlugins().filter((n) => n.manifest.id === "tailscale")).toHaveLength(1);
   });
 
   it("an uninstall followed by a refresh makes the plugin unresolvable again", async () => {
