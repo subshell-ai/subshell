@@ -39,6 +39,19 @@ export default function (pi) {
   let queued = false;
   let heartbeat = null;
   let warned = false;
+  // omp has no extension hook for moving the TUI's view to a child. The class
+  // that owns the move is exposed to extensions as pi.pi.InteractiveMode, so
+  // capture the live instance through a property it reads while rendering and
+  // call its public focusAgentSession/unfocusSession. Restoring the getter on
+  // first read leaves the host untouched afterwards. Verified against omp
+  // 18.18.7; if the class or property disappears, the rows stay status-only
+  // instead of failing the report.
+  let mode = null;
+  let probing = false;
+  let switchWarned = false;
+  let focusing = false;
+  let acknowledged;
+  let declined;
   const label = value => {
     if (typeof value !== 'string') return undefined;
     const trimmed = value.trim().slice(0, MAX_TEXT);
@@ -69,6 +82,35 @@ export default function (pi) {
     return key ? agents.delete(key) : false;
   };
 
+  const captureMode = () => {
+    if (probing || mode) return;
+    const type = pi.pi && pi.pi.InteractiveMode;
+    const proto = typeof type === 'function' ? type.prototype : undefined;
+    const descriptor = proto && Object.getOwnPropertyDescriptor(proto, 'viewSession');
+    if (!descriptor || typeof descriptor.get !== 'function') return;
+    probing = true;
+    Object.defineProperty(proto, 'viewSession', {
+      configurable: true,
+      get() {
+        mode = this;
+        Object.defineProperty(proto, 'viewSession', descriptor);
+        return descriptor.get.call(this);
+      },
+    });
+  };
+
+  const canSelect = () =>
+    role === 'main' &&
+    mode !== null &&
+    typeof mode.focusAgentSession === 'function' &&
+    typeof mode.unfocusSession === 'function' &&
+    !mode.collabGuest;
+  const selectedId = () => {
+    if (!mode) return null;
+    const id = mode.focusedAgentId;
+    return typeof id === 'string' && agents.has(id) ? id : null;
+  };
+
   const report = async () => {
     if (reporting) {
       queued = true;
@@ -86,20 +128,66 @@ export default function (pi) {
     }
     reporting = true;
     try {
+      const selectable = canSelect();
+      const payload = {
+        event: 'snapshot',
+        agents: [...agents.values()].slice(0, MAX_AGENTS),
+        selectedId: selectedId(),
+        canSelect: selectable,
+      };
+      if (acknowledged !== undefined) payload.acknowledged = acknowledged;
+      if (!selectable) {
+        payload.unavailableReason =
+          mode && mode.collabGuest
+            ? 'Viewing agents is unavailable in a collab session.'
+            : 'This Oh My Pi build has no agent view to switch. Use its own agent selector.';
+      }
       const response = await fetch(base + '/api/subshells/' + encodeURIComponent(id) + '/subagents/report', {
         method: 'POST',
         headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
-        body: JSON.stringify({
-          event: 'snapshot',
-          agents: [...agents.values()].slice(0, MAX_AGENTS),
-          selectedId: null,
-          canSelect: false,
-        }),
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(2000),
       });
-      if (!response.ok && !warned) {
-        warned = true;
-        pi.logger?.debug?.('subshell subagent report failed', { status: response.status });
+      if (!response.ok) {
+        if (!warned) {
+          warned = true;
+          pi.logger?.debug?.('subshell subagent report failed', { status: response.status });
+        }
+        return;
+      }
+      const data = await response.json().catch(() => null);
+      const command = data && data.command;
+      // The same command comes back until it is acknowledged, and a refused
+      // one is skipped rather than retried every heartbeat until it expires.
+      if (!command || !selectable || focusing || command.id === acknowledged || command.id === declined) return;
+      // The server can still list a child this binding has already dropped:
+      // it can settle between the click and the command arriving here.
+      // Decline an id this binding no longer tracks rather than asking the
+      // host to focus a finished child.
+      if (command.agentId !== null && !agents.has(command.agentId)) {
+        declined = command.id;
+        return;
+      }
+      const target = mode;
+      focusing = true;
+      try {
+        if (command.agentId === null) await target.unfocusSession();
+        else await target.focusAgentSession(command.agentId);
+        acknowledged = command.id;
+        declined = undefined;
+        // Fold the confirmed view and the acknowledgement into a trailing
+        // report; the running one already carried the old state.
+        void report();
+      } catch (error) {
+        declined = command.id;
+        if (!switchWarned) {
+          switchWarned = true;
+          pi.logger?.debug?.('subshell subagent view switch failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      } finally {
+        focusing = false;
       }
     } catch {
       // A failed report is not fatal: the next frame reports again, and a pane
@@ -153,6 +241,8 @@ export default function (pi) {
 
   const reset = () => {
     agents.clear();
+    acknowledged = undefined;
+    declined = undefined;
     if (timer !== null) {
       clearTimeout(timer);
       timer = null;
@@ -167,6 +257,7 @@ export default function (pi) {
   pi.on('session_start', (_event, ctx) => {
     role = ctx && ctx.agent && ctx.agent.kind === 'sub' ? 'sub' : 'main';
     if (role !== 'main') return;
+    captureMode();
     return reset();
   });
 

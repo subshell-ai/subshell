@@ -18,7 +18,7 @@ describe("Oh My Pi", () => {
     });
     expect(capabilityMismatches(plugin, "agent-harness")).toEqual([]);
     expect(plugin.capabilities()).toContain("subagents");
-    expect(plugin.subagents).toEqual({ discovery: "extension", navigation: "unavailable" });
+    expect(plugin.subagents).toEqual({ discovery: "extension", navigation: "native" });
     expect(plugin.capabilities()).toContain("previews");
     expect(plugin.previews).toEqual({ reporting: "extension" });
     expect(plugin.resume).toBeUndefined();

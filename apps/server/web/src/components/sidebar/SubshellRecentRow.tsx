@@ -145,6 +145,14 @@ export function SubshellRecentRow({
   const childrenId = useId();
   const hasSubagents = subshell.status === "running" && subshell.alive === true && !!agentState?.agents.length;
   const hasChildren = hasSubagents || !!children;
+  // A selected child is the view the pane is showing, so its row wears the
+  // ring instead of the parent. The parent keeps it while the child list is
+  // collapsed, because the child has nowhere to draw it.
+  const childFocused =
+    expanded &&
+    hasSubagents &&
+    agentState?.selectedId != null &&
+    agentState.agents.some((agent) => agent.id === agentState.selectedId);
   // `render`, not a wrapper: the Link below is simultaneously the nav, the
   // drag source and the context-menu subject, and the tooltip had to attach
   // to that element without becoming the thing that quietly kills one of
@@ -212,11 +220,11 @@ export function SubshellRecentRow({
                   return;
                 }
                 e.preventDefault();
-                if (focused && hasChildren) {
-                  setExpanded((value) => !value);
-                  return;
-                }
-                if (agentState?.selectedId && agentState.canSelect)
+                // The arrow owns disclosure. A click on the row always means
+                // "show this subshell", and returning to the main agent wins
+                // even when a child switch is still queued, so a quick
+                // child-then-parent click ends on the main agent.
+                if (agentState?.canSelect && subshell.status === "running" && subshell.alive === true)
                   selectAgent.mutate(null, {
                     // A reset that dies quietly is the worst outcome: the
                     // user goes on to the navigation below while the pane
@@ -251,7 +259,7 @@ export function SubshellRecentRow({
                 // wears the accent fill and the white ring; workspace
                 // membership marks nothing, and nothing here goes bold.
                 hasSubagents && !(subline || subshell.workingDir) && "min-h-12",
-                focused
+                focused && !childFocused
                   ? "bg-accent text-accent-foreground ring-1 ring-foreground/70"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
               )}
@@ -337,6 +345,7 @@ export function SubshellRecentRow({
           id={subshell.id}
           parentName={subshell.name}
           alive={subshell.status === "running" && subshell.alive === true}
+          focused={focused}
         />
       </div>
     </>

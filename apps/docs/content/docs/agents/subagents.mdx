@@ -5,7 +5,7 @@ description: "Follow delegated agents beneath their parent subshell and switch s
 
 Subagents appear beneath the subshell that runs their parent agent. They aren't separate subshells, and they don't add tabs to your workspace. Completed subagents disappear from the list.
 
-Open **Workspaces** in the sidebar’s bottom bar. Subagents appear under parents in both the workspace list and the **Subshells** section. When a subshell has active subagents, an arrow appears beneath its status dot. Select the arrow to collapse or expand the connected child rows without changing the focused subshell. Selecting the already active parent row also toggles its children.
+Open **Workspaces** in the sidebar’s bottom bar. Subagents appear under parents in both the workspace list and the **Subshells** section. When a subshell has active subagents, an arrow appears beneath its status dot. Select the arrow to collapse or expand the connected child rows without changing the focused subshell. Selecting the parent row returns its terminal to the main agent; it never changes disclosure.
 
 Each child shows its name and status. When a task description is available, it appears on a second line beneath the name. Hover or focus a child for its status, how long it has been running, and whether you can switch to its view. Generic names such as `default` appear as **Subagent 1**, **Subagent 2**, and so on. These numbers stay stable while the children are active; meaningful names supplied by the harness stay unchanged. This works for subshells running on the server host and on enrolled nodes.
 
@@ -16,7 +16,7 @@ Each child shows its name and status. When a task description is available, it a
 
 ## Switch agent views
 
-When the harness supports native navigation, select a child to show its view in the parent's existing terminal. The header shows the child's name and a branching icon. Select **Back to main agent** in the header to return. The workspace tab keeps the parent subshell's name.
+When the harness supports native navigation, select a child to show its view in the parent's existing terminal. The header shows the child's name and a branching icon. Select **Back to main agent** in the header, or the parent row in the sidebar, to return. The workspace tab keeps the parent subshell's name.
 
 The view is shared: switching it changes what everyone attached to that subshell sees. People with view access can switch views. Edit access is still required to type, steer an agent, or answer approval prompts. The door works one way: a subshell's own key can report its children but can't move the shared view, so an agent can't aim its parent's terminal for the humans watching it.
 
@@ -31,7 +31,7 @@ If native navigation isn't available, the children remain visible as status indi
 | OpenCode | TUI integration, using the native plugin API verified against OpenCode 1.18.18. | Switches the existing TUI; changes made inside the harness also update the header. |
 | Hermes | Configure and approve `subagent_start` and `subagent_stop` shell hooks. The harness's setup instructions include the configuration. | Status only. |
 | pi | pi's own `subagent` example extension (installed into pi separately), or an extension implementing the bridge below. | Status only. |
-| Oh My Pi | omp's own subagent events, through an extension added at launch. | Status only. |
+| Oh My Pi | omp's own subagent events, through an extension added at launch. | Switches the existing TUI; changes made inside the harness also update the header. |
 | Terminal | No harness subagents. | Not applicable. |
 
 New name and description reports update the existing row. Claude Code's subagent descriptions are hidden because its reported task and tool descriptions don't match the generated progress summaries in its task picker. Use Claude's own task picker to see current activity. The sidebar still shows subagent names and status. Hermes supplies the child's stated goal.

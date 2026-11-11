@@ -84,3 +84,17 @@ it("prefers a string reason over a stale text twin", () => {
   );
   expect(screen.getByRole("button", { name: "Save" }).getAttribute("aria-description")).toBe("The real blocker.");
 });
+
+it("places a disabled explanation where the caller asks", async () => {
+  render(
+    <Button disabled disabledReason="The real blocker." disabledReasonSide="right">
+      Go
+    </Button>,
+  );
+  const button = screen.getByRole("button", { name: "Go" });
+  act(() => button.focus());
+  const tooltip = await screen.findByRole("tooltip");
+  // Base UI writes the side it actually placed on the popup or its
+  // positioner; either is the placement the caller asked for.
+  expect(tooltip.getAttribute("data-side") ?? tooltip.parentElement?.getAttribute("data-side")).toBe("right");
+});

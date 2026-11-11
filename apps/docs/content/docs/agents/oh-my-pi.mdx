@@ -7,7 +7,7 @@ Run Oh My Pi as a Subshell agent.
 
 ## Before you start
 
-Install `omp` using the [vendor instructions](https://github.com/can1357/oh-my-pi#install) and authenticate it under the execution account. The integration was tested with Oh My Pi 18.12.6. Ask an administrator to enable **Oh My Pi** under **Settings** → **Server Settings** → **Plugins** in the server dashboard's sidebar. Follow [Install an agent CLI](/agents/install-cli) to confirm detection on the target node.
+Install `omp` using the [vendor instructions](https://github.com/can1357/oh-my-pi#install) and authenticate it under the execution account. The integration was tested with Oh My Pi 18.18.7. Ask an administrator to enable **Oh My Pi** under **Settings** → **Server Settings** → **Plugins** in the server dashboard's sidebar. Follow [Install an agent CLI](/agents/install-cli) to confirm detection on the target node.
 
 Oh My Pi and [pi](/agents/pi) are separate harnesses. Installing `pi` doesn't provide the `omp` executable.
 
@@ -28,7 +28,7 @@ settings and authentication stay in place. No separate MCP adapter is needed.
 
 Open Oh My Pi's MCP tool list and confirm that `subshell` exposes `list_subshells`. An explicit Oh My Pi setting that disables that server can still prevent it from loading.
 
-This plugin supports MCP, launch settings, and sidebar subagent monitoring. It doesn't provide automatic conversation resumption or attention hooks. Subshell adds an extension at launch that reports Oh My Pi's running subagents, so they appear beneath the parent subshell with their names, status, and the activity line Oh My Pi gives them. Use Oh My Pi's own controls to open a child. Conversation selection on restart follows Oh My Pi's own settings and any resume flags you've supplied.
+This plugin supports MCP, launch settings, sidebar subagent monitoring, and switching the parent terminal to a child's view. It doesn't provide automatic conversation resumption or attention hooks. Subshell adds an extension at launch that reports Oh My Pi's running subagents, so they appear beneath the parent subshell with their names, status, and the activity line Oh My Pi gives them. Select a child in the sidebar to switch the parent terminal to its view; using Oh My Pi's own controls to switch agents also updates the header. Conversation selection on restart follows Oh My Pi's own settings and any resume flags you've supplied.
 
 Provider configuration, usage limits, and CLI-specific permissions remain Oh My Pi's own settings.
 
