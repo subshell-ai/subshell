@@ -109,6 +109,38 @@ describe("runReport", () => {
     expect(await seen[0]?.json()).toEqual({ event: "describe", agentName: "sleeper" });
   });
 
+  it("carries a Codex spawn's role so the label pairs with that child's type", async () => {
+    const { seen, fetchImpl } = recorder();
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () =>
+        JSON.stringify({
+          hook_event_name: "PostToolUse",
+          tool_name: "spawn_agent",
+          tool_input: { task_name: "sleeper", agent_type: "explorer", message: "encrypted-private" },
+          tool_response: '{"task_name":"/root/sleeper","nickname":null}',
+        }),
+    });
+    expect(await seen[0]?.json()).toEqual({ event: "describe", agentName: "sleeper", agentType: "explorer" });
+  });
+
+  it("labels a nested Codex child by the canonical path the picker prints", async () => {
+    const { seen, fetchImpl } = recorder();
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () =>
+        JSON.stringify({
+          hook_event_name: "PostToolUse",
+          tool_name: "spawn_agent",
+          tool_input: { task_name: "task_3", message: "encrypted-private" },
+          tool_response: '{"task_name":"/root/task1/task_3","nickname":null}',
+        }),
+    });
+    expect(await seen[0]?.json()).toEqual({ event: "describe", agentName: "/root/task1/task_3" });
+  });
+
   it("doesn't park a Codex task name when the spawn failed", async () => {
     const { seen, fetchImpl } = recorder();
     await runReport(["subagents"], {
