@@ -449,8 +449,9 @@ describe("/api/plugins", () => {
 
       const hits = reg.hits.length;
       const again = await get("/api/plugins/updates", adminCookie);
-      expect(again.status).toBe(200);
-      expect(((await again.json()) as UpdateView).updates).toContainEqual(view.updates.find((u) => u.id === "third"));
+      const second = ((await again.json()) as UpdateView).updates;
+      expect(second.find((u) => u.id === "third")).toEqual(view.updates.find((u) => u.id === "third"));
+      expect(second).toHaveLength(view.updates.length);
       expect(reg.hits.length).toBe(hits); // the memo answers; the registry is not asked again
     } finally {
       clearPluginUpdateMemo();
