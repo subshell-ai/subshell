@@ -307,8 +307,10 @@ test("gate off: the form explains enablement on Start", async ({ page }) => {
   // test here raised its own timeout and never noticed; this one kept the
   // 120s default and died at `login()` with "waiting for locator('#email')"
   // while its own hook was still installing the fixture
-  // (release-verification red, 2026-10-31).
-  test.setTimeout(300_000);
+  // (release-verification red, 2026-10-31). A loaded runner can push that
+  // build past five minutes (rerun 2026-11-11: the fill timed out against
+  // the 300s budget), so the first test carries the whole hook's headroom.
+  test.setTimeout(600_000);
   await login(page, ADMIN.email, ADMIN.password);
   await openConnectPage(page);
   await expect(page.locator("#ssh-wizard-destination")).toBeVisible();
