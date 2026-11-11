@@ -37,6 +37,7 @@ import {
 } from "@/modules/plugins/store.js";
 import { clearPluginUpdateMemo, collectPluginUpdates } from "@/modules/plugins/update-check.js";
 import { HttpError } from "@/shared/errors.js";
+import { getLogger } from "@/shared/logger.js";
 
 /**
  * The instance-level plugins door (spec 2026-09-10 §6, §6.1).
@@ -617,6 +618,18 @@ const adminRoutes = new Elysia()
       // The store moved: a memoised check would keep offering the version just
       // installed.
       clearPluginUpdateMemo();
+      // `installLocalPlugin` re-resolves `@latest` itself, and a tag can move
+      // between that fetch and the check above. The sidecar names the version
+      // whose bytes are actually in the store, so the audit records THAT one;
+      // a disagreement is logged rather than thrown — the swap has happened,
+      // and a rollback would be a second, unrequested write.
+      const landedVersion = (await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, id))?.version ?? update.to;
+      if (landedVersion !== update.to) {
+        getLogger().warn(
+          `plugins: "${id}" resolved ${update.to} at check time but ${landedVersion} landed; ` +
+            "the update audit names the landed version",
+        );
+      }
       // Audited AFTER the bytes landed, like the install: the package says
       // which bytes moved, and `from`/`to` make the line reconstructible later.
       await audit({
@@ -628,7 +641,7 @@ const adminRoutes = new Elysia()
           pluginId: id,
           package: record.name,
           from: update.from,
-          to: update.to,
+          to: landedVersion,
         }),
       });
       return await requireRow(id, await readSources());

@@ -49,14 +49,14 @@ Only a registry install can be updated. A plugin whose bytes came from this
 build has no sidecar, so the route answers 409 and points at the catalog's
 install instead. It refuses with 409 when the registry cannot be reached,
 when the package needs a newer plugin-api than this host implements, and when
-`latest` is not newer than the copy in use — the message names the version,
+`latest` is not newer than the copy in use; the message names the version,
 so "already at 1.1.0" is never dressed up as a success. Every refusal happens
 before the swap, so the previous copy stays exactly as it was.
 
 Handing the package spec explicitly is what keeps the embedded-first rule out
 of this path: an install with no spec answers from the bundle, and an update
-must not. A successful update drops the update memo — an install and an
-uninstall do the same, because all three move the store — and is audited as
+must not. A successful update drops the update memo (installs and
+uninstalls do the same, because all three move the store) and is audited as
 `plugin.update` with the plugin id, the package, and the `from`/`to`
 versions, after the bytes land. This process cannot evict a module it has
 already imported, so the updated row carries `restartRequired` until the

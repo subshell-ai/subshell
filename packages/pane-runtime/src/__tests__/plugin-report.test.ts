@@ -209,6 +209,32 @@ describe("buildPluginReports", () => {
     expect(pi?.shadowed).toBeUndefined();
   });
 
+  it("flags a stale installed winner: new bytes on disk, old code in the module cache", async () => {
+    // The update case the restart offer exists for. The ESM cache cannot be
+    // evicted, so once this process imported the installed copy, replacing its
+    // entry leaves the OLD factory answering under the NEW version — and a row
+    // that reported the new version without this flag would say the update had
+    // taken effect when it had not.
+    const dir = tempDataDir();
+    const body = (marker: string) =>
+      "export default () => ({\n" +
+      "  capabilities: () => [],\n" +
+      `  buildCommand: (input) => [input.binary, ${JSON.stringify(marker)}],\n` +
+      "  validatePreset: () => ({ valid: true }),\n" +
+      "});\n";
+    await writePlugin(dir, "pi", { version: "99.0.0", body: body("--first") });
+    const [before] = await buildPluginReports(dir);
+    // The installed copy won, and nothing has changed under it yet.
+    expect(before?.version).toBe("99.0.0");
+    expect(before?.restartRequired).toBeUndefined();
+
+    await writePlugin(dir, "pi", { version: "99.0.0", body: body("--second") });
+    const [after] = await buildPluginReports(dir);
+    // Same version, new bytes: the copy on disk is newer than the running code.
+    expect(after?.version).toBe("99.0.0");
+    expect(after?.restartRequired).toBe(true);
+  });
+
   it("reports a newer copy that fails to load as a shadow, not a broken row", async () => {
     // The bundle answers, because a copy that will not load has not won. The
     // failure still reaches the page, on `shadowed`, or an operator who just

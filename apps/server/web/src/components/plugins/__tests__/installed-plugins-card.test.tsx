@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { InstalledPluginsCard } from "@/components/plugins/installed-plugins-card";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
 import type { PluginUpdateRow } from "@/hooks/use-plugin-updates";
@@ -153,6 +153,76 @@ describe("InstalledPluginsCard", () => {
       expect(posts()).toEqual(["/api/plugins/third/update", "/api/plugins/fourth/update"]);
       // The failing row says why; its neighbour's success is not held back.
       expect(await screen.findByText(/no longer in the registry/)).toBeDefined();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("targets only offers whose rows are on screen, so the bulk count matches", () => {
+    // The updates answer is cached across installs and uninstalls: an offer can
+    // name a plugin the store no longer holds. Confirming one could only 409
+    // under an id that renders no row.
+    renderCard(
+      [
+        row({ id: "third", name: "Third", source: "npm", version: "1.0.0" }),
+        row({ id: "fourth", name: "Fourth", source: "npm", version: "2.0.0" }),
+      ],
+      true,
+      [
+        offer("third", "Third", "1.0.0", "1.1.0"),
+        offer("fourth", "Fourth", "2.0.0", "2.1.0"),
+        offer("gone", "Gone", "1.0.0", "9.0.0"),
+      ],
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Update all (2)" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Third")).toBeDefined();
+    expect(within(dialog).getByText("Fourth")).toBeDefined();
+    expect(within(dialog).queryByText("Gone")).toBeNull();
+  });
+
+  it("names the row Update all is on, and moves on to the next one", async () => {
+    // Sequential means one install at a time, but the mutation's pending flag
+    // is global: without a per-row marker nothing says WHICH plugin is being
+    // replaced while the second one waits its turn.
+    const firstAnswered = Promise.withResolvers<void>();
+    const secondAnswered = Promise.withResolvers<void>();
+    const m = mockFetch({
+      "POST /api/plugins/third/update": async () => {
+        await firstAnswered.promise;
+        return json({});
+      },
+      "POST /api/plugins/fourth/update": async () => {
+        await secondAnswered.promise;
+        return json({});
+      },
+    });
+    try {
+      renderCard(
+        [
+          row({ id: "third", name: "Third", source: "npm", version: "1.0.0" }),
+          row({ id: "fourth", name: "Fourth", source: "npm", version: "2.0.0" }),
+        ],
+        true,
+        [offer("third", "Third", "1.0.0", "1.1.0"), offer("fourth", "Fourth", "2.0.0", "2.1.0")],
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Update all (2)" }));
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Update all" }));
+      expect((await screen.findByRole("status", { name: "Updating Third" })).textContent).toBe("Updating…");
+      expect(screen.getAllByRole("status")).toHaveLength(1);
+      // Every control holds while the queue runs, whichever row is active.
+      // `aria-disabled` rather than the native attribute: a button with a
+      // disabled reason stays focusable so its explanation can be read.
+      expect(screen.getByRole("button", { name: "Update to 1.1.0" }).getAttribute("aria-disabled")).toBe("true");
+      expect(screen.getByRole("button", { name: "Update to 2.1.0" }).getAttribute("aria-disabled")).toBe("true");
+
+      // The queue moves on INSIDE the awaited mutation, so the transition is
+      // flushed by an act scope rather than left queued until a waiter gives up.
+      await act(async () => firstAnswered.resolve());
+      expect((await screen.findByRole("status", { name: "Updating Fourth" })).textContent).toBe("Updating…");
+      expect(screen.getAllByRole("status")).toHaveLength(1);
+      await act(async () => secondAnswered.resolve());
+      await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
     } finally {
       m.restore();
     }

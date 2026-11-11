@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NETWORK_QUERY_KEY } from "@/hooks/use-network";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
 import { PUBLIC_SETTINGS_QUERY_KEY } from "@/hooks/use-public-settings";
+import { PLUGIN_UPDATES_QUERY_KEY } from "@/lib/query-keys";
 
 /** Query key of the instance plugin catalog (`GET /api/plugins`). */
 export const INSTANCE_PLUGINS_QUERY_KEY = ["instance-plugins"] as const;
@@ -115,6 +116,12 @@ export function useInstallInstancePlugin() {
       // presets for this plugin appear. Same reason the uninstall below
       // refreshes them.
       void queryClient.invalidateQueries({ queryKey: PRESETS_QUERY_KEY });
+      // Every offer is judged against the effective version of an INSTALLED
+      // plugin, so the store moving can add an offer, retire one, or start a
+      // registry read that failed before. A card left with the previous offers
+      // would name a row that is not on screen — and confirming an update for
+      // it can only 409.
+      void queryClient.invalidateQueries({ queryKey: PLUGIN_UPDATES_QUERY_KEY });
     },
   });
 }
@@ -189,6 +196,9 @@ export function useUninstallInstancePlugin() {
       // `keep` touched none and the extra refetch is the cheap, honest
       // default for both modes rather than branching on the flag's meaning.
       void queryClient.invalidateQueries({ queryKey: PRESETS_QUERY_KEY });
+      // The offer existed because the plugin was installed. A card that keeps
+      // it after the uninstall renders an Update for a row that is gone.
+      void queryClient.invalidateQueries({ queryKey: PLUGIN_UPDATES_QUERY_KEY });
     },
   });
 }

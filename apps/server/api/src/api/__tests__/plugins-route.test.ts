@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 import { bundledPluginVersion, getHarness, listInstalled, readInstallRecord } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
@@ -17,6 +17,7 @@ import { ensureSystemUser } from "@/modules/auth/system-user.js";
 import { usableHarnessIds } from "@/modules/plugins/availability.js";
 import { installLocalPlugin, localPluginReports, uninstallLocalPlugin } from "@/modules/plugins/store.js";
 import { clearPluginUpdateMemo } from "@/modules/plugins/update-check.js";
+import { logger } from "@/shared/logger.js";
 import { type FakeRegistry, makePluginTgz, makeTgz, startFakeRegistry } from "@/testing/nodes/fake-npm-registry.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
@@ -549,13 +550,23 @@ describe("/api/plugins", () => {
 
   // ── the update act: installs the registry's latest, and says so ───────────
 
+  /**
+   * The 1.1.0 entry, with bytes that DIFFER from 1.0.0's.
+   *
+   * `makePluginTgz` serves one entry text for every version, so the default
+   * fixture is not a real upgrade: the loader fingerprints the entry, and an
+   * update that swapped identical bytes would (correctly) report no restart.
+   */
+  const THIRD_V110_ENTRY =
+    "export default function fixture() { return { capabilities: () => [], buildCommand: (input) => [input.binary], validatePreset: () => ({ valid: true }) }; } // 1.1.0\n";
+
   /** Serve `plg-third` 1.0.0 → 1.1.0 and make sure the store holds 1.0.0. */
   async function serveThirdUpdate(): Promise<void> {
     reg.served.set("plg-third", {
       latest: "1.1.0",
       versions: {
         "1.0.0": makePluginTgz({ name: "plg-third", version: "1.0.0", id: "third" }),
-        "1.1.0": makePluginTgz({ name: "plg-third", version: "1.1.0", id: "third" }),
+        "1.1.0": makePluginTgz({ name: "plg-third", version: "1.1.0", id: "third", body: THIRD_V110_ENTRY }),
       },
     });
     await installLocalPlugin("third", "plg-third@1.0.0", reg.base);
@@ -584,6 +595,10 @@ describe("/api/plugins", () => {
       expect(res.status).toBe(200);
       const row = (await res.json()) as PluginRow;
       expect(row).toMatchObject({ id: "third", version: "1.1.0", source: "npm", builtIn: false });
+      // The copy this process imported during the check is the OLD one, and the
+      // install swapped its bytes: the row must say a restart is the remedy
+      // (spec §D8 — the flag comes from the report, not from the update act).
+      expect(row.restartRequired).toBe(true);
       expect(await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, "third")).toMatchObject({
         name: "plg-third",
         version: "1.1.0",
@@ -601,6 +616,55 @@ describe("/api/plugins", () => {
       expect(after.updates.find((u) => u.id === "third")).toBeUndefined();
       expect(after.errors.find((e) => e.id === "third")).toBeUndefined();
     } finally {
+      await restoreThird();
+    }
+  });
+
+  it("audits the version that landed, not the one the check resolved, when latest moves under it", async () => {
+    await serveThirdUpdate();
+    // The act resolves `latest`, then `installLocalPlugin` resolves it again.
+    // This arm answers 1.1.0 to the first packument read after it (the act's
+    // resolve) and 1.2.0 to every later one — the tag move that used to leave
+    // an audit naming 1.1.0 while 1.2.0's bytes sat in the store.
+    const originalGet = reg.served.get;
+    let packuments = 0;
+    reg.served.set("plg-third", {
+      latest: "1.1.0",
+      versions: {
+        "1.0.0": makePluginTgz({ name: "plg-third", version: "1.0.0", id: "third" }),
+        "1.1.0": makePluginTgz({ name: "plg-third", version: "1.1.0", id: "third" }),
+        "1.2.0": makePluginTgz({ name: "plg-third", version: "1.2.0", id: "third" }),
+      },
+    });
+    reg.served.get = (name: string) => {
+      const pkg = originalGet.call(reg.served, name);
+      if (name !== "plg-third" || pkg === undefined) return pkg;
+      packuments += 1;
+      return packuments === 1 ? pkg : { ...pkg, latest: "1.2.0" };
+    };
+    const warn = spyOn(logger, "warn");
+    try {
+      const res = await send("POST", "/api/plugins/third/update", adminCookie);
+      expect(res.status).toBe(200);
+      const row = (await res.json()) as PluginRow;
+      expect(row.version).toBe("1.2.0");
+      expect((await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, "third"))?.version).toBe("1.2.0");
+      // The audit names the bytes the store holds, not the version the check
+      // resolved before the tag moved.
+      expect((await pluginAudit("third")).find((a) => a.action === "plugin.update")?.metadata).toMatchObject({
+        pluginId: "third",
+        package: "plg-third",
+        from: "1.0.0",
+        to: "1.2.0",
+      });
+      // The disagreement is logged with both versions; nothing is thrown after
+      // the swap, and the previous copy is not restored.
+      const logged = warn.mock.calls.map((call) => call.join(" ")).join(" ");
+      expect(logged).toContain("1.1.0");
+      expect(logged).toContain("1.2.0");
+    } finally {
+      warn.mockRestore();
+      reg.served.get = originalGet;
       await restoreThird();
     }
   });

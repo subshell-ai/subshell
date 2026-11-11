@@ -4,9 +4,7 @@ import { INSTANCE_PLUGINS_QUERY_KEY, type InstancePluginRow } from "@/hooks/use-
 import { NETWORK_QUERY_KEY } from "@/hooks/use-network";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
 import { PUBLIC_SETTINGS_QUERY_KEY } from "@/hooks/use-public-settings";
-
-/** Query key of the plugin update check (`GET /api/plugins/updates`). */
-export const PLUGIN_UPDATES_QUERY_KEY = ["plugin-updates"] as const;
+import { PLUGIN_UPDATES_QUERY_KEY } from "@/lib/query-keys";
 
 /** One offer: an installed plugin whose registry `latest` is newer than the effective version. */
 export interface PluginUpdateRow {

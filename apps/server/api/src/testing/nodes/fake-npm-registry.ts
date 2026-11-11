@@ -136,7 +136,12 @@ export function makeTgz(entries: Array<{ path: string; content: string | Uint8Ar
  * with no capabilities and no optional members — see the pane-runtime
  * fixture this mirrors).
  */
-export function makePluginTgz(opts: { name: string; version: string; id?: string }): Uint8Array<ArrayBuffer> {
+export function makePluginTgz(opts: {
+  name: string;
+  version: string;
+  id?: string;
+  body?: string;
+}): Uint8Array<ArrayBuffer> {
   const subshell = {
     apiVersion: 2, // speaks the v2 member names below (PLUGIN_API_VERSION)
     id: opts.id ?? opts.name.replace(/^(@[^/]+\/)?plugin-/, ""),
@@ -146,7 +151,12 @@ export function makePluginTgz(opts: { name: string; version: string; id?: string
     entry: "index.js",
   };
   const manifest = { name: opts.name, version: opts.version, type: "module", subshell };
+  // The entry TEXT is what the loader fingerprints (`IMPORTED` in
+  // pane-runtime), so a test that needs a real upgrade — different bytes under
+  // a new version — passes `body`; the default keeps every existing fixture's
+  // bytes identical.
   const entry =
+    opts.body ??
     "export default function fixture() { return { capabilities: () => [], buildCommand: (input) => [input.binary], validatePreset: () => ({ valid: true }) }; }\n";
   return makeTgz([
     { path: "package/package.json", content: JSON.stringify(manifest) },
