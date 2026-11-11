@@ -72,9 +72,17 @@ export function InstalledPluginsCard({
   const update = useUpdatePlugin();
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [updateErrors, setUpdateErrors] = useState<Record<string, string>>({});
+  /** The target whose install is in flight; null between rows and after the run */
+  const [applyingId, setApplyingId] = useState<string | null>(null);
   /** The targets the confirmation is about; null while no question is open. */
   const [updateDialog, setUpdateDialog] = useState<PluginUpdateRow[] | null>(null);
-  const offers = new Map(updates.map((offer) => [offer.id, offer]));
+  // An offer is only an ACTION when its row is on screen. The update query is
+  // cached across installs and uninstalls, so a stale answer can name a plugin
+  // the store no longer holds — and confirming that row could only 409 under
+  // an id that renders nowhere. The count follows the same rule, so "Update
+  // all (n)" never promises a row the reader cannot see.
+  const visible = new Set(plugins.map((plugin) => plugin.id));
+  const offers = new Map(updates.filter((offer) => visible.has(offer.id)).map((offer) => [offer.id, offer]));
   // The offer rides the row rather than being looked up again per cell: one
   // plugin's version pair, action and confirmation must all be the same fact.
   const groups = GROUPS.map((group) => ({
@@ -91,22 +99,30 @@ export function InstalledPluginsCard({
    * store at once, and one refusal must not stop the rest — so the loop carries
    * on and the failing row reports itself. The question closes first: an
    * answered confirmation has nothing left to ask.
+   *
+   * `applyingId` names the row being replaced: the mutation's own pending flag
+   * is global, so without it no row says which plugin the queue is on.
    */
   async function applyUpdates(ids: string[]): Promise<void> {
     setUpdateDialog(null);
-    for (const id of ids) {
-      // Drop the row's previous failure before retrying it: a stale line under
-      // a run that is succeeding reads as "still broken".
-      setUpdateErrors((prev) => {
-        if (prev[id] === undefined) return prev;
-        const { [id]: _retired, ...rest } = prev;
-        return rest;
-      });
-      try {
-        await update.mutateAsync(id);
-      } catch (err) {
-        setUpdateErrors((prev) => ({ ...prev, [id]: errMessage(err, "The update failed.") }));
+    try {
+      for (const id of ids) {
+        // Drop the row's previous failure before retrying it: a stale line under
+        // a run that is succeeding reads as "still broken".
+        setUpdateErrors((prev) => {
+          if (prev[id] === undefined) return prev;
+          const { [id]: _retired, ...rest } = prev;
+          return rest;
+        });
+        setApplyingId(id);
+        try {
+          await update.mutateAsync(id);
+        } catch (err) {
+          setUpdateErrors((prev) => ({ ...prev, [id]: errMessage(err, "The update failed.") }));
+        }
       }
+    } finally {
+      setApplyingId(null);
     }
   }
 
@@ -295,6 +311,19 @@ export function InstalledPluginsCard({
                     <span />
                   )}
                   {p.description && <p className="col-span-full text-detail text-muted-foreground">{p.description}</p>}
+                  {/* Which row the sequential queue is on. The mutation's
+                  pending flag is global, so this is the only thing that says
+                  WHICH plugin is being replaced; the accessible name carries
+                  the plugin, the visible line stays short. */}
+                  {p.id === applyingId && (
+                    <p
+                      role="status"
+                      aria-label={`Updating ${p.name}`}
+                      className="col-span-full text-detail text-muted-foreground"
+                    >
+                      Updating…
+                    </p>
+                  )}
                   {/* A broken install keeps its row precisely so it can say this;
                   every launch of it fails, and the operator needs to know why. */}
                   {p.broken && <p className="col-span-full text-destructive text-detail">Not loaded: {p.broken}</p>}

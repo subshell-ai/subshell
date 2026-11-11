@@ -67,7 +67,15 @@ function tempDataDir(): string {
 async function writePlugin(
   dataDir: string,
   id: string,
-  opts: { body?: string; detect?: boolean; pkgName?: string; version?: string; extra?: Record<string, unknown> } = {},
+  opts: {
+    body?: string;
+    detect?: boolean;
+    pkgName?: string;
+    version?: string;
+    /** The plugin-api the manifest declares; defaults to what this host implements */
+    apiVersion?: number;
+    extra?: Record<string, unknown>;
+  } = {},
 ): Promise<string> {
   const dir = join(pluginsDir(dataDir), id);
   mkdirSync(dir, { recursive: true });
@@ -78,7 +86,7 @@ async function writePlugin(
       version: opts.version ?? "1.0.0",
       type: "module",
       subshell: {
-        apiVersion: PLUGIN_API_VERSION,
+        apiVersion: opts.apiVersion ?? PLUGIN_API_VERSION,
         id,
         type: "agent-harness",
         name: `${id} plugin`,
@@ -300,6 +308,23 @@ describe("the installed overlay", () => {
     expect(warnings).toEqual([]);
     expect(getHarness("pi")?.name).toBe("pi");
     expect(allHarnesses().length).toBe(BUILT_IN_IDS.length);
+  });
+
+  it("refuses an installed built-in that declares a plugin-api this host does not implement", async () => {
+    // The version rule and the protocol rule meet here: the copy is STRICTLY
+    // newer than the bundle, so it would win on version alone — but its
+    // manifest cannot be parsed by this host, which is decided without
+    // touching its code. The compiled copy answers, exactly once.
+    const dir = tempDataDir();
+    await writePlugin(dir, "pi", { version: "99.0.0", apiVersion: 99, body: DISK_PI_BODY });
+
+    const { broken } = await refreshInstalledPlugins(dir);
+
+    expect(broken.map((b) => b.id)).toEqual(["pi"]);
+    expect(broken[0]?.error).toContain("plugin-api 99");
+    expect(broken[0]?.error).toContain("implements 2");
+    expect(getHarness("pi")?.name).toBe("pi");
+    expect(allHarnesses().filter((h) => h.id === "pi")).toHaveLength(1);
   });
 
   it("loads an installed copy newer than the bundle for a built-in id", async () => {

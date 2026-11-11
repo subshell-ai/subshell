@@ -3069,8 +3069,8 @@ Audit events are written, grouped by family:
   `server.logging.update`, `server.autostart.update`, `server.update`, and
   `server.supervision.request`, the last one best-effort and written by the
   caller rather than by the act (§11.11).
-- **Plugins, networks and installers**: `plugin.install`, `plugin.enable`,
-  `plugin.disable`, `plugin.uninstall`, `plugin.unpublish`,
+- **Plugins, networks and installers**: `plugin.install`, `plugin.update`,
+  `plugin.enable`, `plugin.disable`, `plugin.uninstall`, `plugin.unpublish`,
   `network.configure`, `network.install`, `network.join`, `network.publish`,
   `network.unpublish`, `network.leave`, `agent.install`, `tmux.install`.
 - **Auth providers** (spec 2026-09-24 §8): `auth_provider.create`,
@@ -3330,12 +3330,16 @@ Updating is the same door, not a second one: `POST
 /api/plugins/:pluginId/update` is admin-cookie-only, fetches the package's
 `latest` through the same integrity check over the raw bytes, runs the same
 load-check against a staging copy, and leaves the previous copy byte-identical
-on any refusal. It is audited as `plugin.update`, and the code it writes runs
-in-process after the next restart, exactly as an install's does. What the
-update changes is which copy the instance DESCRIBES: a losing installed copy
-of a built-in no longer contributes the row's identity or capabilities — the
-copy that answers does — while the loser's version, source and its load error
-(when it has one) ride on the row as `shadowed`.
+on any refusal. It is audited as `plugin.update`, with the version the sidecar
+shows landed rather than the one the check resolved. A copy the process had
+not imported yet is live immediately; a copy it already imported at boot keeps
+running the old code until the SERVER restarts, because the ESM cache cannot
+be evicted; that is what the row's `restartRequired` says, and no agent
+restart is involved (the node does not load disk plugins). What the update
+changes is which copy the instance DESCRIBES: a losing installed copy of a
+built-in no longer contributes the row's identity or capabilities (the copy
+that answers does), while the loser's version, source and its load error (when
+it has one) ride on the row as `shadowed`.
 
 **The node enforces binaries, not plugins.** With no per-node plugin store
 there is nothing to check a `launch` against, and the launch carries the

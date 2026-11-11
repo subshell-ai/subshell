@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { useState } from "react";
 import { deploymentView, idleRestart } from "@/components/__tests__/helpers/deployment-view";
 import { PluginRestartOffer } from "@/components/plugins/plugin-restart-offer";
 import type { ServerRestart } from "@/hooks/use-server-restart";
@@ -79,16 +80,38 @@ describe("PluginRestartOffer", () => {
     expect(screen.queryByRole("button", { name: "Restart server" })).toBeNull();
   });
 
-  it("shows a failed request instead of a dead button", () => {
-    render(
-      <PluginRestartOffer
-        restartRequired
-        deployment={base}
-        restart={{ ...idleRestart, error: "The restart could not be requested" }}
-      />,
-    );
-    expect(screen.getByText("The restart could not be requested")).toBeDefined();
-    expect(screen.queryByRole("button", { name: "Restart server" })).toBeNull();
+  it("keeps the retry beside a failed request, and the retry reaches the wait", async () => {
+    // A failed POST used to replace the offer with a red sentence and no way
+    // back: the only remedy was a page reload. The press is repeatable, and
+    // `restart()` clears the error, so the button stays.
+    const attempts: { force?: boolean }[] = [];
+    function Harness() {
+      const [state, setState] = useState<{ outcome: ServerRestart["outcome"]; error: string | null }>({
+        outcome: "idle",
+        error: null,
+      });
+      const restart: ServerRestart = {
+        ...state,
+        async restart() {
+          attempts.push({});
+          if (attempts.length === 1) {
+            setState({ outcome: "idle", error: "The restart could not be requested" });
+            return;
+          }
+          setState({ outcome: "waiting", error: null });
+        },
+      };
+      return <PluginRestartOffer restartRequired deployment={base} restart={restart} />;
+    }
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Restart server" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Restart server" }));
+    expect(await screen.findByText("The restart could not be requested")).toBeDefined();
+    // The offer is still there to press again, and the second press works.
+    fireEvent.click(screen.getByRole("button", { name: "Restart server" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Restart server" }));
+    expect(await screen.findByText(/waiting for the server to come back/)).toBeDefined();
+    expect(attempts).toHaveLength(2);
   });
 
   it("tells the reader where to look when the restart never landed", () => {

@@ -1624,12 +1624,15 @@ export type PluginReportWire = {
     error?: string;
   };
   /**
-   * The node installed a newer copy than the code it is running.
+   * A copy on disk whose bytes differ from the code this process imported.
    *
    * A module cannot be swapped inside a live process (see `IMPORTED` in
    * `@internal/pane-runtime`), so `version` here is what is on disk while the
    * behaviour is the previous build's. Reported rather than hidden, because
-   * the pair is what makes the remedy obvious: restart the agent.
+   * the pair is what makes the remedy obvious: restart the SERVER that runs
+   * the plugin. A copy the process had not imported yet is live immediately
+   * and carries no flag, and no agent restart is involved — a node loads no
+   * disk plugins.
    */
   restartRequired?: boolean;
 };

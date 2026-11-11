@@ -1,4 +1,4 @@
-import { Button } from "@internal/node-admin";
+import { Button, errMessage } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -12,10 +12,11 @@ import { PluginRestartOffer } from "@/components/plugins/plugin-restart-offer";
 import { UninstallPluginDialog } from "@/components/plugins/uninstall-plugin-dialog";
 import { useAdminStatus } from "@/hooks/use-admin-status";
 import { INSTANCE_PLUGINS_QUERY_KEY, type InstancePluginRow, useInstancePlugins } from "@/hooks/use-instance-plugins";
-import { PLUGIN_UPDATES_QUERY_KEY, useCheckPluginUpdates, usePluginUpdates } from "@/hooks/use-plugin-updates";
+import { useCheckPluginUpdates, usePluginUpdates } from "@/hooks/use-plugin-updates";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useServerDeployment } from "@/hooks/use-server-deployment";
 import { useServerRestart } from "@/hooks/use-server-restart";
+import { PLUGIN_UPDATES_QUERY_KEY } from "@/lib/query-keys";
 
 export const Route = createFileRoute("/settings_/plugins")({ component: InstancePluginsPage });
 
@@ -69,16 +70,20 @@ function InstancePluginsPage() {
   // the page has already delivered.
   useEffect(() => {
     if (restart.outcome !== "back") return;
+    // Both keys are watched by mounted queries here, so invalidating them IS
+    // the refetch: the offer retires when the rows come back without the flag.
     void queryClient.invalidateQueries({ queryKey: INSTANCE_PLUGINS_QUERY_KEY });
     void queryClient.invalidateQueries({ queryKey: PLUGIN_UPDATES_QUERY_KEY });
-    void refetch();
-  }, [restart.outcome, queryClient, refetch]);
+  }, [restart.outcome, queryClient]);
 
-  // A failed check and a plugin whose registry read failed are different
-  // failures, and both mean "no answer" rather than "current": they render as
-  // one list of lines so nothing on the card claims an offer it did not get.
+  // A failed check, a registry read that failed and a failed updates QUERY are
+  // different failures, and all mean "no answer" rather than "current": they
+  // render as one list of lines so nothing on the card claims an offer it did
+  // not get. The query's own failure is included because a 500 or an offline
+  // server otherwise looks exactly like every plugin being current.
   const checkErrors = [
     ...(check.error ? [check.error] : []),
+    ...(updates.error ? [errMessage(updates.error, "Could not check for plugin updates.")] : []),
     ...(updates.data?.errors ?? []).map((e) => `Could not check ${e.name}: ${e.message}`),
   ];
 

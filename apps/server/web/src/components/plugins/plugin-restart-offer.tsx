@@ -50,9 +50,10 @@ export function PluginRestartOffer({
     );
   }
 
-  if (restart.error) {
-    return <p className="text-destructive text-detail">{restart.error}</p>;
-  }
+  // A failed request is not a dead end: the press is repeatable, and
+  // `useServerRestart.restart()` clears the error, so the offer keeps its
+  // button beside the sentence rather than replacing itself with red text.
+  const errorLine = restart.error ? <p className="text-destructive text-detail">{restart.error}</p> : null;
 
   if (restart.outcome === "timeout") {
     return (
@@ -62,35 +63,44 @@ export function PluginRestartOffer({
     );
   }
 
-  if (!deployment) return null;
+  // Still loading: the update result is already in the rows, and a sentence
+  // guessing at this machine's restart answer would be a claim nobody has
+  // made. A failed press is the one thing there is to say meanwhile.
+  if (!deployment) return errorLine;
 
   if (!deployment.restart.available) {
     return (
-      <div className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
-        <span>
-          Updated plugins take effect after the server restarts, but this server can’t restart itself
-          {deployment.restart.reason ? `: ${deployment.restart.reason}` : ""}. Run{" "}
-          <code className="font-mono">subshell-server service restart</code> on the machine running it.
-        </span>
+      <div className="space-y-2">
+        {errorLine}
+        <div className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
+          <span>
+            Updated plugins take effect after the server restarts, but this server can’t restart itself
+            {deployment.restart.reason ? `: ${deployment.restart.reason}` : ""}. Run{" "}
+            <code className="font-mono">subshell-server service restart</code> on the machine running it.
+          </span>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
-      <span>Updated plugins take effect after the server restarts.</span>
-      <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
-        Restart server
-      </Button>
-      <RestartDialog
-        open={confirming}
-        onOpenChange={setConfirming}
-        view={deployment}
-        onConfirm={(force) => {
-          setConfirming(false);
-          void restart.restart(force ? { force: true } : {});
-        }}
-      />
+    <div className="space-y-2">
+      {errorLine}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+        <span>Updated plugins take effect after the server restarts.</span>
+        <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
+          Restart server
+        </Button>
+        <RestartDialog
+          open={confirming}
+          onOpenChange={setConfirming}
+          view={deployment}
+          onConfirm={(force) => {
+            setConfirming(false);
+            void restart.restart(force ? { force: true } : {});
+          }}
+        />
+      </div>
     </div>
   );
 }

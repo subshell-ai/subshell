@@ -5,7 +5,6 @@ import type { ReactNode } from "react";
 import { INSTANCE_PLUGINS_QUERY_KEY, type InstancePluginRow, useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useNetwork } from "@/hooks/use-network";
 import {
-  PLUGIN_UPDATES_QUERY_KEY,
   type PluginUpdateRow,
   type PluginUpdatesView,
   useCheckPluginUpdates,
@@ -14,6 +13,7 @@ import {
 } from "@/hooks/use-plugin-updates";
 import { usePresets } from "@/hooks/use-presets";
 import { usePublicSettings } from "@/hooks/use-public-settings";
+import { PLUGIN_UPDATES_QUERY_KEY } from "@/lib/query-keys";
 
 /**
  * The update surface is a read, a check and an act, and each has a coupling

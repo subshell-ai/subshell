@@ -8,7 +8,6 @@ import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import type { InstancePluginRow, PluginImpact } from "@/hooks/use-instance-plugins";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
 import { Route } from "@/routes/settings_.plugins";
-import type { ServerDeployment } from "@/types/server-deployment";
 
 /**
  * The instance plugins page (spec 2026-09-10 §6, §6.1): catalog installs are
@@ -43,8 +42,9 @@ interface PageFixture {
   impact?: PluginImpact;
   /** The first PATCH fails; later ones succeed (the retry-the-row case). */
   failPatchOnce?: boolean;
+  /** `GET /api/plugins/updates` answers 500 (the query failed, not a plugin) */
+  failUpdates?: boolean;
   /** The deployment view the restart offer reads; defaults to a restartable host */
-  deployment?: ServerDeployment;
 }
 
 function row(f: RowFixture): InstancePluginRow {
@@ -128,6 +128,12 @@ function mockServer(fx: PageFixture) {
       restarted = true;
       serverDown = true;
       return json({ restarting: true, resumeAt: "http://localhost:3080" });
+    }
+    if (url.pathname === "/api/plugins/updates" && method === "GET") {
+      if (fx.failUpdates) {
+        return Promise.resolve(new Response(JSON.stringify({ message: "registry unreachable" }), { status: 500 }));
+      }
+      return json({ updates: [], errors: [], checkedAt: 0 });
     }
     if (url.pathname === "/api/plugins" && method === "GET") {
       return json({ plugins: restarted ? plugins.map((p) => ({ ...p, restartRequired: false })) : plugins });
@@ -450,6 +456,45 @@ describe("instance plugins page", () => {
     }
   });
 
+  it("an uninstall re-reads the update offers, so no offer outlives its row", async () => {
+    const m = mockServer({ admin: true, installed: [{ id: "thing", name: "Thing" }] });
+    try {
+      renderPage();
+      await screen.findByText("Thing");
+      await waitFor(() =>
+        expect(
+          m.calls.filter((c) => c.method === "GET" && c.pathname === "/api/plugins/updates").length,
+        ).toBeGreaterThanOrEqual(1),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Uninstall Thing" }));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Uninstall" }));
+      await waitFor(() => expect(m.deletedWith()).toMatchObject({ mode: "keep" }));
+      // The offer was judged against an INSTALLED plugin. A cached answer would
+      // still name the row that just left, and confirming it could only 409.
+      await waitFor(() =>
+        expect(
+          m.calls.filter((c) => c.method === "GET" && c.pathname === "/api/plugins/updates").length,
+        ).toBeGreaterThanOrEqual(2),
+      );
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("a failed update check reads as a failure, not as every plugin being current", async () => {
+    const m = mockServer({ admin: true, installed: [{ id: "pi", name: "Pi" }], failUpdates: true });
+    try {
+      renderPage();
+      expect(await screen.findByText("Pi")).toBeDefined();
+      // A rejected /api/plugins/updates is NO ANSWER: rendering an empty offer
+      // list without this line would say every plugin is up to date.
+      expect(await screen.findByText(/API 500: registry unreachable/)).toBeDefined();
+    } finally {
+      m.restore();
+    }
+  });
+
   it("groups the installed rows by what they ARE, once there is more than one kind", async () => {
     const m = mockServer({
       admin: true,
@@ -566,10 +611,13 @@ describe("instance plugins page", () => {
     }
   });
 
-  it("re-reads the rows when the server comes back, so the offer retires itself", async () => {
+  it("re-reads the rows and the update offers when the server comes back, so the offer retires itself", async () => {
     const m = mockServer({ admin: true, installed: [{ id: "third", name: "Third", restartRequired: true }] });
     try {
       renderPage();
+      const gets = (pathname: string) => m.calls.filter((c) => c.method === "GET" && c.pathname === pathname).length;
+      const updatesBefore = gets("/api/plugins/updates");
+      await waitFor(() => expect(gets("/api/plugins/updates")).toBeGreaterThanOrEqual(1));
       fireEvent.click(await screen.findByRole("button", { name: "Restart server" }));
       const dialog = await screen.findByRole("dialog");
       fireEvent.click(within(dialog).getByRole("button", { name: "Restart server" }));
@@ -580,9 +628,11 @@ describe("instance plugins page", () => {
       // boot, and the offer then retires because nothing needs a restart.
       await eventually(() => screen.queryByRole("status") === null);
       await eventually(() => screen.queryByText(/take effect after the server restarts/) === null);
-      expect(m.calls.filter((c) => c.method === "GET" && c.pathname === "/api/plugins").length).toBeGreaterThanOrEqual(
-        2,
-      );
+      expect(gets("/api/plugins")).toBeGreaterThanOrEqual(2);
+      // The offer list was judged against the pre-restart rows, so the new boot
+      // must re-read it too: a restart that stopped at the catalog would leave
+      // a stale offer behind a fresh batch of rows.
+      await eventually(() => gets("/api/plugins/updates") > updatesBefore);
       expect(screen.queryByText(/^Back\.?$/)).toBeNull();
     } finally {
       m.restore();
