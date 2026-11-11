@@ -10,7 +10,9 @@ import {
 } from "@internal/node-admin";
 import { useState } from "react";
 import { PluginIcon } from "@/components/plugin-icon";
+import { UpdatePluginsDialog } from "@/components/plugins/update-plugins-dialog";
 import { type InstancePluginRow, useSetPluginEnabled } from "@/hooks/use-instance-plugins";
+import { type PluginUpdateRow, useUpdatePlugin } from "@/hooks/use-plugin-updates";
 
 /**
  * The headings, in the order a reader meets these things: what runs an agent,
@@ -46,6 +48,10 @@ export function InstalledPluginsCard({
   plugins,
   canManage,
   onUninstall,
+  updates,
+  onCheck,
+  checking,
+  checkErrors,
 }: {
   /** The rows with `installed: true`, id-sorted as the server sends them */
   plugins: InstancePluginRow[];
@@ -53,16 +59,56 @@ export function InstalledPluginsCard({
   canManage: boolean;
   /** Opens the uninstall dialog for this row */
   onUninstall: (plugin: InstancePluginRow) => void;
+  /** The registry's offers, one per plugin whose `latest` is newer */
+  updates: PluginUpdateRow[];
+  /** Asks the registry now; the header's Check for updates */
+  onCheck: () => void;
+  /** True while that check is in flight */
+  checking: boolean;
+  /** Failed registry reads, so a plugin that was not checked never reads as current */
+  checkErrors: string[];
 }) {
   const setEnabled = useSetPluginEnabled();
+  const update = useUpdatePlugin();
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
-  const groups = GROUPS.map((group) => ({ ...group, rows: plugins.filter(group.matches) })).filter(
-    (group) => group.rows.length > 0,
-  );
+  const [updateErrors, setUpdateErrors] = useState<Record<string, string>>({});
+  /** The targets the confirmation is about; null while no question is open. */
+  const [updateDialog, setUpdateDialog] = useState<PluginUpdateRow[] | null>(null);
+  const offers = new Map(updates.map((offer) => [offer.id, offer]));
+  // The offer rides the row rather than being looked up again per cell: one
+  // plugin's version pair, action and confirmation must all be the same fact.
+  const groups = GROUPS.map((group) => ({
+    ...group,
+    rows: plugins.filter(group.matches).map((plugin) => ({ ...plugin, offer: offers.get(plugin.id) })),
+  })).filter((group) => group.rows.length > 0);
   // A heading above the only list is noise: it names a distinction the reader
   // cannot be confusing anything with. They appear as soon as there are two
   // kinds of thing on the page, which is the moment they start doing work.
   const headed = groups.length > 1;
+
+  /**
+   * Replace these plugins' bytes, SEQUENTIALLY: two installs never rewrite the
+   * store at once, and one refusal must not stop the rest — so the loop carries
+   * on and the failing row reports itself. The question closes first: an
+   * answered confirmation has nothing left to ask.
+   */
+  async function applyUpdates(ids: string[]): Promise<void> {
+    setUpdateDialog(null);
+    for (const id of ids) {
+      // Drop the row's previous failure before retrying it: a stale line under
+      // a run that is succeeding reads as "still broken".
+      setUpdateErrors((prev) => {
+        if (prev[id] === undefined) return prev;
+        const { [id]: _retired, ...rest } = prev;
+        return rest;
+      });
+      try {
+        await update.mutateAsync(id);
+      } catch (err) {
+        setUpdateErrors((prev) => ({ ...prev, [id]: errMessage(err, "The update failed.") }));
+      }
+    }
+  }
 
   return (
     <Card>
@@ -71,9 +117,48 @@ export function InstalledPluginsCard({
           each say where THEIR bytes come from, which this list does per row
           with its source badge. */}
       <CardHeader>
-        <CardTitle>Installed</CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle>Installed</CardTitle>
+          {canManage && (
+            <div className="flex flex-wrap items-center gap-2">
+              {/* The check reads the registry and touches no bytes, but a
+                  second one while a check is in flight answers nothing new. */}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={checking || update.isPending}
+                disabledReason={
+                  checking ? "Wait for the update check to finish." : "Wait for the current update to finish."
+                }
+                onClick={onCheck}
+              >
+                Check for updates
+              </Button>
+              {offers.size > 1 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={update.isPending}
+                  disabledReason="Wait for the current update to finish."
+                  onClick={() => setUpdateDialog([...offers.values()])}
+                >
+                  Update all ({offers.size})
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* A failed registry read is not "up to date": naming the plugin that
+            went unchecked is the only way the offer list stays honest. */}
+        {checkErrors.map((message) => (
+          <p key={message} className="text-detail text-muted-foreground">
+            {message}
+          </p>
+        ))}
         {plugins.length === 0 && <p className="text-muted-foreground text-sm">Nothing installed yet.</p>}
         {groups.map((group) => (
           <section key={group.id} className="space-y-2">
@@ -115,13 +200,23 @@ export function InstalledPluginsCard({
                     <div className="min-w-0">
                       <p className="truncate font-strong">{p.name}</p>
                       <p className="truncate text-detail text-muted-foreground">
-                        {[p.id, p.version ? `v${p.version}` : undefined, p.binary ? `drives ${p.binary}` : undefined]
-                          .filter((s): s is string => s !== undefined)
-                          .join(" · ")}
+                        {/* The version becomes the PAIR once there is an
+                        offer, in its own span so from → to reads as one fact
+                        rather than a version with a sibling. */}
+                        {p.id}
+                        {p.offer ? (
+                          <>
+                            {" · "}
+                            <span>{`v${p.version ?? p.offer.from} → v${p.offer.to}`}</span>
+                          </>
+                        ) : (
+                          p.version !== undefined && ` · v${p.version}`
+                        )}
+                        {p.binary !== undefined && ` · drives ${p.binary}`}
                       </p>
                     </div>
                   </div>
-                  <span className="justify-self-start">{p.builtIn ? "this build" : "npm"}</span>
+                  <span className="justify-self-start">{sourceLabel(p)}</span>
                   {canManage ? (
                     <Switch
                       className="justify-self-start"
@@ -177,9 +272,25 @@ export function InstalledPluginsCard({
                   omitted one would pull this row's earlier cells rightwards
                   out of their columns. */}
                   {canManage ? (
-                    <Button variant="ghost" size="sm" className="justify-self-end" onClick={() => onUninstall(p)}>
-                      Uninstall {p.name}
-                    </Button>
+                    <div className="flex items-center gap-1 justify-self-end">
+                      {/* The version pair above is the offer; this is the act.
+                          Every update control holds while one is running, so a
+                          second install cannot start over the first. */}
+                      {p.offer && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={update.isPending}
+                          disabledReason="Wait for the current update to finish."
+                          onClick={() => p.offer && setUpdateDialog([p.offer])}
+                        >
+                          Update to {p.offer.to}
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="sm" onClick={() => onUninstall(p)}>
+                        Uninstall {p.name}
+                      </Button>
+                    </div>
                   ) : (
                     <span />
                   )}
@@ -188,12 +299,47 @@ export function InstalledPluginsCard({
                   every launch of it fails, and the operator needs to know why. */}
                   {p.broken && <p className="col-span-full text-destructive text-detail">Not loaded: {p.broken}</p>}
                   {rowErrors[p.id] && <p className="col-span-full text-destructive text-detail">{rowErrors[p.id]}</p>}
+                  {/* An installed copy that lost resolution is why an update
+                  can still do something: the store's bytes are not the ones
+                  running, and saying which copy is which is the whole row. */}
+                  {p.shadowed && (
+                    <p className="col-span-full text-detail text-muted-foreground">
+                      {`Installed copy v${p.shadowed.version} (${
+                        p.shadowed.source === "npm" ? "npm" : "this build"
+                      }) is not in use${p.shadowed.error ? `: ${p.shadowed.error}` : "; the bundled copy is newer"}.`}
+                    </p>
+                  )}
+                  {updateErrors[p.id] && (
+                    <p className="col-span-full text-destructive text-detail">{updateErrors[p.id]}</p>
+                  )}
                 </div>
               ))}
             </div>
           </section>
         ))}
       </CardContent>
+      {/* Mounted only while targets are being confirmed: the mount is the
+          open, so answering the question cannot leave stale targets behind. */}
+      {updateDialog && (
+        <UpdatePluginsDialog
+          open
+          onOpenChange={(open) => !open && setUpdateDialog(null)}
+          targets={updateDialog}
+          onConfirm={() => void applyUpdates(updateDialog.map((target) => target.id))}
+        />
+      )}
     </Card>
   );
+}
+
+/**
+ * Where the answering copy's bytes came from. `source` is a newer server's
+ * field; absent is an older server, where the built-in flag was the only
+ * record and "npm" meant everything else.
+ */
+function sourceLabel(plugin: InstancePluginRow): string {
+  if (plugin.source === "npm") return "npm";
+  if (plugin.source === "unrecorded") return "no record";
+  if (plugin.source === "build") return "this build";
+  return plugin.builtIn ? "this build" : "npm";
 }

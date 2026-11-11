@@ -9,6 +9,7 @@ import { InstalledPluginsCard } from "@/components/plugins/installed-plugins-car
 import { PluginCatalogCard } from "@/components/plugins/plugin-catalog-card";
 import { UninstallPluginDialog } from "@/components/plugins/uninstall-plugin-dialog";
 import { type InstancePluginRow, useInstancePlugins } from "@/hooks/use-instance-plugins";
+import { useCheckPluginUpdates, usePluginUpdates } from "@/hooks/use-plugin-updates";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 
 export const Route = createFileRoute("/settings_/plugins")({ component: InstancePluginsPage });
@@ -32,11 +33,21 @@ function InstancePluginsPage() {
   const viewerIsAdmin = publicSettings?.viewerIsAdmin;
   const canManage = viewerIsAdmin === true;
   const { data, error, isLoading, refetch } = useInstancePlugins();
+  const updates = usePluginUpdates(canManage);
+  const check = useCheckPluginUpdates();
   const [uninstallTarget, setUninstallTarget] = useState<InstancePluginRow | null>(null);
 
   const plugins = data?.plugins ?? [];
   const installed = plugins.filter((p) => p.installed);
   const catalog = plugins.filter((p) => !p.installed && p.builtIn);
+
+  // A failed check and a plugin whose registry read failed are different
+  // failures, and both mean "no answer" rather than "current": they render as
+  // one list of lines so nothing on the card claims an offer it did not get.
+  const checkErrors = [
+    ...(check.error ? [check.error] : []),
+    ...(updates.data?.errors ?? []).map((e) => `Could not check ${e.name}: ${e.message}`),
+  ];
 
   return (
     <DashboardPage>
@@ -63,7 +74,15 @@ function InstancePluginsPage() {
       {isLoading && !data && !error && <p className="text-muted-foreground text-sm">Loading…</p>}
       {data && (
         <>
-          <InstalledPluginsCard plugins={installed} canManage={canManage} onUninstall={setUninstallTarget} />
+          <InstalledPluginsCard
+            plugins={installed}
+            canManage={canManage}
+            onUninstall={setUninstallTarget}
+            updates={updates.data?.updates ?? []}
+            onCheck={check.check}
+            checking={check.pending}
+            checkErrors={checkErrors}
+          />
           {canManage && <PluginCatalogCard plugins={catalog} />}
           {canManage && <InstallByNameForm plugins={plugins} />}
         </>
