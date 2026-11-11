@@ -776,8 +776,12 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          # macOS is one `runner.os` for both architectures, and Bun's cache
+          # holds arch-specific optional deps (a bunx-installed tauri CLI's
+          # native binding among them). Without the arch a cache saved on
+          # arm64 restores on the Intel shard and the binding is missing.
+          key: ${{ runner.os }}-${{ runner.arch }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-bun-
 
       # One cache per OS and revision: the first shard to finish saves it and
       # the rest restore the matching prefix. Turbo stores every task by its
@@ -1487,8 +1491,12 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: ${{ runner.os }}-bun-
+          # macOS is one `runner.os` for both architectures, and Bun's cache
+          # holds arch-specific optional deps (a bunx-installed tauri CLI's
+          # native binding among them). Without the arch a cache saved on
+          # arm64 restores on the Intel shard and the binding is missing.
+          key: ${{ runner.os }}-${{ runner.arch }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-bun-
 
       # One cache per OS and revision: the first shard to finish saves it and
       # the rest restore the matching prefix. Turbo stores every task by its
