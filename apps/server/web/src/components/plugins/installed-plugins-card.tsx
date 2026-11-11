@@ -40,9 +40,10 @@ const GROUPS = [
 
 /**
  * The installed half of the instance page (spec 2026-09-10 §6.1): each row
- * carries where its bytes came from (this build or npm), its version, an
- * Enabled switch and an Uninstall, and a broken plugin says why on its face
- * rather than presenting as an unexplained launch failure. For a non-admin
+ * carries where its bytes came from (this build or npm), its version and an
+ * Enabled switch, and its update and uninstall sit behind one actions menu.
+ * A broken plugin says why on its face rather than presenting as an
+ * unexplained launch failure. For a non-admin
  * the same rows render read-only: the list is every authenticated actor's
  * read, the controls are the admin's.
  */

@@ -236,7 +236,9 @@ describe("InstalledPluginsCard", () => {
       expect(screen.getAllByRole("status")).toHaveLength(1);
       // Every row's Update item holds while the queue runs, whichever row is
       // active. `aria-disabled` rather than the native attribute: the item
-      // stays focusable so its explanation can be read.
+      // stays focusable and inert. The active row's "Updating…" status is what
+      // tells the operator what is happening; the item itself carries no
+      // reason (ActionItem has no disabledReason).
       await openMenu("Third");
       await openMenu("Fourth");
       expect(screen.getByRole("menuitem", { name: "Update to 1.1.0" }).getAttribute("aria-disabled")).toBe("true");
