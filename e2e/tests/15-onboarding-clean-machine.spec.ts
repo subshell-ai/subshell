@@ -28,7 +28,21 @@ const SPAWN_TIMEOUT = 30_000;
 
 /** Every agent plugin's detect.envOverride — the clean machine names nothing
  *  it can find. Terminal's SHELL deliberately stays out of this list. */
-const AGENT_OVERRIDES = ["CLAUDE_PATH", "CODEX_PATH", "HERMES_PATH", "OPENCODE_PATH", "PI_PATH"];
+const AGENT_OVERRIDES = [
+  "CLAUDE_PATH",
+  "CLINE_PATH",
+  "CODEX_PATH",
+  "GEMINI_PATH",
+  "GROK_PATH",
+  "HERMES_PATH",
+  "INTERPRETER_PATH",
+  "OMP_PATH",
+  "OPENCLAW_PATH",
+  "OPENCODE_PATH",
+  "OPENHANDS_PATH",
+  "PI_PATH",
+  "QWEN_PATH",
+];
 
 interface CleanInstance {
   child: ReturnType<typeof spawn>;
