@@ -16,11 +16,16 @@ const verification = Bun.YAML.parse(
 test("tag creation and npm publishing require fresh, full verification", () => {
   expect(release.jobs.verify?.uses).toBe("./.github/workflows/test.yml");
   expect(release.jobs.verify?.with?.full).toBe(true);
-  for (const name of ["plan", "npm-publish"]) expect(release.jobs[name]?.needs).toContain("verify");
+  // Every WRITE is gated on verify: tags, then both publish phases (which
+  // need the tag job), and npm.
+  for (const name of ["tag", "npm-publish"]) expect(release.jobs[name]?.needs).toContain("verify");
+  for (const name of ["publish-cli", "publish-desktop"]) expect(release.jobs[name]?.needs).toContain("tag");
+  // Builds may run alongside verification; the plan job must not wait for it.
+  expect(release.jobs.plan?.needs).not.toContain("verify");
   expect(verification.on.workflow_call.inputs.full.type).toBe("boolean");
   // Only pushes (empty cut) and a manifest refresh may bypass a skipped gate.
-  expect(release.jobs.plan?.if).toContain("needs.verify.result == 'success'");
-  expect(release.jobs.plan?.if).toContain("github.event_name == 'push' || inputs.app == 'refresh'");
+  expect(release.jobs.tag?.if).toContain("needs.verify.result == 'success'");
+  expect(release.jobs.tag?.if).toContain("github.event_name == 'push' || inputs.app == 'refresh'");
 });
 
 test("the aggregate result waits for every test tier even after a failure", () => {

@@ -86,7 +86,10 @@ jobs:
     env:
       TEST_PLAN: ${{ needs.plan.outputs.plan }}
       TEST_LANE: ${{ toJSON(matrix) }}
-      # Server fixtures mutate process-global state; isolate files even at width one.
+      # File isolation is what the server lane needs (its fixtures mutate
+      # process-global state), and `--parallel` gives each file its own
+      # process. The sharded server legs also use the hosted runner's four
+      # vCPUs; the unsharded lanes keep the measured serial regime.
       SUBSHELL_TEST_PARALLEL: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -99,8 +102,14 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y tmux jq openssh-client
           fi
-      - run: |
-          if [ "${{ matrix.name }}" = server ]; then unset SUBSHELL_TEST_SERIAL; fi
+      - name: Run selected unit tests
+        env:
+          TEST_SHARD: ${{ matrix.shard }}
+        run: |
+          if [ -n "$TEST_SHARD" ]; then
+            unset SUBSHELL_TEST_SERIAL
+            export SUBSHELL_TEST_PARALLEL=4
+          fi
           bun scripts/run-test-plan.ts unit
 
   integration:

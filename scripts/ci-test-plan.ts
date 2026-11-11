@@ -213,20 +213,35 @@ export function planChanges(base: string, local = false, full = false, root = RO
   }
 }
 
-/** Bound job setup cost to three unit jobs, regardless of the number of workspaces. */
-export function unitLanes(plan: TestPlan, workspaces: readonly Workspace[]) {
+/** One unit-test job's selection: packages, script tier, and optional Bun shard. */
+export interface UnitLane {
+  name: string;
+  packages: string[];
+  scripts: boolean;
+  /** Bun's `--shard=<index>/<count>`; an empty string means the whole lane. */
+  shard?: string;
+}
+
+/**
+ * Bound job setup cost to four unit jobs, regardless of the number of
+ * workspaces. The server suite is the long pole, so it runs as two `--shard`
+ * legs; `.bun-test-timings.json` is committed, which makes Bun balance those
+ * legs by measured file duration instead of file count.
+ */
+export function unitLanes(plan: TestPlan, workspaces: readonly Workspace[]): UnitLane[] {
   const tested = plan.packages.filter((name) => workspaces.find((p) => p.name === name)?.scripts.test);
-  const groups = [
-    {
-      name: "server",
-      packages: tested.filter((n) => n === "@internal/server" || n === "@internal/node"),
-      scripts: false,
-    },
-    { name: "web", packages: tested.filter((n) => n === "@internal/server-web"), scripts: false },
+  const serverPackages = tested.filter((n) => n === "@internal/server" || n === "@internal/node");
+  const groups: UnitLane[] = [
+    // Two legs share the same package list on purpose: each runs HALF the
+    // package's files, so the coverage test dedupes by package name.
+    { name: "server-1", packages: serverPackages, scripts: false, shard: "1/2" },
+    { name: "server-2", packages: serverPackages, scripts: false, shard: "2/2" },
+    { name: "web", packages: tested.filter((n) => n === "@internal/server-web"), scripts: false, shard: "" },
     {
       name: "other",
       packages: tested.filter((n) => !["@internal/server", "@internal/node", "@internal/server-web"].includes(n)),
       scripts: plan.scripts,
+      shard: "",
     },
   ];
   return groups.filter((g) => g.packages.length || g.scripts);

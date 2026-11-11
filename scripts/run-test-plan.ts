@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 /* biome-ignore-all lint/suspicious/noUndeclaredEnvVars: This driver runs outside Turbo. */
+import { join } from "node:path";
 import { ROOT, readWorkspaces, type TestPlan } from "./ci-test-plan";
 
 /** Spawn argv directly: package names and changed paths must never become shell code. */
@@ -18,13 +19,17 @@ export function turbo(tasks: string[], packages: string[], extra: string[] = [])
   run(["bunx", "turbo", "run", ...tasks, ...packages.map((name) => `--filter=${name}`), ...extra]);
 }
 
-export function runUnit(plan: TestPlan, packages = plan.packages, scripts = plan.scripts): void {
+export function runUnit(plan: TestPlan, packages = plan.packages, scripts = plan.scripts, shard?: string): void {
   const workspaces = readWorkspaces();
   const selected = packages.filter((name) => workspaces.find((p) => p.name === name)?.scripts.test);
   // The cross-subshell tests boot a real server, which serves the built SPA.
   if (selected.includes("@internal/server")) turbo(["build"], ["@internal/server-web"]);
   // Tests aren't cached. Full verification also rebuilds dependencies from this revision.
-  turbo(["test"], selected, [...(plan.full ? ["--force"] : []), "--", "--retry=0"]);
+  const extra = [...(plan.full ? ["--force"] : []), "--", "--retry=0"];
+  // The committed timings file is what makes Bun split `--shard` by measured
+  // duration instead of file count.
+  if (shard) extra.push(`--shard=${shard}`, `--timings=${join(ROOT, ".bun-test-timings.json")}`);
+  turbo(["test"], selected, extra);
   if (scripts) {
     turbo(["build"], ["@internal/subshell-protocol"]);
     run(["bun", "run", "test:scripts"]);
@@ -65,9 +70,13 @@ if (import.meta.main) {
       runChecks(plan);
       break;
     case "unit": {
-      const lane = JSON.parse(process.env.TEST_LANE ?? "null") as { packages: string[]; scripts: boolean } | null;
+      const lane = JSON.parse(process.env.TEST_LANE ?? "null") as {
+        packages: string[];
+        scripts: boolean;
+        shard?: string;
+      } | null;
       if (!lane) throw new Error("TEST_LANE is required");
-      runUnit(plan, lane.packages, lane.scripts);
+      runUnit(plan, lane.packages, lane.scripts, lane.shard);
       break;
     }
     case "integration":

@@ -51,9 +51,9 @@ and inspect failures from that capture. Confirm the expected file count ran.
 
 Bun's `--parallel` isolates each file. DB suites migrate their own database;
 runner-wide cleanup belongs in the package runner, not preload `afterAll`.
-`SUBSHELL_TEST_PARALLEL` overrides local width. CI routes packages across at most three jobs. The server lane uses
-`--parallel=1` for file isolation: its fixtures mutate process-global state.
-Other lanes retain serial execution. Tests in release verification
+`SUBSHELL_TEST_PARALLEL` overrides local width. CI routes packages across at most four jobs:
+the server suite runs as two `--shard` legs, each with `--parallel=4` for file
+isolation (its fixtures mutate process-global state). Other lanes retain serial execution. Tests in release verification
 run without retries; a flaky failure needs fixing, not a green retry.
 
 ## Server-backed search coverage

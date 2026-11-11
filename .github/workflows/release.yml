@@ -27,11 +27,17 @@
 #                 does NOT auto-cut; the first-cut path is an explicit
 #                 workflow_dispatch — simpler and honest). A dispatch computes
 #                 {app, dir, version, tag} entries (version blank = read from
-#                 apps/<dir>/package.json, tag = <app>-v<version>), SKIPS apps
-#                 whose tag already exists, and PUSHES the missing tags before
-#                 any build starts (spec §7.2: no tag race downstream). The
-#                 `refresh` app choice cuts nothing: empty matrix, and the
+#                 apps/<dir>/package.json, tag = <app>-v<version>) and SKIPS
+#                 apps that already have a published release. It runs
+#                 ALONGSIDE `verify`, so the build shards start immediately;
+#                 nothing is tagged or published until verification passes.
+#                 The `refresh` app choice cuts nothing: empty matrix, and the
 #                 `refresh_manifest=true` output that wakes site-manifest alone.
+#   tag         — pushes the missing tags once full verification passes (spec
+#                 §7.2: no tag race downstream). A failed verification leaves
+#                 no tag and no release; publishes need this job, so build
+#                 artifacts from an unverified revision can never ship. The
+#                 cost is build minutes spent on a revision that fails verify.
 #   build-cli   — matrix over the CLI apps' triples, pinned to hardware per triple.
 #   build-desktop — the SAME body as a second job, gated on publish-cli: the
 #                 cut-order ruling (2026-09-30) is CLI first, desktop after,
@@ -354,16 +360,17 @@ jobs:
 
   plan:
     name: Plan the cut
-    needs: [changesets, verify]
+    # Deliberately NOT gated on verify: the compute step only reads manifests
+    # and the remote tag/release state, and the build shards start while the
+    # full suite runs. Every write — tags, releases, npm — is gated on a
+    # green verification separately below.
+    needs: [changesets]
     if: >-
-      !cancelled() && needs.changesets.result == 'success' &&
-      (needs.verify.result == 'success' ||
-       (needs.verify.result == 'skipped' &&
-        (github.event_name == 'push' || inputs.app == 'refresh')))
+      !cancelled() && needs.changesets.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      contents: write
+      contents: read
     outputs:
       # Split by phase (the cut-order ruling, 2026-09-30): the CLI half is
       # built and PUBLISHED first, then the desktop half builds — its shards
@@ -374,6 +381,9 @@ jobs:
       desktop_matrix: ${{ steps.compute.outputs.desktop_matrix }}
       cli_apps: ${{ steps.compute.outputs.cli_apps }}
       desktop_apps: ${{ steps.compute.outputs.desktop_apps }}
+      # The app entries the tag job writes tags from. Empty on every push
+      # event and on an `app=refresh` dispatch.
+      apps: ${{ steps.compute.outputs.apps }}
       # 'true' ONLY for an `app=refresh` dispatch: no cut, and the
       # site-manifest job runs alone. Every other path, push events included,
       # emits 'false'.
@@ -394,6 +404,7 @@ jobs:
             echo 'desktop_matrix=[]' >> "$GITHUB_OUTPUT"
             echo 'cli_apps=[]' >> "$GITHUB_OUTPUT"
             echo 'desktop_apps=[]' >> "$GITHUB_OUTPUT"
+            echo 'apps=[]' >> "$GITHUB_OUTPUT"
             echo 'refresh_manifest=false' >> "$GITHUB_OUTPUT"
             echo "::notice::$EVENT event — version PR only; cut releases via workflow_dispatch (see header comment)"
             exit 0
@@ -499,22 +510,11 @@ jobs:
               # create the release on the EXISTING tag.
               echo "::warning::tag $tag exists without a release — completing the cut"
             else
-              # Tag BEFORE any build starts (spec §7.2): a failed build then
-              # leaves tag-without-release, which is the retry state above.
-              #
-              # `-f` because a self-hosted runner REUSES its workspace: a tag
-              # created by an earlier cut stays in the local clone even after
-              # it is deleted from the remote — and the guard above asks the
-              # REMOTE. Hosted runners start clean, where `-f` is a no-op; the
-              # flag stays so the org fleet can still run this workflow, and
-              # because without it re-cutting a deleted version died on
-              # `fatal: tag '<tag>' already exists`, which made the documented
-              # "delete the release+tag to re-cut" path impossible. Forcing is
-              # safe precisely because the remote check just proved the tag is
-              # absent there; the push below is still non-forced, so a tag that
-              # DOES exist upstream is never clobbered.
-              git tag -f "$tag" "$GITHUB_SHA"
-              git push origin "$tag"
+              # The tag itself is written by the `tag` job after full
+              # verification passes. Tagging here would let an unverified
+              # revision leave a tag-without-release retry state, and would
+              # make the build phase wait for the whole suite.
+              echo "::notice::$tag is missing — the tag job pushes it after verification"
             fi
             [ -z "$appsjson" ] || appsjson="$appsjson,"
             appsjson="$appsjson{\"app\":\"$app\",\"dir\":\"$dir\",\"version\":\"$version\",\"tag\":\"$tag\"}"
@@ -588,6 +588,7 @@ jobs:
             console.log(`cli_apps=${half(a, "cli-")}`);
             console.log(`desktop_apps=${half(a, "desktop-")}`);
           ' "[$entries]" "[$appsjson]" >> "$GITHUB_OUTPUT"
+          echo "apps=$appsjson" >> "$GITHUB_OUTPUT"
           echo "refresh_manifest=$refresh_manifest" >> "$GITHUB_OUTPUT"
           {
             echo "### Release plan"
@@ -595,6 +596,58 @@ jobs:
             echo "[${entries}]"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # Tags wait for verification; builds do not. This job is what turns "the
+  # revision passed the full suite" into a publishable release, which is why
+  # the build shards can start alongside `verify` without ever shipping
+  # unverified bytes. An existing tag needs no write: it is either the retry
+  # state (publish completes it) or was already skipped by plan as published.
+  tag:
+    name: Tag the cut
+    needs: [plan, verify]
+    if: >-
+      !cancelled() &&
+      needs.plan.result == 'success' &&
+      (needs.verify.result == 'success' ||
+       (needs.verify.result == 'skipped' &&
+        (github.event_name == 'push' || inputs.app == 'refresh'))) &&
+      (needs.plan.outputs.cli_apps != '[]' || needs.plan.outputs.desktop_apps != '[]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Create the missing tags
+        env:
+          APPS: ${{ needs.plan.outputs.apps }}
+        run: |
+          set -euo pipefail
+          node -e '
+            let d = "";
+            process.stdin.on("data", (c) => (d += c)).on("end", () => {
+              for (const { tag } of JSON.parse(d)) console.log(tag);
+            });
+          ' <<<"$APPS" | while read -r tag; do
+            [ -n "$tag" ] || continue
+            if [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then
+              echo "$tag already exists (retry state)"
+              continue
+            fi
+            # `-f` because a self-hosted runner REUSES its workspace: a tag
+            # created by an earlier cut stays in the local clone even after
+            # it is deleted from the remote — and the guard above asks the
+            # REMOTE. Hosted runners start clean, where `-f` is a no-op; the
+            # flag stays so the org fleet can still run this workflow, and
+            # because without it re-cutting a deleted version died on
+            # `fatal: tag '<tag>' already exists`. Forcing is safe precisely
+            # because the remote check just proved the tag is absent there;
+            # the push below is still non-forced, so a tag that DOES exist
+            # upstream is never clobbered.
+            git tag -f "$tag" "$GITHUB_SHA"
+            git push origin "$tag"
+          done
 
   # The build/publish pair exists TWICE on purpose (cut-order ruling,
   # 2026-09-30): the CLI apps build and publish first, and the desktop shards
@@ -661,11 +714,49 @@ jobs:
         with:
           node-version: 24
 
+      # Warm what every shard can share: Bun's install cache and Turbo's
+      # content-addressed build cache. Hosted runners start clean, so without
+      # these a mac shard pays ~1.4m of install and ~4.3m of workspace builds
+      # on every cut. The same two caches already serve test.yml.
+      - name: Cache Bun install
+        if: matrix.container == ''
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      # One cache per OS and revision: the first shard to finish saves it and
+      # the rest restore the matching prefix. Turbo stores every task by its
+      # input hash, so unchanged packages replay instead of rebuilding.
+      - name: Cache Turbo builds
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: ${{ runner.os }}-turbo-release-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-release-
+            ${{ runner.os }}-turbo-
+
       - run: bun install --frozen-lockfile
 
       # Both release scripts preflight the workspace dist outputs (the node agent
-      # bundles packages/*, the server embeds apps/server/web/dist).
-      - run: bun run build
+      # bundles packages/*, the server embeds apps/server/web/dist). Build only
+      # this shard's dependency closure: docs, website, mobile and the other
+      # app are not inputs to it, and a full `turbo run build` spent minutes on
+      # them on every shard.
+      - name: Build workspace dependencies
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          set -euo pipefail
+          case "$APP" in
+            cli-server)     bunx turbo run build --filter=@internal/server... --filter=@internal/server-web... ;;
+            cli-node)       bunx turbo run build --filter=@internal/node... --filter=@internal/node-web... ;;
+            desktop-server) bunx turbo run build --filter=@internal/desktop-server... --filter=@internal/server-web... ;;
+            desktop-client) bunx turbo run build --filter=@internal/desktop-client... ;;
+            *) echo "::error::no build closure for app '$APP'"; exit 1 ;;
+          esac
 
       - name: Release build (scoped to ${{ matrix.triple }})
         if: contains(fromJSON('["cli-server","cli-node"]'), matrix.app)
@@ -1112,7 +1203,7 @@ jobs:
 
   publish-cli:
     name: Release ${{ matrix.app }}
-    needs: [plan, build-cli]
+    needs: [plan, tag, build-cli]
     if: needs.plan.outputs.cli_apps != '[]'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -1346,11 +1437,49 @@ jobs:
         with:
           node-version: 24
 
+      # Warm what every shard can share: Bun's install cache and Turbo's
+      # content-addressed build cache. Hosted runners start clean, so without
+      # these a mac shard pays ~1.4m of install and ~4.3m of workspace builds
+      # on every cut. The same two caches already serve test.yml.
+      - name: Cache Bun install
+        if: matrix.container == ''
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      # One cache per OS and revision: the first shard to finish saves it and
+      # the rest restore the matching prefix. Turbo stores every task by its
+      # input hash, so unchanged packages replay instead of rebuilding.
+      - name: Cache Turbo builds
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: ${{ runner.os }}-turbo-release-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-release-
+            ${{ runner.os }}-turbo-
+
       - run: bun install --frozen-lockfile
 
       # Both release scripts preflight the workspace dist outputs (the node agent
-      # bundles packages/*, the server embeds apps/server/web/dist).
-      - run: bun run build
+      # bundles packages/*, the server embeds apps/server/web/dist). Build only
+      # this shard's dependency closure: docs, website, mobile and the other
+      # app are not inputs to it, and a full `turbo run build` spent minutes on
+      # them on every shard.
+      - name: Build workspace dependencies
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          set -euo pipefail
+          case "$APP" in
+            cli-server)     bunx turbo run build --filter=@internal/server... --filter=@internal/server-web... ;;
+            cli-node)       bunx turbo run build --filter=@internal/node... --filter=@internal/node-web... ;;
+            desktop-server) bunx turbo run build --filter=@internal/desktop-server... --filter=@internal/server-web... ;;
+            desktop-client) bunx turbo run build --filter=@internal/desktop-client... ;;
+            *) echo "::error::no build closure for app '$APP'"; exit 1 ;;
+          esac
 
       - name: Release build (scoped to ${{ matrix.triple }})
         if: contains(fromJSON('["cli-server","cli-node"]'), matrix.app)
@@ -1797,13 +1926,16 @@ jobs:
 
   publish-desktop:
     name: Release ${{ matrix.app }}
-    needs: [plan, build-desktop]
+    needs: [plan, tag, build-desktop]
     # A desktop-only cut has skipped CLI ancestors even when build-desktop
     # succeeds. Displace the implicit success() gate, but still require every
-    # desktop shard and the plan to succeed before publishing their artifacts.
+    # desktop shard, the plan and the verification-owned tag job to succeed
+    # before publishing their artifacts. `tag` is the verification gate: the
+    # build shards run alongside verify, so a green build alone is not enough.
     if: >-
       !cancelled() &&
       needs.plan.result == 'success' &&
+      needs.tag.result == 'success' &&
       needs.build-desktop.result == 'success' &&
       needs.plan.outputs.desktop_apps != '[]'
     runs-on: ubuntu-24.04

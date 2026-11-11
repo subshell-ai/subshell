@@ -649,7 +649,9 @@ whose bump drives the docs deploy instead of a release cut) → a version PR
 ("chore: release package(s)") maintained on every push to main; merging it
 bumps the app's `package.json` + CHANGELOG and publishes the seven
 `@subshell-ai/*` npm packages. Merging does NOT cut a GitHub Release. Publishing npm packages and cutting
-app releases both require fresh full verification of that revision. Cuts
+app releases both require full verification of that revision. A cut's build
+shards may run alongside that verification, but tags and every publish wait
+for it. Cuts
 are an explicit `gh workflow run release.yml -f app=all` (or a single
 component). **Tagging and releasing is owned by the workflow; never cut
 tags by hand.**

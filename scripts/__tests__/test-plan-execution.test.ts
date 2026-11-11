@@ -9,7 +9,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function execute(packages: string[], failure = 0) {
+function execute(packages: string[], failure = 0, lane: Record<string, unknown> = {}) {
   const root = mkdtempSync(join(tmpdir(), "subshell-plan-execution-"));
   roots.push(root);
   const trace = join(root, "trace");
@@ -22,7 +22,7 @@ function execute(packages: string[], failure = 0) {
     ...process.env,
     PATH: `${root}:${process.env.PATH}`,
     TEST_PLAN: JSON.stringify(plan),
-    TEST_LANE: JSON.stringify({ packages, scripts: false }),
+    TEST_LANE: JSON.stringify({ packages, scripts: false, ...lane }),
     COMMAND_TRACE: trace,
   };
   delete env.SHELLOPTS;
@@ -61,5 +61,24 @@ test("server tests build their frontend before booting a real server", () => {
     "--filter=@internal/server",
     "--",
     "--retry=0",
+  ]);
+});
+
+test("a sharded lane asks bun for its half with the committed timings", () => {
+  const { result, argv } = execute(["@internal/server"], 0, { shard: "1/2" });
+  expect(result.exitCode, result.stderr.toString()).toBe(0);
+  expect(argv).toEqual([
+    "turbo",
+    "run",
+    "build",
+    "--filter=@internal/server-web",
+    "turbo",
+    "run",
+    "test",
+    "--filter=@internal/server",
+    "--",
+    "--retry=0",
+    "--shard=1/2",
+    `--timings=${join(ROOT, ".bun-test-timings.json")}`,
   ]);
 });
