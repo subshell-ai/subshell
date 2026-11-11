@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { packageJsonText, readBuiltIn } from "../builtin-source.js";
@@ -379,6 +380,37 @@ describe("refreshStaleBuiltIns vs registry-installed built-ins", () => {
     expect((await listInstalled(dir))[0]?.version).toBe("99.0.0");
     expect((await readInstallRecord(dir, "pi"))?.version).toBe("99.0.0");
     expect(infos.join("\n")).toMatch(/skipped 'pi'.*99\.0\.0/);
+  });
+
+  it("keeps an embedded copy that is newer than the bundle", async () => {
+    const dir = tempDataDir();
+    await installPlugin(dir, { id: "pi" });
+    const pkgPath = join(pluginsDir(dir), "pi", "package.json");
+    const pkg = JSON.parse(await readFile(pkgPath, "utf8")) as { version: string };
+    pkg.version = "99.0.0";
+    await writeFile(pkgPath, JSON.stringify(pkg), "utf8");
+
+    expect(await refreshStaleBuiltIns(dir)).toEqual([]);
+    expect((await listInstalled(dir)).find((p) => p.id === "pi")?.version).toBe("99.0.0");
+  });
+
+  it("leaves an equal embedded copy alone", async () => {
+    const dir = tempDataDir();
+    await installPlugin(dir, { id: "pi" });
+    await writeFile(join(pluginsDir(dir), "pi", "marker.txt"), "still here", "utf8");
+
+    expect(await refreshStaleBuiltIns(dir)).toEqual([]);
+    expect(existsSync(join(pluginsDir(dir), "pi", "marker.txt"))).toBe(true);
+  });
+
+  it("repairs a broken embedded copy", async () => {
+    const dir = tempDataDir();
+    await installPlugin(dir, { id: "pi" });
+    await writeFile(join(pluginsDir(dir), "pi", "package.json"), "{not json", "utf8");
+
+    const refreshed = await refreshStaleBuiltIns(dir);
+    expect(refreshed).toEqual(["pi"]);
+    expect((await listInstalled(dir)).find((p) => p.id === "pi")?.broken).toBeUndefined();
   });
 });
 
