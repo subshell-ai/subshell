@@ -881,32 +881,20 @@ jobs:
             brew install cmake
           fi
 
-      - name: Cache cargo
+      # Registry only: a release app's target/ tree runs several GB, and the
+      # repo's 10GB cache quota evicted it between cuts anyway (measured
+      # 2026-11-11: both darwin desktop shards missed and compiled cold).
+      # Keeping the registry warm avoids the crate downloads; the compile
+      # itself is cold, which is the honest path for the quota we have.
+      - name: Cache cargo registry
         if: startsWith(matrix.app, 'desktop-')
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            apps/${{ matrix.dir }}/src-tauri/target
-          # The `-v2-` is a deliberate one-time invalidation. The apps moved
-          # (apps/desktop-server -> apps/server/desktop) while this key stayed
-          # byte-identical — it is keyed on the component ID and on a Cargo.lock
-          # whose content did not change, since a path dependency records no
-          # path. So the first post-move run would take an EXACT-key hit on a
-          # target/ tree whose .fingerprint entries point at source paths that
-          # no longer exist, and actions/cache skips its save on an exact hit,
-          # so the stale tree would persist until Cargo.lock next changed.
-          # `runner.arch` is load-bearing the same way: runner.os is plain
-          # "macOS" on BOTH hosted labels, and with `--target` cargo keeps
-          # host-arch build scripts and proc-macro dylibs in the
-          # UNQUALIFIED target/release/ — an Intel shard that restores an
-          # arm64 host's tree dies executing binaries the CPU cannot run
-          # ("Bad CPU type"), and an exact-key hit means the poisoned slot
-          # is never rewritten. It sits in restore-keys too, because a
-          # prefix restore would re-cross the line the full key just drew.
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-release-v2-${{ matrix.app }}-${{ hashFiles(format('apps/{0}/src-tauri/Cargo.lock', matrix.dir), 'crates/desktop-core/**/*.rs') }}
-          restore-keys: ${{ runner.os }}-${{ runner.arch }}-cargo-release-v2-${{ matrix.app }}-
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
 
       - name: Desktop release build (scoped to ${{ matrix.triple }})
         if: startsWith(matrix.app, 'desktop-')
@@ -1604,32 +1592,20 @@ jobs:
             brew install cmake
           fi
 
-      - name: Cache cargo
+      # Registry only: a release app's target/ tree runs several GB, and the
+      # repo's 10GB cache quota evicted it between cuts anyway (measured
+      # 2026-11-11: both darwin desktop shards missed and compiled cold).
+      # Keeping the registry warm avoids the crate downloads; the compile
+      # itself is cold, which is the honest path for the quota we have.
+      - name: Cache cargo registry
         if: startsWith(matrix.app, 'desktop-')
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            apps/${{ matrix.dir }}/src-tauri/target
-          # The `-v2-` is a deliberate one-time invalidation. The apps moved
-          # (apps/desktop-server -> apps/server/desktop) while this key stayed
-          # byte-identical — it is keyed on the component ID and on a Cargo.lock
-          # whose content did not change, since a path dependency records no
-          # path. So the first post-move run would take an EXACT-key hit on a
-          # target/ tree whose .fingerprint entries point at source paths that
-          # no longer exist, and actions/cache skips its save on an exact hit,
-          # so the stale tree would persist until Cargo.lock next changed.
-          # `runner.arch` is load-bearing the same way: runner.os is plain
-          # "macOS" on BOTH hosted labels, and with `--target` cargo keeps
-          # host-arch build scripts and proc-macro dylibs in the
-          # UNQUALIFIED target/release/ — an Intel shard that restores an
-          # arm64 host's tree dies executing binaries the CPU cannot run
-          # ("Bad CPU type"), and an exact-key hit means the poisoned slot
-          # is never rewritten. It sits in restore-keys too, because a
-          # prefix restore would re-cross the line the full key just drew.
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-release-v2-${{ matrix.app }}-${{ hashFiles(format('apps/{0}/src-tauri/Cargo.lock', matrix.dir), 'crates/desktop-core/**/*.rs') }}
-          restore-keys: ${{ runner.os }}-${{ runner.arch }}-cargo-release-v2-${{ matrix.app }}-
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
 
       - name: Desktop release build (scoped to ${{ matrix.triple }})
         if: startsWith(matrix.app, 'desktop-')

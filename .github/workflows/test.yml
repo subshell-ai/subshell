@@ -205,9 +205,22 @@ jobs:
             crates/desktop-core/target
             apps/server/desktop/src-tauri/target
             apps/client/desktop/src-tauri/target
-          key: linux-rust-${{ hashFiles('**/Cargo.lock', 'native/display-helper/**') }}
+          # v2 invalidates the archive saved before the trim step below. The
+          # restore prefix still picks the old tree, so the first run after
+          # this change is warm and saves the smaller archive.
+          key: linux-rust-v2-${{ hashFiles('**/Cargo.lock', 'native/display-helper/**') }}
           restore-keys: linux-rust-
       - run: bun scripts/run-test-plan.ts rust
+      # Incremental artifacts are the bulk of the archive and a fresh runner
+      # cannot reuse them. Trimming before the cache save is what keeps the
+      # two Rust caches inside the repo's 10GB quota; without it the mac cache
+      # was evicted between runs and a full plan paid a 13.7m cold compile.
+      - name: Trim Rust incremental artifacts
+        if: always()
+        run: |
+          for target in crates/desktop-core/target apps/server/desktop/src-tauri/target apps/client/desktop/src-tauri/target; do
+            if [ -d "$target" ]; then find "$target" -type d -name incremental -prune -exec rm -rf {} +; fi
+          done
 
   macos:
     name: Rust and native display helper (macOS)
@@ -230,10 +243,18 @@ jobs:
             crates/desktop-core/target
             apps/client/desktop/src-tauri/target
             apps/server/desktop/src-tauri/target
-          key: macos-rust-${{ hashFiles('**/Cargo.lock', 'native/display-helper/**') }}
+          # v2 invalidates the archive saved before the trim step below; the
+          # restore prefix keeps the first run warm.
+          key: macos-rust-v2-${{ hashFiles('**/Cargo.lock', 'native/display-helper/**') }}
           restore-keys: macos-rust-
       - run: rustup component add rustfmt clippy
       - run: bun scripts/run-test-plan.ts rust
+      - name: Trim Rust incremental artifacts
+        if: always()
+        run: |
+          for target in crates/desktop-core/target apps/server/desktop/src-tauri/target apps/client/desktop/src-tauri/target; do
+            if [ -d "$target" ]; then find "$target" -type d -name incremental -prune -exec rm -rf {} +; fi
+          done
 
   result:
     name: Tests passed
