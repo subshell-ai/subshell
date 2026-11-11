@@ -21,9 +21,12 @@ enabled) × (that node's detection found the binary), computed once in
 this store at boot and after every install and uninstall
 (`refreshInstalledPlugins`), so `getHarness` answers for a registry-installed
 plugin the moment the install returns (detect specs, preset validation, argv:
-the whole launch path). Built-in ids always resolve to the compiled copy:
-the seeded directories refresh silently, and a registry package claiming a
-built-in id is warned about once and never loaded. That is also why
+the whole launch path). A built-in id resolves to whichever copy wins: a
+newer installed copy wins when its manifest parses, while a tie, an older
+copy, or a copy that will not load leaves the bundle answering. The losing
+copy rides on the row as `shadowed` (with its error when it could not load)
+and is never imported; a registry package that claims a built-in id without
+being newer is warned about once per process. That is also why
 `plugins.route.ts` and `setup.route.ts` read `builtInHarnesses()` for their
 offline-installable catalog region: once the overlay exists, the merged
 `allHarnesses()` answers "what resolves", never "what can this build install".
@@ -31,6 +34,34 @@ The node never refreshes an overlay: after Task 7 it holds no plugin concept
 at all, so its built-in-only view is structural, not configured. The
 anonymous setup route has NO spec field; built-in ids only, forever (spec
 2026-09-09 §13).
+
+## Updating a plugin from npm
+
+Three routes, all cookie-admin; only the update act changes anything on disk.
+`GET /api/plugins/updates` answers which installed plugins have a newer
+version on the configured registry; `POST /api/plugins/updates/check` asks
+again, skipping the fifteen-minute memo. `POST /api/plugins/:pluginId/update`
+is the act: it re-reads the plugin's `install.json` sidecar, re-resolves
+`latest` for that package, and installs `<package>@latest` through the same
+door an install uses.
+
+Only a registry install can be updated. A plugin whose bytes came from this
+build has no sidecar, so the route answers 409 and points at the catalog's
+install instead. It refuses with 409 when the registry cannot be reached,
+when the package needs a newer plugin-api than this host implements, and when
+`latest` is not newer than the copy in use; the message names the version,
+so "already at 1.1.0" is never dressed up as a success. Every refusal happens
+before the swap, so the previous copy stays exactly as it was.
+
+Handing the package spec explicitly is what keeps the embedded-first rule out
+of this path: an install with no spec answers from the bundle, and an update
+must not. A successful update drops the update memo (installs and
+uninstalls do the same, because all three move the store) and is audited as
+`plugin.update` with the plugin id, the package, and the `from`/`to`
+versions, after the bytes land. This process cannot evict a module it has
+already imported, so the updated row carries `restartRequired` until the
+server restarts: the new bytes are on disk, and a restart is what makes them
+run. The confirmation dialog says that up front.
 
 ## Updating a harness CLI (issue #250)
 

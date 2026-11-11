@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NETWORK_QUERY_KEY } from "@/hooks/use-network";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
 import { PUBLIC_SETTINGS_QUERY_KEY } from "@/hooks/use-public-settings";
+import { PLUGIN_UPDATES_QUERY_KEY } from "@/lib/query-keys";
 
 /** Query key of the instance plugin catalog (`GET /api/plugins`). */
 export const INSTANCE_PLUGINS_QUERY_KEY = ["instance-plugins"] as const;
@@ -26,8 +27,29 @@ export interface InstancePluginRow {
   pickable?: false;
   /** Driven program's command name, from the plugin this process resolves */
   binary?: string;
-  /** Installed package version (absent when not installed) */
+  /**
+   * Effective plugin version — the copy the control plane answers with, not
+   * merely what the store holds (absent when not installed). A newer bundle
+   * that wins resolution over an older installed copy is what this reports.
+   */
   version?: string;
+  /**
+   * Which copy answers: this build's embedded one, an npm install, or a disk
+   * copy with no install record. Absent on a catalog-only row.
+   */
+  source?: "build" | "npm" | "unrecorded";
+  /**
+   * True when the answering copy was imported at boot, so replacing its bytes
+   * in the store needs a restart before the new code is the one running.
+   */
+  restartRequired?: boolean;
+  /**
+   * The installed copy that lost resolution: the version the store holds,
+   * where it came from, and — when it failed to load — why. Present means an
+   * update can still become effective, which is exactly why the row stays
+   * checkable.
+   */
+  shadowed?: { version: string; source: "build" | "npm" | "unrecorded"; error?: string };
   /** Whether the instance store holds this plugin */
   installed: boolean;
   /** Offered or merely held (spec §6.1); an install the flag table never touched reads enabled */
@@ -94,6 +116,12 @@ export function useInstallInstancePlugin() {
       // presets for this plugin appear. Same reason the uninstall below
       // refreshes them.
       void queryClient.invalidateQueries({ queryKey: PRESETS_QUERY_KEY });
+      // Every offer is judged against the effective version of an INSTALLED
+      // plugin, so the store moving can add an offer, retire one, or start a
+      // registry read that failed before. A card left with the previous offers
+      // would name a row that is not on screen — and confirming an update for
+      // it can only 409.
+      void queryClient.invalidateQueries({ queryKey: PLUGIN_UPDATES_QUERY_KEY });
     },
   });
 }
@@ -168,6 +196,9 @@ export function useUninstallInstancePlugin() {
       // `keep` touched none and the extra refetch is the cheap, honest
       // default for both modes rather than branching on the flag's meaning.
       void queryClient.invalidateQueries({ queryKey: PRESETS_QUERY_KEY });
+      // The offer existed because the plugin was installed. A card that keeps
+      // it after the uninstall renders an Update for a row that is gone.
+      void queryClient.invalidateQueries({ queryKey: PLUGIN_UPDATES_QUERY_KEY });
     },
   });
 }

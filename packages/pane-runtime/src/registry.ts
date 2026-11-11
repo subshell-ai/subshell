@@ -28,6 +28,7 @@ import terminalFactory, { manifest as terminalManifest } from "@subshell-ai/plug
 import { adaptPlugin } from "./plugin-adapter.js";
 import { createPluginHost } from "./plugin-host.js";
 import { createInProcessRuntime } from "./plugin-runtime.js";
+import { bundledPluginVersion, installedCopyWins } from "./plugin-versions.js";
 import { listInstalled, pluginsDir, readInstallRecord } from "./plugins-dir.js";
 import type { HarnessPlugin } from "./types.js";
 
@@ -93,7 +94,7 @@ const BUILT_INS: BuiltIn[] = [
   { manifest: netbirdManifest, factory: netbirdFactory },
 ];
 
-/** Ids compiled into this build. The shadowing rule keys off exactly this set. */
+/** Ids compiled into this build. The built-in-id rule keys off exactly this set. */
 const BUILT_IN_IDS = new Set(BUILT_INS.map((b) => b.manifest.id));
 
 /** A built-in whose factory threw. Reported, never fatal. */
@@ -179,7 +180,9 @@ function registry(): Registry {
  * launch. The overlay is that registration path: `refreshInstalledPlugins`
  * loads each installed plugin through the SAME runtime and adapter the
  * built-ins go through, and `getHarness`/`allHarnesses` answer from
- * built-ins ∪ overlay.
+ * built-ins ∪ overlay, overlay first. A built-in id is in the overlay only
+ * when its installed copy is strictly newer than the bundled one (Task 3's
+ * version rule); otherwise the compiled copy answers, as it always has.
  *
  * It is module state, deliberately, and the sync signatures survive on it.
  * Roughly ten call sites across the server read the registry synchronously;
@@ -194,9 +197,9 @@ function registry(): Registry {
  * last describes a COMPLETE load pass.
  */
 interface InstalledOverlay {
-  /** `id -> adapted plugin` for successfully loaded installed non-built-in HARNESSES */
+  /** `id -> adapted plugin` for installed HARNESSES that won, a newer built-in copy included */
   plugins: Map<string, HarnessPlugin>;
-  /** `id -> entry` for successfully loaded installed non-built-in NETWORK plugins */
+  /** `id -> entry` for installed NETWORK plugins that won, a newer built-in copy included */
   networks: Map<string, NetworkPluginEntry>;
 }
 
@@ -238,12 +241,16 @@ const shadowWarned = new Set<string>();
  * and capability checks; everything else here (directory listing, record
  * reads) swallows its own failures the same way `listInstalled` does.
  *
- * **Built-in shadowing:** when an installed directory carries a built-in's
- * id, the COMPILED copy wins and the directory is never loaded. An embedded
- * copy (no `install.json` sidecar — the installer writes that only for
- * registry fetches) is the ordinary seeded state, so it stays silent; a
- * REGISTRY package claiming the id is the case an operator should hear
- * about, and it is warned about ONCE per id per process.
+ * **Built-in ids are version-aware:** when an installed directory carries a
+ * built-in's id, this build's compiled copy answers UNLESS the installed copy
+ * is strictly newer than the bundled version (`installedCopyWins`). A newer
+ * install has to load: taking a registry update without shipping a new binary
+ * is the point of the overlay. An equal or older copy never replaces the
+ * bundle, which is what keeps a plain re-seed from rolling the build back.
+ * The ordinary seeded state (no `install.json` sidecar — the installer writes
+ * that only for registry fetches) stays silent; a REGISTRY package claiming
+ * the id while not winning is the case an operator should hear about, and it
+ * is warned about ONCE per id per process.
  * @param dataDir - the host's data dir (the control plane passes its own;
  * no other caller exists, and must not)
  */
@@ -259,17 +266,20 @@ export async function refreshInstalledPlugins(dataDir: string): Promise<Installe
       continue;
     }
     if (BUILT_IN_IDS.has(installed.id)) {
-      // A registry install squatting a built-in id deserves a name in the
-      // log; the build's own seeded copy, which refreshes into this same
-      // directory on every boot, does not deserve five warnings a restart.
-      if ((await readInstallRecord(dataDir, installed.id)) && !shadowWarned.has(installed.id)) {
-        shadowWarned.add(installed.id);
-        console.warn(
-          `subshell: an installed package claims plugin id "${installed.id}", which this build compiles in; ` +
-            "the shadowed install is not loaded, the compiled copy answers every launch",
-        );
+      const bundled = await bundledPluginVersion(installed.id);
+      if (bundled === null || !installedCopyWins(bundled, installed.version)) {
+        // A registry install squatting a built-in id deserves a name in the
+        // log; the build's own seeded copy, which refreshes into this same
+        // directory on every boot, does not deserve five warnings a restart.
+        if ((await readInstallRecord(dataDir, installed.id)) && !shadowWarned.has(installed.id)) {
+          shadowWarned.add(installed.id);
+          console.warn(
+            `subshell: an installed package claims plugin id "${installed.id}", but this build's bundled copy is at least as new; ` +
+              "the installed copy is not loaded",
+          );
+        }
+        continue;
       }
-      continue;
     }
     const loaded = await runtime.load(join(pluginsDir(dataDir), installed.id), { dataDir });
     if ("error" in loaded) {
@@ -316,12 +326,14 @@ export function clearInstalledPlugins(): void {
 export function allNetworkPlugins(): NetworkPluginEntry[] {
   const base = registry().networks;
   if (overlay.networks.size === 0) return base;
-  return [...base, ...[...overlay.networks.values()].filter((n) => !base.some((b) => b.manifest.id === n.manifest.id))];
+  // The overlay answers for any id it holds: a newer installed copy REPLACES
+  // the compiled one rather than sitting beside it, so the id resolves once.
+  return [...base.filter((n) => !overlay.networks.has(n.manifest.id)), ...overlay.networks.values()];
 }
 
-/** One network plugin by id, or undefined. Built-ins answer first: the shadow rule. */
+/** One network plugin by id, or undefined. The overlay answers first for any id it holds. */
 export function getNetworkPlugin(id: string): NetworkPluginEntry | undefined {
-  return registry().networks.find((n) => n.manifest.id === id) ?? overlay.networks.get(id);
+  return overlay.networks.get(id) ?? registry().networks.find((n) => n.manifest.id === id);
 }
 
 /** Network plugins COMPILED INTO THIS BUILD, for the offline catalog. */
@@ -329,11 +341,11 @@ export function builtInNetworkPlugins(): NetworkPluginEntry[] {
   return registry().networks;
 }
 
-/** Built-ins, plus any installed plugin the overlay resolved (stable identity). */
+/** Built-ins and the overlay, overlay first for the ids it holds (stable identity). */
 function mergedPlugins(): HarnessPlugin[] {
   const base = registry().plugins;
   if (overlay.plugins.size === 0) return base;
-  merged ??= [...base, ...[...overlay.plugins.values()].filter((p) => !base.some((b) => b.id === p.id))];
+  merged ??= [...base.filter((p) => !overlay.plugins.has(p.id)), ...overlay.plugins.values()];
   return merged;
 }
 
@@ -342,9 +354,9 @@ export function allHarnesses(): HarnessPlugin[] {
   return mergedPlugins();
 }
 
-/** One plugin by id, or undefined. Built-ins answer first: the shadow rule. */
+/** One plugin by id, or undefined. The overlay answers first for any id it holds. */
 export function getHarness(id: string): HarnessPlugin | undefined {
-  return registry().plugins.find((h) => h.id === id) ?? overlay.plugins.get(id);
+  return overlay.plugins.get(id) ?? registry().plugins.find((h) => h.id === id);
 }
 
 /**

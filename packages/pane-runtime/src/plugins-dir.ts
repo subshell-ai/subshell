@@ -630,44 +630,77 @@ export interface PluginUpdate {
   id: string;
   /** The npm package name it was installed from (from the sidecar) */
   name: string;
-  /** Installed version */
+  /**
+   * The version `to` was judged against: the EFFECTIVE version the caller
+   * supplies (the copy actually in use), falling back to the sidecar's when
+   * the caller cannot say.
+   */
   from: string;
-  /** Newest registry version, or null when the install is already at or above it */
+  /** Newest registry version, or null when `from` is already at or above it — and on a failed check */
   to: string | null;
+  /** Why the registry could not be asked, when it could not. The row is reported, never guessed at. */
+  error?: string;
 }
 
-/** Newest registry version for every sidecar'd install (embedded installs are never upgraded behind their operator). */
+/**
+ * Newest registry version for every sidecar'd install (embedded installs are
+ * never upgraded behind their operator).
+ *
+ * `from` is the EFFECTIVE version supplied by the caller, not necessarily the
+ * one recorded on disk: a built-in whose installed copy lost to the bundle
+ * runs the BUNDLE's bytes, and an offer must be judged against what the
+ * operator actually has rather than stale bytes beside it. The resolver never
+ * imports plugin code to answer that — `effectiveVersion` is the caller's
+ * fact, and the sidecar is the fallback when the caller cannot say.
+ *
+ * A registry that cannot be asked answers a row with `error` set and
+ * `to: null`: "could not check" is reported beside the others, never guessed
+ * at and never silently missing from the list.
+ */
 export async function resolvePluginUpdates(
   dataDir: string,
-  opts: { id?: string; registryUrl?: string } = {},
+  opts: {
+    /** Narrow the answer to one plugin id */
+    id?: string;
+    /** The registry to ask; defaults to {@link DEFAULT_REGISTRY_URL} */
+    registryUrl?: string;
+    /** The version of the copy in use for `id`, when the caller knows more than the sidecar */
+    effectiveVersion?: (id: string) => string | undefined;
+  } = {},
 ): Promise<PluginUpdate[]> {
   const out: PluginUpdate[] = [];
   for (const p of await listInstalled(dataDir)) {
     if (opts.id !== undefined && p.id !== opts.id) continue;
     const record = await readInstallRecord(dataDir, p.id);
     if (!record) continue;
+    const from = opts.effectiveVersion?.(p.id) ?? record.version;
     try {
       const latest = await resolvePackageVersion(record.name, undefined, opts.registryUrl ?? DEFAULT_REGISTRY_URL);
       out.push({
         id: p.id,
         name: record.name,
-        from: record.version,
-        to: semverLt(record.version, latest.version) ? latest.version : null,
+        from,
+        to: semverLt(from, latest.version) ? latest.version : null,
       });
     } catch (err) {
-      // "could not ask" is reported, never guessed at — but it is not an update.
+      // "could not ask" is reported, never guessed at — an error row is not an
+      // update, and the log line stays for whoever reads logs.
       pluginLog().warn(`update check for '${record.name}' failed: ${describe(err)}`);
+      out.push({ id: p.id, name: record.name, from, to: null, error: describe(err) });
     }
   }
   return out;
 }
 
 /**
- * Re-installs any built-in whose on-disk copy differs from this build's.
+ * Re-installs any built-in whose on-disk copy is behind this build's.
  *
  * The binary and its built-ins ship together, so a stale on-disk copy of a
  * built-in is never something a user chose: it means the agent was upgraded
- * underneath it. A plugin this build carries no copy of is left strictly
+ * underneath it. A refresh therefore moves an embedded copy FORWARD to the
+ * bundle and never backward: an embedded copy at or ahead of this build's
+ * version is left alone, because downgrading it would discard work rather
+ * than recover it. A plugin this build carries no copy of is left strictly
  * alone, because overwriting a third-party plugin from nowhere would be data
  * loss rather than a refresh.
  *
@@ -676,7 +709,8 @@ export async function resolvePluginUpdates(
  * differs from a registry-pinned one is not the agent having been upgraded
  * underneath the plugin, it is the operator having chosen that version, and
  * reinstalling the embedded copy would silently undo the install (and drop
- * the sidecar that says so).
+ * the sidecar that says so). Such a copy is never touched, whichever way its
+ * version compares.
  * @returns the ids that were refreshed, id-sorted
  */
 export async function refreshStaleBuiltIns(dataDir: string): Promise<string[]> {
@@ -697,7 +731,10 @@ export async function refreshStaleBuiltIns(dataDir: string): Promise<string[]> {
     // guarded there, where a malformed built-in makes it answer null instead
     // of ending this loop.
     const sourceVersion = String((JSON.parse(packageJsonText(source.files)) as { version?: unknown }).version ?? "");
-    if (sourceVersion === installed.version && !installed.broken) continue;
+    // Forward only: a broken copy is repaired, and one older than the bundle
+    // is brought up to it. An equal or newer copy is what the user has, not
+    // staleness, so it stays exactly as it is.
+    if (!installed.broken && !semverLt(installed.version, sourceVersion)) continue;
     try {
       await installEmbedded(dataDir, installed.id);
       refreshed.push(installed.id);

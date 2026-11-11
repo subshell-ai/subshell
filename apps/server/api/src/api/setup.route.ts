@@ -15,6 +15,7 @@ import { backupPasswordChangeRequired } from "@/modules/backups/backup-admin-rec
 import { browserOriginAllowed } from "@/modules/network/browser-origin.js";
 import { harnessInfo } from "@/modules/plugins/availability.js";
 import { installLocalPlugin, localPluginReports, uninstallLocalPlugin } from "@/modules/plugins/store.js";
+import { clearPluginUpdateMemo } from "@/modules/plugins/update-check.js";
 import { ForbiddenError, HttpError, UnauthorizedError } from "@/shared/errors.js";
 
 const SetupStatusSchema = t.Object({
@@ -322,6 +323,9 @@ export const setupRoutes = new Elysia({ prefix: "/api/setup" })
         );
       }
       await installLocalPlugin(body.pluginId);
+      // The store moved, so a warm update memo can still offer a version this
+      // install replaced (or keep a failure that no longer applies).
+      clearPluginUpdateMemo();
       return await harnessInfo(body.pluginId, true);
     },
     {
@@ -353,6 +357,9 @@ export const setupRoutes = new Elysia({ prefix: "/api/setup" })
         );
       }
       await uninstallLocalPlugin(params.pluginId);
+      // Same reason as the install above: an offer for a plugin the store no
+      // longer holds would render an Update whose row is gone.
+      clearPluginUpdateMemo();
       return await harnessInfo(params.pluginId, false);
     },
     {

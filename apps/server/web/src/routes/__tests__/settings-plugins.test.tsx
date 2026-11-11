@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { apiFetch } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { deploymentView } from "@/components/__tests__/helpers/deployment-view";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import type { InstancePluginRow, PluginImpact } from "@/hooks/use-instance-plugins";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
 import { Route } from "@/routes/settings_.plugins";
+import type { ServerDeployment } from "@/types/server-deployment";
 
 /**
  * The instance plugins page (spec 2026-09-10 §6, §6.1): catalog installs are
@@ -30,6 +32,8 @@ interface RowFixture {
   broken?: string;
   /** Manifest type — decides which heading the row lands under */
   type?: "agent-harness" | "terminal" | "network";
+  /** True while this plugin's running copy is older than its bytes on disk */
+  restartRequired?: boolean;
 }
 
 interface PageFixture {
@@ -39,6 +43,10 @@ interface PageFixture {
   impact?: PluginImpact;
   /** The first PATCH fails; later ones succeed (the retry-the-row case). */
   failPatchOnce?: boolean;
+  /** `GET /api/plugins/updates` answers 500 (the query failed, not a plugin) */
+  failUpdates?: boolean;
+  /** The deployment view the restart offer reads; defaults to a restartable host */
+  deployment?: ServerDeployment;
 }
 
 function row(f: RowFixture): InstancePluginRow {
@@ -52,6 +60,7 @@ function row(f: RowFixture): InstancePluginRow {
     builtIn: f.builtIn ?? !installed,
     ...(f.version ? { version: f.version } : {}),
     ...(f.broken ? { broken: f.broken } : {}),
+    ...(f.restartRequired !== undefined ? { restartRequired: f.restartRequired } : {}),
     ...(f.type ? { type: f.type } : {}),
   };
 }
@@ -65,14 +74,23 @@ interface Call {
 
 /**
  * The `/api/plugins*` table the page talks to, plus `/api/settings/public`
- * for the admin flag. Mutations are recorded rather than applied; the page's
- * invalidation refetches the SAME fixture rows, which is enough to assert
- * what went out on the wire.
+ * for the admin flag and the two admin reads the restart offer mounts
+ * (`/api/admin/server` and `/api/admin/status`). Mutations are recorded rather
+ * than applied; the page's invalidation refetches the SAME fixture rows,
+ * except after a restart — the rows then answer without `restartRequired`,
+ * which is the confirmation the page renders.
  */
 function mockServer(fx: PageFixture) {
   const calls: Call[] = [];
   const plugins = [...(fx.installed ?? []).map(row), ...(fx.catalog ?? []).map(row)];
   let failRemaining = fx.failPatchOnce ? 1 : 0;
+  // The restart waiter compares the boot it held before the press against
+  // this: only the POST moves the clock, and the process answers nothing at
+  // all while it is down — the read straight after the press is the outage,
+  // the next poll is the new boot.
+  let bootedAt = "2026-09-12T10:00:00.000Z";
+  let restarted = false;
+  let serverDown = false;
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
@@ -96,7 +114,32 @@ function mockServer(fx: PageFixture) {
         serverVersion: "1.6.0",
       });
     }
-    if (url.pathname === "/api/plugins" && method === "GET") return json({ plugins });
+    if (url.pathname === "/api/admin/status" && method === "GET") {
+      if (serverDown) {
+        // One failed read stands in for the outage. Every real restart starts
+        // with the server being unreachable, and the waiter treats that as the
+        // expected shape of the wait rather than an error.
+        serverDown = false;
+        return Promise.resolve(new Response(JSON.stringify({ message: "down" }), { status: 502 }));
+      }
+      return json({ runtime: { bootedAt } });
+    }
+    if (url.pathname === "/api/admin/server" && method === "GET") return json(fx.deployment ?? deploymentView());
+    if (url.pathname === "/api/admin/server/restart" && method === "POST") {
+      bootedAt = "2026-09-12T11:00:00.000Z";
+      restarted = true;
+      serverDown = true;
+      return json({ restarting: true, resumeAt: "http://localhost:3080" });
+    }
+    if (url.pathname === "/api/plugins/updates" && method === "GET") {
+      if (fx.failUpdates) {
+        return Promise.resolve(new Response(JSON.stringify({ message: "registry unreachable" }), { status: 500 }));
+      }
+      return json({ updates: [], errors: [], checkedAt: 0 });
+    }
+    if (url.pathname === "/api/plugins" && method === "GET") {
+      return json({ plugins: restarted ? plugins.map((p) => ({ ...p, restartRequired: false })) : plugins });
+    }
     if (url.pathname === "/api/plugins" && method === "POST") {
       return json(row({ id: "installed", name: "installed" }));
     }
@@ -174,6 +217,39 @@ function renderPage(probePresets = false) {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+}
+
+/**
+ * Poll a predicate on real timers, one `act` scope per tick.
+ *
+ * The restart waiter settles on its own 1.5 s timer. Inside Testing Library's
+ * `waitFor` that update was queued but never committed — the act scope ends
+ * only when `waitFor` gives up — so the DOM never changed. One short act per
+ * tick lets the hook's timer fire and the render land, and keeps the update
+ * inside act so React does not warn about it.
+ */
+async function eventually(check: () => boolean, timeoutMs = 10_000): Promise<void> {
+  const began = Date.now();
+  let satisfied = false;
+  while (!satisfied) {
+    await act(async () => {
+      satisfied = check();
+      if (satisfied) return;
+      const { promise, resolve } = Promise.withResolvers<void>();
+      setTimeout(resolve, 50);
+      await promise;
+    });
+    if (!satisfied && Date.now() - began > timeoutMs) {
+      throw new Error("Timed out waiting for the restart to settle.");
+    }
+  }
+}
+
+/** Opens a row's ⋯ menu the keyboard way; see `actions-menu.test.tsx`. */
+async function openRowMenu(name: string): Promise<void> {
+  const trigger = await screen.findByRole("button", { name: `Actions for ${name}` });
+  fireEvent.keyDown(trigger, { key: "ArrowDown" });
+  await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBeGreaterThan(0));
 }
 
 afterEach(cleanup);
@@ -270,13 +346,14 @@ describe("instance plugins page", () => {
     const m = mockServer(fixture);
     try {
       renderPage();
-      fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
+      await openRowMenu("Acme");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Uninstall" }));
       expect(await screen.findByText(/4 presets use it, across 3 users/i)).toBeDefined();
       const keep = screen.getByRole("radio", { name: /keep the presets/i }) as HTMLInputElement;
       expect(keep.checked).toBe(true);
       expect(screen.getByText(/running subshells are unaffected/i)).toBeDefined();
-      // The dialog's own confirm is the only button named exactly "Uninstall";
-      // the row buttons name their plugin.
+      // The dialog's own confirm is the only BUTTON named exactly
+      // "Uninstall"; the row's item is a menuitem.
       fireEvent.click(screen.getByRole("button", { name: /^uninstall$/i }));
       await waitFor(() => expect(m.deletedWith()).toEqual({ mode: "keep" }));
     } finally {
@@ -293,7 +370,8 @@ describe("instance plugins page", () => {
     const m = mockServer(fixture);
     try {
       renderPage();
-      fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
+      await openRowMenu("Acme");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Uninstall" }));
       await screen.findByText(/4 presets use it, across 3 users/i);
       fireEvent.click(screen.getByRole("radio", { name: /delete the 4 presets permanently/i }));
       fireEvent.click(screen.getByRole("button", { name: /^uninstall$/i }));
@@ -312,7 +390,8 @@ describe("instance plugins page", () => {
     const m = mockServer(fixture);
     try {
       renderPage();
-      fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
+      await openRowMenu("Acme");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Uninstall" }));
       await screen.findByText(/4 presets use it, across 3 users/i);
       expect(screen.getByText(/restart of one whose preset was deleted will fail/i)).toBeDefined();
     } finally {
@@ -329,7 +408,8 @@ describe("instance plugins page", () => {
     const m = mockServer(fixture);
     try {
       renderPage();
-      fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
+      await openRowMenu("Acme");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Uninstall" }));
       expect(await screen.findByText(/no presets use it/i)).toBeDefined();
       expect(screen.getByRole("radio", { name: /keep the presets/i })).toBeDefined();
       fireEvent.click(screen.getByRole("button", { name: /^uninstall$/i }));
@@ -376,7 +456,8 @@ describe("instance plugins page", () => {
       const presetsGets = () => m.calls.filter((c) => c.method === "GET" && c.pathname === "/api/presets").length;
       await screen.findByText("Thing");
       expect(presetsGets()).toBeGreaterThanOrEqual(1);
-      fireEvent.click(screen.getByRole("button", { name: "Uninstall Thing" }));
+      await openRowMenu("Thing");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Uninstall" }));
       const dialog = await screen.findByRole("dialog");
       fireEvent.click(within(dialog).getByRole("radio", { name: /Delete the presets/i }));
       fireEvent.click(within(dialog).getByRole("button", { name: "Uninstall" }));
@@ -384,6 +465,46 @@ describe("instance plugins page", () => {
       // The sweep covers EVERY user's presets; a presets list left stale
       // until refetch-on-focus is a phantom.
       await waitFor(() => expect(presetsGets()).toBeGreaterThanOrEqual(2));
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("an uninstall re-reads the update offers, so no offer outlives its row", async () => {
+    const m = mockServer({ admin: true, installed: [{ id: "thing", name: "Thing" }] });
+    try {
+      renderPage();
+      await screen.findByText("Thing");
+      await waitFor(() =>
+        expect(
+          m.calls.filter((c) => c.method === "GET" && c.pathname === "/api/plugins/updates").length,
+        ).toBeGreaterThanOrEqual(1),
+      );
+      await openRowMenu("Thing");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Uninstall" }));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Uninstall" }));
+      await waitFor(() => expect(m.deletedWith()).toMatchObject({ mode: "keep" }));
+      // The offer was judged against an INSTALLED plugin. A cached answer would
+      // still name the row that just left, and confirming it could only 409.
+      await waitFor(() =>
+        expect(
+          m.calls.filter((c) => c.method === "GET" && c.pathname === "/api/plugins/updates").length,
+        ).toBeGreaterThanOrEqual(2),
+      );
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("a failed update check reads as a failure, not as every plugin being current", async () => {
+    const m = mockServer({ admin: true, installed: [{ id: "pi", name: "Pi" }], failUpdates: true });
+    try {
+      renderPage();
+      expect(await screen.findByText("Pi")).toBeDefined();
+      // A rejected /api/plugins/updates is NO ANSWER: rendering an empty offer
+      // list without this line would say every plugin is up to date.
+      expect(await screen.findByText(/API 500: registry unreachable/)).toBeDefined();
     } finally {
       m.restore();
     }
@@ -466,16 +587,91 @@ describe("instance plugins page", () => {
     }
   });
 
+  it("offers a server restart above the Installed card once a plugin needs one", async () => {
+    const m = mockServer({ admin: true, installed: [{ id: "third", name: "Third", restartRequired: true }] });
+    try {
+      renderPage();
+      const sentence = await screen.findByText("Updated plugins take effect after the server restarts.");
+      // Above the card, not inside it: the act belongs to the page and the
+      // rows below are what it is about.
+      const heading = screen.getByText("Installed");
+      expect(sentence.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+      // Presence and availability come from the deployment view the admin
+      // reads mount — the offer cannot promise a restart it has not checked.
+      expect(m.calls.some((c) => c.method === "GET" && c.pathname === "/api/admin/server")).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Restart server" }));
+      expect(screen.getByRole("dialog")).toBeDefined();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("names the command when the deployment says this host cannot restart itself", async () => {
+    // `restart` is a fixed field of the shared view (view-level overrides
+    // cannot replace it), so the machine's own answer is set on the copy.
+    const unavailable = deploymentView();
+    unavailable.restart = { available: false, reason: "not supervised" };
+    const m = mockServer({
+      admin: true,
+      installed: [{ id: "third", name: "Third", restartRequired: true }],
+      deployment: unavailable,
+    });
+    try {
+      renderPage();
+      expect(await screen.findByText(/not supervised/)).toBeDefined();
+      expect(screen.getByText(/subshell-server service restart/)).toBeDefined();
+      expect(screen.queryByRole("button", { name: "Restart server" })).toBeNull();
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("re-reads the rows and the update offers when the server comes back, so the offer retires itself", async () => {
+    const m = mockServer({ admin: true, installed: [{ id: "third", name: "Third", restartRequired: true }] });
+    try {
+      renderPage();
+      const gets = (pathname: string) => m.calls.filter((c) => c.method === "GET" && c.pathname === pathname).length;
+      await waitFor(() => expect(gets("/api/plugins/updates")).toBeGreaterThanOrEqual(1));
+      const updatesBefore = gets("/api/plugins/updates");
+      fireEvent.click(await screen.findByRole("button", { name: "Restart server" }));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Restart server" }));
+      // The waiter polls for a new boot every 1.5 s; the offer says so meanwhile.
+      expect(await screen.findByRole("status")).toBeDefined();
+      // No "Back." banner: the rows re-reading without the flag IS the
+      // confirmation. The waiting line lasts until the poll notices the new
+      // boot, and the offer then retires because nothing needs a restart.
+      await eventually(() => screen.queryByRole("status") === null);
+      await eventually(() => screen.queryByText(/take effect after the server restarts/) === null);
+      expect(gets("/api/plugins")).toBeGreaterThanOrEqual(2);
+      // The offer list was judged against the pre-restart rows, so the new boot
+      // must re-read it too: a restart that stopped at the catalog would leave
+      // a stale offer behind a fresh batch of rows.
+      await eventually(() => gets("/api/plugins/updates") > updatesBefore);
+      expect(screen.queryByText(/^Back\.?$/)).toBeNull();
+    } finally {
+      m.restore();
+    }
+  }, 20_000);
+
   it("a non-admin sees the list and no controls", async () => {
-    const m = mockServer({ admin: false, installed: [{ id: "pi", name: "Pi" }] });
+    // The row reports the restart even for this reader; the OFFER is the
+    // admin's act, so it must not appear and must not fetch its facts.
+    const m = mockServer({ admin: false, installed: [{ id: "pi", name: "Pi", restartRequired: true }] });
     try {
       renderPage();
       expect(await screen.findByText("Pi")).toBeDefined();
-      expect(screen.queryByRole("button", { name: /uninstall/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /^Actions for / })).toBeNull();
       expect(screen.queryByRole("switch")).toBeNull();
       expect(screen.queryByLabelText(/install from npm/i)).toBeNull();
       // The READ is open to every authenticated actor; only the writes are admin-only.
       expect(m.calls.some((c) => c.method === "GET" && c.pathname === "/api/plugins")).toBe(true);
+      expect(screen.queryByRole("button", { name: "Restart server" })).toBeNull();
+      expect(screen.queryByText(/take effect after the server restarts/)).toBeNull();
+      // The deployment and status reads 403 a non-admin, so the page must not
+      // fire them — the same gate every other admin query here keeps.
+      expect(m.calls.some((c) => c.method === "GET" && c.pathname === "/api/admin/server")).toBe(false);
+      expect(m.calls.some((c) => c.method === "GET" && c.pathname === "/api/admin/status")).toBe(false);
     } finally {
       m.restore();
     }

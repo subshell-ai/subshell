@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { getHarness, listInstalled } from "@internal/pane-runtime";
+import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
+import { bundledPluginVersion, getHarness, listInstalled, readInstallRecord } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
@@ -16,7 +16,9 @@ import { authDatabase } from "@/modules/auth/database.js";
 import { ensureSystemUser } from "@/modules/auth/system-user.js";
 import { usableHarnessIds } from "@/modules/plugins/availability.js";
 import { installLocalPlugin, localPluginReports, uninstallLocalPlugin } from "@/modules/plugins/store.js";
-import { type FakeRegistry, makePluginTgz, startFakeRegistry } from "@/testing/nodes/fake-npm-registry.js";
+import { clearPluginUpdateMemo } from "@/modules/plugins/update-check.js";
+import { logger } from "@/shared/logger.js";
+import { type FakeRegistry, makePluginTgz, makeTgz, startFakeRegistry } from "@/testing/nodes/fake-npm-registry.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
 /**
@@ -45,6 +47,10 @@ interface PluginRow {
   builtIn: boolean;
   version?: string;
   broken?: string;
+  /** Mirror of PluginRowSchema: which copy answers, and the one it displaced. */
+  source?: "build" | "npm" | "unrecorded";
+  restartRequired?: boolean;
+  shadowed?: { version: string; source: "build" | "npm" | "unrecorded"; error?: string };
   /** Mirror of PluginRowSchema: present only as false (the plugin's own word). */
   pickable?: false;
 }
@@ -52,6 +58,13 @@ interface Impact {
   presets: number;
   distinctUsers: number;
   runningSubshells: number;
+}
+
+/** Mirror of the update-check schema: offers, failures, and when this answer was collected. */
+interface UpdateView {
+  updates: { id: string; name: string; from: string; to: string }[];
+  errors: { id: string; name: string; message: string }[];
+  checkedAt: number;
 }
 
 const app = new Elysia().use(errorHandlerPlugin).use(pluginsRoutes);
@@ -95,6 +108,57 @@ async function pluginAudit(pluginId: string): Promise<{ action: string; metadata
     }));
 }
 
+/** The update view as the caller sees it: the offer list the card renders. */
+async function updatesView(cookie: string): Promise<UpdateView> {
+  const res = await get("/api/plugins/updates", cookie);
+  expect(res.status).toBe(200);
+  return (await res.json()) as UpdateView;
+}
+
+/** The error body's message: the refusal wording these assertions need. */
+async function errorMessage(res: Response): Promise<string> {
+  const body: unknown = await res.json();
+  if (typeof body !== "object" || body === null || !("message" in body)) return "";
+  const { message } = body;
+  return typeof message === "string" ? message : "";
+}
+
+/**
+ * A plugin package whose manifest declares a plugin-api this host does not
+ * implement. Built here rather than through `makePluginTgz`, which pins the
+ * version it serves: the refusal an update must surface comes from the
+ * manifest the package really declares.
+ */
+function incompatiblePluginTgz(opts: {
+  name: string;
+  version: string;
+  id: string;
+  apiVersion: number;
+}): Uint8Array<ArrayBuffer> {
+  return makeTgz([
+    {
+      path: "package/package.json",
+      content: JSON.stringify({
+        name: opts.name,
+        version: opts.version,
+        type: "module",
+        subshell: {
+          apiVersion: opts.apiVersion,
+          id: opts.id,
+          type: "agent-harness",
+          name: "fixture",
+          description: "fixture plugin",
+          entry: "index.js",
+        },
+      }),
+    },
+    {
+      path: "package/index.js",
+      content: "export default function fixture() { return { capabilities: () => [] }; }\n",
+    },
+  ]);
+}
+
 describe("/api/plugins", () => {
   const pw = "plugins-route-1";
   const emails = {
@@ -110,6 +174,14 @@ describe("/api/plugins", () => {
 
   /** What this suite may leave installed/removed; afterAll puts the host back. */
   let thirdInstalled = false;
+
+  /** The updates section's fixture: `third` on disk at 1.0.0, with 1.1.0 offered. */
+  async function ensureThirdInstalled(): Promise<void> {
+    if (!(await localPluginReports()).some((r) => r.id === "third")) {
+      await installLocalPlugin("third", "plg-third@1.0.0", reg.base);
+    }
+    thirdInstalled = true;
+  }
 
   beforeAll(async () => {
     await setupAuthTables();
@@ -181,6 +253,10 @@ describe("/api/plugins", () => {
     // from this one read: every built-in carries its manifest's value.
     expect(cc?.type).toBe("agent-harness");
     expect(rowOf(plugins, "terminal")?.type).toBe("terminal");
+    // A seeded built-in's copy in use is this build's own, and nothing was
+    // displaced — so the row claims `build` and names no shadow.
+    expect(cc?.source).toBe("build");
+    expect(cc?.shadowed).toBeUndefined();
   });
 
   it("the list merges the catalog: an embedded built-in missing from disk still appears, uninstalled", async () => {
@@ -191,6 +267,10 @@ describe("/api/plugins", () => {
       expect(codex).toBeDefined();
       expect(codex?.installed).toBe(false);
       expect(codex?.builtIn).toBe(true); // one click away — the page's catalog region
+      // Nothing is installed, so there is no copy in use to describe: the row
+      // claims no origin and names no shadow.
+      expect(codex?.source).toBeUndefined();
+      expect(codex?.shadowed).toBeUndefined();
     } finally {
       await installLocalPlugin("codex");
     }
@@ -319,6 +399,10 @@ describe("/api/plugins", () => {
     // overlay exactly because `toRow` asks the compiled set, not `getHarness`.
     expect(getHarness("third")).toBeDefined();
     expect(row.builtIn).toBe(false);
+    // The bytes came from a registry, not this build: the row says which copy
+    // answers, and the shadow is silent because no built-in was displaced.
+    expect(row.source).toBe("npm");
+    expect(row.shadowed).toBeUndefined();
     thirdInstalled = true;
 
     expect((await listInstalled(SUBSHELL_SERVER_DATA_DIR)).map((p) => p.id)).toContain("third");
@@ -331,6 +415,412 @@ describe("/api/plugins", () => {
     // gone, and a presetless launch of the new harness works the moment the
     // overlay lands — which the assertions above just proved.
     expect(await presets.listByHarness("third")).toEqual([]);
+  });
+
+  // ── update detection: cookie-admin, and memoised against the registry ─────
+
+  it("GET /api/plugins/updates names the offer, and a second GET spends no registry request", async () => {
+    // `third` was installed from the registry above; publish a newer release of
+    // its package so the offer is real, and judge it by the copy IN USE — the
+    // report's version, which is what the resolver is handed.
+    reg.served.set("plg-third", {
+      latest: "1.1.0",
+      versions: {
+        "1.0.0": makePluginTgz({ name: "plg-third", version: "1.0.0", id: "third" }),
+        "1.1.0": makePluginTgz({ name: "plg-third", version: "1.1.0", id: "third" }),
+      },
+    });
+    await ensureThirdInstalled();
+    clearPluginUpdateMemo();
+    try {
+      const res = await get("/api/plugins/updates", adminCookie);
+      expect(res.status).toBe(200);
+      const view = (await res.json()) as UpdateView;
+      expect(view.updates.find((u) => u.id === "third")).toEqual({
+        id: "third",
+        name: "plg-third",
+        from: "1.0.0",
+        to: "1.1.0",
+      });
+      // Per-id: the plugins dir is shared with every suite in this run.
+      expect(view.errors.find((e) => e.id === "third")).toBeUndefined();
+      // Epoch milliseconds: the page renders "checked N min ago".
+      expect(typeof view.checkedAt).toBe("number");
+
+      const hits = reg.hits.length;
+      const again = await get("/api/plugins/updates", adminCookie);
+      const second = ((await again.json()) as UpdateView).updates;
+      expect(second.find((u) => u.id === "third")).toEqual(view.updates.find((u) => u.id === "third"));
+      expect(second).toHaveLength(view.updates.length);
+      expect(reg.hits.length).toBe(hits); // the memo answers; the registry is not asked again
+    } finally {
+      clearPluginUpdateMemo();
+      reg.served.set("plg-third", {
+        latest: "1.0.0",
+        versions: { "1.0.0": makePluginTgz({ name: "plg-third", version: "1.0.0", id: "third" }) },
+      });
+    }
+  });
+
+  it("POST /api/plugins/updates/check drops the memo and reads the registry again", async () => {
+    reg.served.set("plg-third", {
+      latest: "1.1.0",
+      versions: {
+        "1.0.0": makePluginTgz({ name: "plg-third", version: "1.0.0", id: "third" }),
+        "1.1.0": makePluginTgz({ name: "plg-third", version: "1.1.0", id: "third" }),
+      },
+    });
+    await ensureThirdInstalled();
+    clearPluginUpdateMemo();
+    try {
+      // A GET first, so the POST is measured against a populated memo.
+      expect((await get("/api/plugins/updates", adminCookie)).status).toBe(200);
+      const hits = reg.hits.length;
+      const res = await send("POST", "/api/plugins/updates/check", adminCookie);
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as UpdateView).updates.find((u) => u.id === "third")?.to).toBe("1.1.0");
+      expect(reg.hits.length).toBeGreaterThan(hits);
+    } finally {
+      clearPluginUpdateMemo();
+      reg.served.set("plg-third", {
+        latest: "1.0.0",
+        versions: { "1.0.0": makePluginTgz({ name: "plg-third", version: "1.0.0", id: "third" }) },
+      });
+    }
+  });
+
+  it("a registry that cannot be asked lands in errors, never in updates", async () => {
+    await ensureThirdInstalled();
+    // The seam every spec install uses: the check reads the same configured URL.
+    setPluginsRegistryUrlForTests("http://127.0.0.1:1");
+    clearPluginUpdateMemo();
+    try {
+      const res = await get("/api/plugins/updates", adminCookie);
+      expect(res.status).toBe(200);
+      const view = (await res.json()) as UpdateView;
+      expect(view.updates).toEqual([]);
+      expect(view.errors.find((e) => e.id === "third")).toMatchObject({ name: "plg-third" });
+      expect(view.errors[0]?.message).toContain("registry");
+    } finally {
+      setPluginsRegistryUrlForTests(reg.base);
+      clearPluginUpdateMemo();
+    }
+  });
+
+  it("both update reads refuse a non-admin cookie and a bearer key", async () => {
+    expect((await get("/api/plugins/updates", aliceCookie)).status).toBe(403);
+    expect((await send("POST", "/api/plugins/updates/check", aliceCookie)).status).toBe(403);
+    expect((await bearerSend("GET", "/api/plugins/updates", systemKey)).status).toBe(403);
+    expect((await bearerSend("POST", "/api/plugins/updates/check", systemKey)).status).toBe(403);
+    // The gate fired before the store: nothing about the host changed.
+    expect((await localPluginReports()).find((r) => r.id === "third")).toBeDefined();
+  });
+
+  it("a registry copy of a built-in older than the bundle loses: the bundle answers and the shadow is named", async () => {
+    // An OLDER copy of the built-in's own package, installed from a registry.
+    // The id-claim guard admits it because the package name matches the copy
+    // already claiming `pi`; a differently-named package claiming that id is
+    // refused instead. The bundle is newer, so the compiled copy answers while
+    // the npm copy sits on disk — which is exactly what the row must say.
+    const bundled = await bundledPluginVersion("pi");
+    if (!bundled) throw new Error("this build must carry pi");
+    reg.served.set("@subshell-ai/plugin-pi", {
+      latest: "0.0.1",
+      versions: { "0.0.1": makePluginTgz({ name: "@subshell-ai/plugin-pi", version: "0.0.1", id: "pi" }) },
+    });
+    try {
+      const res = await send("POST", "/api/plugins", adminCookie, {
+        pluginId: "pi",
+        spec: "@subshell-ai/plugin-pi@0.0.1",
+      });
+      expect(res.status).toBe(200);
+      const row = (await res.json()) as PluginRow;
+      // The EFFECTIVE version, not the one on disk: the bundle's.
+      expect(row.version).toBe(bundled);
+      expect(row.source).toBe("build");
+      expect(row.shadowed).toEqual({ version: "0.0.1", source: "npm" });
+      expect(row.restartRequired).toBeUndefined();
+    } finally {
+      // pi is a seeded built-in the rest of the run expects: put this build's
+      // copy back (a fresh install carries no sidecar), which is also the
+      // state that silences the shadow.
+      await installLocalPlugin("pi");
+      reg.served.delete("@subshell-ai/plugin-pi");
+    }
+  });
+
+  // ── the update act: installs the registry's latest, and says so ───────────
+
+  /**
+   * The 1.1.0 entry, with bytes that DIFFER from 1.0.0's.
+   *
+   * `makePluginTgz` serves one entry text for every version, so the default
+   * fixture is not a real upgrade: the loader fingerprints the entry, and an
+   * update that swapped identical bytes would (correctly) report no restart.
+   */
+  const THIRD_V110_ENTRY =
+    "export default function fixture() { return { capabilities: () => [], buildCommand: (input) => [input.binary], validatePreset: () => ({ valid: true }) }; } // 1.1.0\n";
+
+  /** Serve `plg-third` 1.0.0 → 1.1.0 and make sure the store holds 1.0.0. */
+  async function serveThirdUpdate(): Promise<void> {
+    reg.served.set("plg-third", {
+      latest: "1.1.0",
+      versions: {
+        "1.0.0": makePluginTgz({ name: "plg-third", version: "1.0.0", id: "third" }),
+        "1.1.0": makePluginTgz({ name: "plg-third", version: "1.1.0", id: "third", body: THIRD_V110_ENTRY }),
+      },
+    });
+    await installLocalPlugin("third", "plg-third@1.0.0", reg.base);
+    thirdInstalled = true;
+    clearPluginUpdateMemo();
+  }
+
+  /** Put the shared fixture back: third at 1.0.0, its registry offering nothing newer. */
+  async function restoreThird(): Promise<void> {
+    clearPluginUpdateMemo();
+    reg.served.set("plg-third", {
+      latest: "1.0.0",
+      versions: { "1.0.0": makePluginTgz({ name: "plg-third", version: "1.0.0", id: "third" }) },
+    });
+    await installLocalPlugin("third", "plg-third@1.0.0", reg.base).catch(() => {});
+  }
+
+  it("updates a registry-installed plugin to latest, drops the offer, and audits the package", async () => {
+    await serveThirdUpdate();
+    try {
+      // The offer is real before the act, so the memo is what the act has to
+      // invalidate: a cached answer would keep offering 1.1.0 after the move.
+      expect((await updatesView(adminCookie)).updates.find((u) => u.id === "third")?.to).toBe("1.1.0");
+
+      const res = await send("POST", "/api/plugins/third/update", adminCookie);
+      expect(res.status).toBe(200);
+      const row = (await res.json()) as PluginRow;
+      expect(row).toMatchObject({ id: "third", version: "1.1.0", source: "npm", builtIn: false });
+      // The copy this process imported during the check is the OLD one, and the
+      // install swapped its bytes: the row must say a restart is the remedy
+      // (spec §D8 — the flag comes from the report, not from the update act).
+      expect(row.restartRequired).toBe(true);
+      expect(await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, "third")).toMatchObject({
+        name: "plg-third",
+        version: "1.1.0",
+      });
+      // The package says which bytes moved; the version pair is what makes the
+      // line reconstructible later.
+      expect((await pluginAudit("third")).find((a) => a.action === "plugin.update")?.metadata).toMatchObject({
+        pluginId: "third",
+        package: "plg-third",
+        from: "1.0.0",
+        to: "1.1.0",
+      });
+      // The store moved, so the memo went with it.
+      const after = await updatesView(adminCookie);
+      expect(after.updates.find((u) => u.id === "third")).toBeUndefined();
+      expect(after.errors.find((e) => e.id === "third")).toBeUndefined();
+    } finally {
+      await restoreThird();
+    }
+  });
+
+  it("audits the version that landed, not the one the check resolved, when latest moves under it", async () => {
+    await serveThirdUpdate();
+    // The act resolves `latest`, then `installLocalPlugin` resolves it again.
+    // This arm answers 1.1.0 to the first packument read after it (the act's
+    // resolve) and 1.2.0 to every later one — the tag move that used to leave
+    // an audit naming 1.1.0 while 1.2.0's bytes sat in the store.
+    const originalGet = reg.served.get;
+    let packuments = 0;
+    reg.served.set("plg-third", {
+      latest: "1.1.0",
+      versions: {
+        "1.0.0": makePluginTgz({ name: "plg-third", version: "1.0.0", id: "third" }),
+        "1.1.0": makePluginTgz({ name: "plg-third", version: "1.1.0", id: "third" }),
+        "1.2.0": makePluginTgz({ name: "plg-third", version: "1.2.0", id: "third" }),
+      },
+    });
+    reg.served.get = (name: string) => {
+      const pkg = originalGet.call(reg.served, name);
+      if (name !== "plg-third" || pkg === undefined) return pkg;
+      packuments += 1;
+      return packuments === 1 ? pkg : { ...pkg, latest: "1.2.0" };
+    };
+    const warn = spyOn(logger, "warn");
+    try {
+      const res = await send("POST", "/api/plugins/third/update", adminCookie);
+      expect(res.status).toBe(200);
+      const row = (await res.json()) as PluginRow;
+      expect(row.version).toBe("1.2.0");
+      expect((await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, "third"))?.version).toBe("1.2.0");
+      // The audit names the bytes the store holds, not the version the check
+      // resolved before the tag moved.
+      expect((await pluginAudit("third")).find((a) => a.action === "plugin.update")?.metadata).toMatchObject({
+        pluginId: "third",
+        package: "plg-third",
+        from: "1.0.0",
+        to: "1.2.0",
+      });
+      // The disagreement is logged with both versions; nothing is thrown after
+      // the swap, and the previous copy is not restored.
+      const logged = warn.mock.calls.map((call) => call.join(" ")).join(" ");
+      expect(logged).toContain("1.1.0");
+      expect(logged).toContain("1.2.0");
+    } finally {
+      warn.mockRestore();
+      reg.served.get = originalGet;
+      await restoreThird();
+    }
+  });
+
+  it("updates a built-in id through the registry door, not the embedded one", async () => {
+    // `installPlugin` answers an UNPINNED spec whose package name is a
+    // built-in from the bundle, so an implementation that passed a bare
+    // `record.name` would silently re-seed this build's pi and still answer
+    // 200. A latest ABOVE the bundle means only the registry door can produce
+    // the row asserted below.
+    if (!(await bundledPluginVersion("pi"))) throw new Error("this build must carry pi");
+    reg.served.set("@subshell-ai/plugin-pi", {
+      latest: "99.0.0",
+      versions: {
+        "0.0.1": makePluginTgz({ name: "@subshell-ai/plugin-pi", version: "0.0.1", id: "pi" }),
+        "99.0.0": makePluginTgz({ name: "@subshell-ai/plugin-pi", version: "99.0.0", id: "pi" }),
+      },
+    });
+    // The seeded pi already claims this package name, so the id-claim guard
+    // admits the registry copy — which then loses to the newer bundle.
+    await installLocalPlugin("pi", "@subshell-ai/plugin-pi@0.0.1", reg.base);
+    clearPluginUpdateMemo();
+    try {
+      const res = await send("POST", "/api/plugins/pi/update", adminCookie);
+      expect(res.status).toBe(200);
+      const row = (await res.json()) as PluginRow;
+      expect(row).toMatchObject({ id: "pi", version: "99.0.0", source: "npm", builtIn: true });
+      // Nothing was displaced: this copy is the one that answers.
+      expect(row.shadowed).toBeUndefined();
+      expect(await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, "pi")).toMatchObject({
+        name: "@subshell-ai/plugin-pi",
+        version: "99.0.0",
+      });
+    } finally {
+      // pi is a seeded built-in the rest of the run expects: the embedded
+      // install carries no sidecar, the state that silences the shadow.
+      clearPluginUpdateMemo();
+      await installLocalPlugin("pi");
+      reg.served.delete("@subshell-ai/plugin-pi");
+    }
+  });
+
+  it("refuses a plugin whose copy came from this build, and says where its update lives", async () => {
+    // Embedded bytes carry no sidecar, so there is no package to re-resolve —
+    // whatever npm copy sat here before, this id's copy is now the build's.
+    await installLocalPlugin("codex");
+    const res = await send("POST", "/api/plugins/codex/update", adminCookie);
+    expect(res.status).toBe(409);
+    expect(await errorMessage(res)).toContain("this build");
+  });
+
+  it("refuses when latest is not newer than the copy in use, naming the version", async () => {
+    reg.served.set("plg-third", {
+      latest: "1.1.0",
+      versions: { "1.1.0": makePluginTgz({ name: "plg-third", version: "1.1.0", id: "third" }) },
+    });
+    await installLocalPlugin("third", "plg-third@1.1.0", reg.base);
+    thirdInstalled = true;
+    clearPluginUpdateMemo();
+    const before = await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, "third");
+    try {
+      const res = await send("POST", "/api/plugins/third/update", adminCookie);
+      expect(res.status).toBe(409);
+      const message = await errorMessage(res);
+      expect(message).toContain("already");
+      expect(message).toContain("1.1.0");
+      // Nothing moved: a refusal before the install leaves the sidecar as it
+      // was, installedAt included.
+      expect(await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, "third")).toEqual(before);
+    } finally {
+      await restoreThird();
+    }
+  });
+
+  it("refuses a package that needs a newer plugin-api than this host implements", async () => {
+    await serveThirdUpdate();
+    const before = await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, "third");
+    // A newer `latest` whose manifest speaks a plugin-api this binary does not:
+    // the offer is real, and the install door is what refuses it.
+    reg.served.set("plg-third", {
+      latest: "2.0.0",
+      versions: {
+        "1.0.0": makePluginTgz({ name: "plg-third", version: "1.0.0", id: "third" }),
+        "2.0.0": incompatiblePluginTgz({ name: "plg-third", version: "2.0.0", id: "third", apiVersion: 99 }),
+      },
+    });
+    clearPluginUpdateMemo();
+    try {
+      const res = await send("POST", "/api/plugins/third/update", adminCookie);
+      expect(res.status).toBe(409);
+      expect(await errorMessage(res)).toContain("plugin-api");
+      expect(await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, "third")).toEqual(before);
+    } finally {
+      await restoreThird();
+    }
+  });
+
+  it("refuses when the registry cannot be asked, and leaves the installed copy alone", async () => {
+    await serveThirdUpdate();
+    const before = await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, "third");
+    // The seam every spec install uses: a dead port answers nothing.
+    setPluginsRegistryUrlForTests("http://127.0.0.1:1");
+    clearPluginUpdateMemo();
+    try {
+      const res = await send("POST", "/api/plugins/third/update", adminCookie);
+      expect(res.status).toBe(409);
+      expect(await errorMessage(res)).toContain("registry");
+      expect(await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, "third")).toEqual(before);
+    } finally {
+      setPluginsRegistryUrlForTests(reg.base);
+      await restoreThird();
+    }
+  });
+
+  it("the update act is cookie-admin only, and a malformed id is a 400", async () => {
+    await serveThirdUpdate();
+    try {
+      const before = await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, "third");
+      expect((await send("POST", "/api/plugins/third/update", aliceCookie)).status).toBe(403);
+      expect((await bearerSend("POST", "/api/plugins/third/update", systemKey)).status).toBe(403);
+      // The gate fired before the store did.
+      expect(await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, "third")).toEqual(before);
+      const traversing = encodeURIComponent("../../etc/passwd");
+      expect((await send("POST", `/api/plugins/${traversing}/update`, adminCookie)).status).toBe(400);
+    } finally {
+      await restoreThird();
+    }
+  });
+
+  it("an install and an uninstall each drop the cached offer", async () => {
+    await serveThirdUpdate();
+    try {
+      // Install side: the memo offers 1.1.0, then the install writes exactly
+      // that version — a cached check would keep offering it after the move.
+      expect((await updatesView(adminCookie)).updates.find((u) => u.id === "third")?.to).toBe("1.1.0");
+      expect(
+        (await send("POST", "/api/plugins", adminCookie, { pluginId: "third", spec: "plg-third@1.1.0" })).status,
+      ).toBe(200);
+      const afterInstall = await updatesView(adminCookie);
+      expect(afterInstall.updates.find((u) => u.id === "third")).toBeUndefined();
+      expect(afterInstall.errors.find((e) => e.id === "third")).toBeUndefined();
+
+      // Uninstall side: put 1.0.0 back, prime the offer again, then remove the
+      // bytes — the sidecar's offer must not survive them.
+      expect(
+        (await send("POST", "/api/plugins", adminCookie, { pluginId: "third", spec: "plg-third@1.0.0" })).status,
+      ).toBe(200);
+      expect((await updatesView(adminCookie)).updates.find((u) => u.id === "third")?.to).toBe("1.1.0");
+      expect((await send("DELETE", "/api/plugins/third", adminCookie)).status).toBe(200);
+      const afterUninstall = await updatesView(adminCookie);
+      expect(afterUninstall.updates.find((u) => u.id === "third")).toBeUndefined();
+      expect(afterUninstall.errors.find((e) => e.id === "third")).toBeUndefined();
+    } finally {
+      await restoreThird();
+    }
   });
 
   // ── the enable flag: computed availability, rows never touched ────────────

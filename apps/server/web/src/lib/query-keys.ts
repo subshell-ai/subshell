@@ -56,6 +56,15 @@ export const SETTINGS_QUERY_KEY = ["settings"] as const;
 /** How this server is deployed (`GET /api/admin/server`); read via `useServerDeployment`. */
 export const SERVER_DEPLOYMENT_QUERY_KEY = ["server-deployment"] as const;
 
+/**
+ * The plugin update check (`GET /api/plugins/updates`); read via
+ * `usePluginUpdates` and the Re-check button's mutation. Here rather than in
+ * `use-plugin-updates` because the INSTALL and UNINSTALL mutations must
+ * invalidate it too: a store that moved can add, retire or change an offer,
+ * and the key belongs where both hooks can reach it.
+ */
+export const PLUGIN_UPDATES_QUERY_KEY = ["plugin-updates"] as const;
+
 /** Prefix of the server-log tail: `[...SERVER_LOGS_QUERY_KEY, lines]`. */
 export const SERVER_LOGS_QUERY_KEY = ["server-logs"] as const;
 

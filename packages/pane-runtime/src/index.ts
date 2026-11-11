@@ -99,6 +99,7 @@ export {
   pluginStateDir,
   secretPath,
 } from "./plugin-secrets.js";
+export { bundledPluginVersion, installedCopyWins } from "./plugin-versions.js";
 export {
   type InstalledPlugin,
   type InstallRecord,

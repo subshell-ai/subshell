@@ -10,12 +10,14 @@ import {
   type PluginType,
   parsePackageSpec,
   readBuiltIn,
+  readInstallRecord,
+  resolvePluginUpdates,
 } from "@internal/pane-runtime";
 import type { PluginReportWire } from "@internal/subshell-protocol";
 import { Elysia, type Static, t } from "elysia";
 import { authGuard, requireAdmin } from "@/api/auth-guard.js";
 import { apiModels } from "@/api/schemas/index.js";
-import { IS_TEST, SUBSHELL_PLUGIN_REGISTRY_URL } from "@/constants.js";
+import { IS_TEST, SUBSHELL_PLUGIN_REGISTRY_URL, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
@@ -33,7 +35,9 @@ import {
   localPluginsDir,
   uninstallLocalPlugin,
 } from "@/modules/plugins/store.js";
+import { clearPluginUpdateMemo, collectPluginUpdates } from "@/modules/plugins/update-check.js";
 import { HttpError } from "@/shared/errors.js";
+import { getLogger } from "@/shared/logger.js";
 
 /**
  * The instance-level plugins door (spec 2026-09-10 §6, §6.1).
@@ -60,6 +64,7 @@ import { HttpError } from "@/shared/errors.js";
  * | PATCH  | /api/plugins/:pluginId        | cookie admin      |
  * | GET    | /api/plugins/:pluginId/impact | cookie admin      |
  * | DELETE | /api/plugins/:pluginId        | cookie admin      |
+ * | POST   | /api/plugins/:pluginId/update | cookie admin      |
  */
 
 /** Which of the two install doors the bytes came through. */
@@ -100,7 +105,39 @@ const PluginRowSchema = t.Object({
       description: "Driven program's command name, from the plugin this process resolves (built-in or installed)",
     }),
   ),
-  version: t.Optional(t.String({ description: "Installed package version (absent when not installed)" })),
+  version: t.Optional(
+    t.String({
+      description:
+        "Version of the copy in use: this build's version for a built-in that answers from the bundle, otherwise the installed copy's (absent when not installed)",
+    }),
+  ),
+  source: t.Optional(
+    t.Union([t.Literal("build"), t.Literal("npm"), t.Literal("unrecorded")], {
+      description:
+        "Where the bytes of the copy in use came from: this build (embedded or seeded), an npm registry, or a directory with no sidecar whose origin nothing on the machine can prove. Absent only for a catalog row, which has no copy to describe",
+    }),
+  ),
+  restartRequired: t.Optional(
+    t.Boolean({
+      description:
+        "Present only as true: a newer copy is on disk but this process still answers from the older one, and a restart is the remedy",
+    }),
+  ),
+  shadowed: t.Optional(
+    t.Object(
+      {
+        version: t.String({ description: "The losing copy's version" }),
+        source: t.Union([t.Literal("build"), t.Literal("npm"), t.Literal("unrecorded")], {
+          description: "Where the losing copy's bytes came from",
+        }),
+        error: t.Optional(t.String({ description: "Why the losing copy cannot win: it will not load" })),
+      },
+      {
+        description:
+          "The installed copy that lost to the one in use; absent when nothing was displaced, which is the healthy state of a seeded built-in",
+      },
+    ),
+  ),
   installed: t.Boolean({ description: "Whether the instance store holds this plugin" }),
   enabled: t.Boolean({
     description: "Offered or merely held (spec §6.1). An install the flag table never touched reads enabled",
@@ -155,6 +192,38 @@ const DeleteResponseSchema = t.Object({
     description: "The mode the uninstall ran in (defaults to keep)",
   }),
   presetsRemoved: t.Number({ description: "Presets deleted (0 for keep, and 0 for a plugin nothing used)" }),
+});
+
+/** One plugin with a newer version on the configured registry. */
+const PluginUpdateSchema = t.Object({
+  id: t.String({ description: "Plugin id (its directory name under the instance's plugins dir)" }),
+  name: t.String({ description: "The npm package name the installed bytes came from" }),
+  from: t.String({
+    description:
+      "The version in use now — the copy that actually answers, which for a shadowed built-in is the bundle's, not the stale bytes beside it",
+  }),
+  to: t.String({ description: "The newest registry version, always newer than `from`" }),
+});
+
+/** One plugin whose registry check failed. */
+const PluginCheckErrorSchema = t.Object({
+  id: t.String({ description: "Plugin id" }),
+  name: t.String({ description: "The npm package name the installed bytes came from" }),
+  message: t.String({
+    description:
+      "Why the registry could not be asked. The plugin was not checked, which is not an update, and one failure never hides the other rows",
+  }),
+});
+
+const PluginUpdatesResponseSchema = t.Object({
+  updates: t.Array(PluginUpdateSchema, { description: "Plugins with a newer version on the configured registry" }),
+  errors: t.Array(PluginCheckErrorSchema, {
+    description: "Plugins the registry could not be asked about; empty when every check answered",
+  }),
+  checkedAt: t.Number({
+    description:
+      "Epoch milliseconds when this answer was collected. GET is memoised for 15 minutes; POST /updates/check re-reads",
+  }),
 });
 
 const PARAMS = t.Object({ pluginId: t.String({ description: "Plugin id" }) });
@@ -233,6 +302,13 @@ function toRow(id: string, s: CatalogSources): Static<typeof PluginRowSchema> | 
     ...(report?.pickable === false || (!report && harness?.pickable === false) ? { pickable: false } : {}),
     ...(harness ? { binary: harness.binaryName } : {}),
     ...(report?.version ? { version: report.version } : {}),
+    // The copy in USE, not merely the one on disk: a built-in answers from the
+    // bundle unless a newer installed copy loads, so `source` and `shadowed`
+    // describe the winner and what it displaced. A catalog row has no report
+    // (nothing installed) and so claims no origin it could not prove.
+    ...(report?.source ? { source: report.source } : {}),
+    ...(report?.restartRequired ? { restartRequired: true } : {}),
+    ...(report?.shadowed ? { shadowed: report.shadowed } : {}),
     installed: report !== undefined,
     enabled: s.state.get(id) !== false, // an absent row means enabled
     // "This build carries the bytes" — the one-click question. Once the
@@ -372,6 +448,46 @@ const readRoutes = new Elysia()
 const adminRoutes = new Elysia()
   .use(requireAdmin)
   .use(apiModels)
+
+  // Update detection reads: cookie-admin, the same gate as every other route on
+  // this sub-instance, because each answer spends an outbound registry request
+  // per installed package. NEITHER IS AUDITED, deliberately — they change
+  // nothing about this instance, and a row per press would bury the
+  // `plugin.install` lines the page's other buttons write.
+  .get(
+    "/updates",
+    async () =>
+      await collectPluginUpdates({
+        force: false,
+        registryUrl: registryUrlOverride ?? SUBSHELL_PLUGIN_REGISTRY_URL,
+      }),
+    {
+      response: PluginUpdatesResponseSchema,
+      detail: {
+        operationId: "listInstancePluginUpdates",
+        tags: ["plugins"],
+        description:
+          "Which installed plugins have a newer version on the configured registry (cookie admin). Memoised for 15 minutes. Judged against the copy in use, and every failed check rides in `errors` rather than disappearing",
+      },
+    },
+  )
+  .post(
+    "/updates/check",
+    async () =>
+      await collectPluginUpdates({
+        force: true,
+        registryUrl: registryUrlOverride ?? SUBSHELL_PLUGIN_REGISTRY_URL,
+      }),
+    {
+      response: PluginUpdatesResponseSchema,
+      detail: {
+        operationId: "checkInstancePluginUpdates",
+        tags: ["plugins"],
+        description:
+          "Re-read the plugin registry now, bypassing the 15-minute memo, and answer the same view GET /api/plugins/updates does. Changes nothing on this host and is not audited. Cookie admin only",
+      },
+    },
+  )
   .post(
     "/",
     async ({ body, user }) => {
@@ -406,6 +522,9 @@ const adminRoutes = new Elysia()
         // 500 dressed as a server fault.
         throw new HarnessStateError(describe(err), 409);
       }
+      // The store moved: a memoised check would keep offering the version
+      // that just landed (or the one this install replaced).
+      clearPluginUpdateMemo();
       // Audited AFTER the bytes landed: a line for a refused install would
       // record something that did not happen. Which PACKAGE the bytes came
       // from is the fact an operator audits, not just which id.
@@ -437,6 +556,111 @@ const adminRoutes = new Elysia()
         tags: ["plugins"],
         description:
           "Installs a plugin into the instance store (cookie admin). A `spec` fetches that npm package and its code then runs IN THIS PROCESS; absent, this build's embedded copy",
+      },
+    },
+  )
+
+  // The UPDATE act: re-fetch the package the sidecar names at `@latest`. Only
+  // a registry install can be updated — a copy from this build has no package
+  // to ask, and its remedy is the catalog's install instead. Passing the
+  // package spec explicitly is what keeps `installLocalPlugin`'s
+  // embedded-first rule out of this path: a built-in id must never be
+  // answered from the bundle by an act that promises new bytes.
+  .post(
+    "/:pluginId/update",
+    async ({ params, user }) => {
+      const id = params.pluginId;
+      if (!SAFE_PLUGIN_ID.test(id)) {
+        throw new HarnessStateError(`"${id}" is not a valid plugin id`, 400);
+      }
+      const record = await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, id);
+      if (record === null) {
+        throw new HarnessStateError(
+          `"${id}" has no npm install record, so there is no package to update; this copy came from this build`,
+          409,
+        );
+      }
+      // The offer is re-resolved HERE rather than taken from a GET: the memo can
+      // be fifteen minutes old, and the version this act writes must be the one
+      // the registry answers now. `effectiveVersion` is the copy IN USE — the
+      // same fact the check uses — so a shadowed built-in is judged by the
+      // bundle it actually runs, not by stale bytes beside it.
+      const reports = await localPluginReports();
+      const effective = new Map(reports.map((r) => [r.id, r.version]));
+      const registryUrl = registryUrlOverride ?? SUBSHELL_PLUGIN_REGISTRY_URL;
+      const [update] = await resolvePluginUpdates(SUBSHELL_SERVER_DATA_DIR, {
+        id,
+        registryUrl,
+        effectiveVersion: (pluginId) => effective.get(pluginId),
+      });
+      if (update === undefined) {
+        // The sidecar was read a moment ago, so a store that no longer lists
+        // this id lost it mid-request; there is nothing left to update.
+        throw new HttpError(404, `"${id}" is no longer installed on this instance`);
+      }
+      if (update.error !== undefined) {
+        // "Could not ask" is not "no update": a 200 here would claim the copy
+        // is current when nobody checked it.
+        throw new HarnessStateError(update.error, 409);
+      }
+      if (update.to === null) {
+        throw new HarnessStateError(`${update.name} is already at ${update.from}`, 409);
+      }
+      try {
+        await installLocalPlugin(id, `${record.name}@latest`, registryUrl);
+      } catch (err) {
+        if (err instanceof HarnessStateError) throw err;
+        // Integrity, a claim collision, a failed load-check, a plugin-api this
+        // host does not implement: the target declined the change and the
+        // previous copy is untouched. A 409, not a 500 dressed as a fault.
+        throw new HarnessStateError(describe(err), 409);
+      }
+      // The store moved: a memoised check would keep offering the version just
+      // installed.
+      clearPluginUpdateMemo();
+      // `installLocalPlugin` re-resolves `@latest` itself, and a tag can move
+      // between that fetch and the check above. The sidecar names the version
+      // whose bytes are actually in the store, so the audit records THAT one;
+      // a disagreement is logged rather than thrown — the swap has happened,
+      // and a rollback would be a second, unrequested write.
+      const landedVersion = (await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, id))?.version ?? update.to;
+      if (landedVersion !== update.to) {
+        getLogger().warn(
+          `plugins: "${id}" resolved ${update.to} at check time but ${landedVersion} landed; ` +
+            "the update audit names the landed version",
+        );
+      }
+      // Audited AFTER the bytes landed, like the install: the package says
+      // which bytes moved, and `from`/`to` make the line reconstructible later.
+      await audit({
+        actorUserId: user.id,
+        action: "plugin.update",
+        targetType: "plugin",
+        targetId: id,
+        metadataJson: JSON.stringify({
+          pluginId: id,
+          package: record.name,
+          from: update.from,
+          to: landedVersion,
+        }),
+      });
+      return await requireRow(id, await readSources());
+    },
+    {
+      params: PARAMS,
+      response: {
+        200: PluginRowSchema,
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "updateInstancePlugin",
+        tags: ["plugins"],
+        description:
+          "Installs the registry's latest version of the package this plugin was installed from (cookie admin). A copy from this build has no package and is refused; the bytes come through the same integrity-checked install door, and a restart is what makes the new code run",
       },
     },
   )
@@ -632,6 +856,10 @@ const adminRoutes = new Elysia()
       // — "installing writes nothing, the default is on" only means
       // something if the uninstall took the old opinion with it.
       const removedBytes = await uninstallLocalPlugin(params.pluginId);
+      // The store moved — or an already-absent plugin was hand-removed, which
+      // the refresh inside `uninstallLocalPlugin` notices — so the cached
+      // offer goes.
+      clearPluginUpdateMemo();
       let presetsRemoved = 0;
       if (mode === "delete") {
         // Every swept row is customisation someone made — the seeded Default

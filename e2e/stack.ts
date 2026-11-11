@@ -235,21 +235,100 @@ function readdirSafe(dir: string): string[] {
  * tears down the daemon plus its pane processes (stub-`pi` loops) and its
  * `pipe-pane` log shims. Sockets belonging to already-dead servers just make
  * tmux exit non-zero, which is ignored per-socket.
+ *
+ * It then waits for each server to actually answer gone. `kill-server`
+ * returns when the server has acknowledged the command, not when its panes
+ * and capture children have exited; a capture child that opens a pane log
+ * after the wipe deleted the scratch dir re-creates the tree under it, and
+ * the wipe then fails `ENOTEMPTY` while every spec passed (2026-11-11: twice
+ * on CI, both shard 2, 29/29 green). `list-sessions` on a dead socket answers
+ * "no server running" and exits non-zero, so it is the probe. A spawn failure
+ * or a timeout says nothing about the server ("inconclusive", not "gone"),
+ * and a socket needs three consecutive non-zero answers, so one unlucky exit
+ * does not end the wait; every probe carries its own 1 s cap and the wait as
+ * a whole is bounded, because a server that refuses to die must not hold the
+ * job open.
  */
-function killScratchTmuxServers(base: string): void {
+async function killScratchTmuxServers(base: string): Promise<void> {
+  const sockets: string[] = [];
   for (const uidDir of readdirSafe(base)) {
     for (const socket of readdirSafe(path.join(base, uidDir))) {
+      const full = path.join(base, uidDir, socket);
+      sockets.push(full);
       try {
-        spawnSync("tmux", ["-S", path.join(base, uidDir, socket), "kill-server"]);
+        // A wedged server can hang the client; the probe below still reports
+        // whether it died, so a timed-out kill is not an error here.
+        spawnSync("tmux", ["-S", full, "kill-server"], { timeout: 5_000 });
       } catch {
         // Best-effort: an unkillable socket must not abort teardown.
       }
     }
   }
+  const deadline = Date.now() + 2_000;
+  /** Consecutive answers that said this socket's server is gone. */
+  const goneAnswers = new Map<string, number>();
+  while (sockets.length > 0 && Date.now() < deadline) {
+    for (let i = sockets.length - 1; i >= 0; i -= 1) {
+      const socket = sockets[i];
+      if (socket === undefined) continue;
+      const probe = spawnSync("tmux", ["-S", socket, "list-sessions"], { timeout: 1_000 });
+      // A spawn failure or timeout, and a process killed by a signal, are
+      // inconclusive: the socket keeps its place in the next pass.
+      if (probe.error !== undefined || probe.status === null) continue;
+      if (probe.status === 0) {
+        goneAnswers.delete(socket);
+        continue;
+      }
+      const answers = (goneAnswers.get(socket) ?? 0) + 1;
+      goneAnswers.set(socket, answers);
+      if (answers >= 3) sockets.splice(i, 1);
+    }
+    if (sockets.length > 0) await sleep(50);
+  }
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** The one Node call the retry wraps; a parameter so the bun test can drive it. */
+type RemoveTree = (target: string, options: { recursive: true; force: true }) => void;
+
+/**
+ * Removes one scratch tree, retrying while an entry reappears mid-walk.
+ *
+ * `rmSync` deletes bottom-up; one straggler that creates a path after its
+ * parent was removed makes the final `rmdir` fail `ENOTEMPTY`, and the
+ * browser job reports failure with every spec green (2026-11-11: 29/29
+ * passed on main and again on the plugin-updates branch, both times in
+ * shard 2's teardown). The stragglers are short-lived, so a bounded retry
+ * closes the window. When the writes outlast the budget the error names what
+ * kept appearing, which a bare `ENOTEMPTY` never did.
+ *
+ * `remove` is injectable because this error only exists under Node (the
+ * Playwright launcher), while `bun test` runs this module under Bun, whose
+ * `rmSync` absorbs a concurrent writer; the suite would otherwise never
+ * reach the retry branch it is meant to pin.
+ */
+export async function removeScratchTree(target: string, budgetMs = 5_000, remove: RemoveTree = rmSync): Promise<void> {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    try {
+      remove(target, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "ENOTEMPTY" || Date.now() >= deadline) {
+        const leftovers = readdirSafe(target);
+        throw new Error(
+          `[e2e] could not remove ${target}: ${err instanceof Error ? err.message : String(err)}` +
+            (leftovers.length > 0 ? ` (reappeared: ${leftovers.slice(0, 5).join(", ")})` : ""),
+          { cause: err },
+        );
+      }
+      await sleep(100);
+    }
+  }
 }
 
 /**
@@ -295,11 +374,12 @@ export async function stopStack(): Promise<void> {
       // Already dead.
     }
 
-    // Tmux servers FIRST: they escaped the backend's process group when they
-    // daemonised, so the group SIGTERM below cannot reach them and they must
-    // die while their sockets are still enumerable under the scratch dir.
-    killScratchTmuxServers(stack.tmuxBase);
-
+    // The backend goes FIRST. `killScratchTmuxServers` can only enumerate
+    // servers that already exist, and a launch the server is still processing
+    // when teardown starts can spawn a fresh tmux server after the sweep; the
+    // group kill closes that window. A server the backend already spawned
+    // daemonises away from the group, so its socket stays enumerable on disk
+    // either way — the sweep below still finds it.
     const child = stack.child;
     if (child?.pid) {
       const pgid = child.pid; // detached → the child IS the process-group leader
@@ -320,10 +400,14 @@ export async function stopStack(): Promise<void> {
         await waitForGroupExit(pgid, 2_000);
       }
     }
-    rmSync(stack.dir, { recursive: true, force: true });
+
+    // Now no new tmux server can appear; retire the ones that did, wait for
+    // them to be gone, and only then wipe their scratch trees.
+    await killScratchTmuxServers(stack.tmuxBase);
+    await removeScratchTree(stack.dir);
     // The tmux base has its own short root (see shortTmuxBase), so it is
     // not swept by the line above; remove that root, not just the leaf.
-    rmSync(path.dirname(stack.tmuxBase), { recursive: true, force: true });
+    await removeScratchTree(path.dirname(stack.tmuxBase));
   }
   globalThis.e2eStack = undefined;
 }

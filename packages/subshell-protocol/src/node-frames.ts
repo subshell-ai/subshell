@@ -1550,12 +1550,17 @@ export type McpSetupStepWire = {
 export type McpSetupWire = { mode: "auto"; summary: string } | { mode: "manual"; steps: McpSetupStepWire[] };
 
 /**
- * One installed plugin, as the node describes it.
+ * One installed plugin, as the machine that carries it describes it.
  *
- * Everything the control plane needs about a plugin it cannot import: enough
- * to list it, render its preset editor, label its exit codes and explain its
- * MCP setup. A plugin that failed to load still appears, carrying `broken`,
- * so a node page can say why rather than dropping the row.
+ * Everything the control plane needs about a plugin it does not import itself:
+ * enough to list it, render its preset editor, label its exit codes and
+ * explain its MCP setup. A plugin that failed to load still appears, carrying
+ * `broken`, so a node page can say why rather than dropping the row.
+ *
+ * Written by the CONTROL PLANE for its own machine (`buildPluginReports` in
+ * `@internal/pane-runtime`). Plugins left the wire in protocol 3 (spec
+ * 2026-09-10 §7), so the agent is no longer a writer, and a row describes
+ * whichever copy of the plugin is actually in use.
  */
 export type PluginReportWire = {
   /** Plugin id */
@@ -1564,8 +1569,19 @@ export type PluginReportWire = {
   name: string;
   /** What kind of thing it provides */
   type: string;
-  /** Package version installed on the node */
+  /** The version of the copy in use: the bundle's, or the installed copy that won */
   version: string;
+  /**
+   * Where the bytes of the copy in use came from.
+   *
+   * `build` — compiled into the running build (or seeded from it); `npm` —
+   * installed from a registry, which leaves an `install.json` sidecar;
+   * `unrecorded` — a third-party directory with no sidecar, whose origin
+   * nothing on the machine can prove. Optional so a row built elsewhere (a
+   * network plugin's report, a fixture) need not claim an origin it does not
+   * know.
+   */
+  source?: "build" | "npm" | "unrecorded";
   /** Optional emoji/glyph */
   icon?: string;
   /** One-line description */
@@ -1591,12 +1607,32 @@ export type PluginReportWire = {
   /** Why it cannot be used, when it cannot */
   broken?: string;
   /**
-   * The node installed a newer copy than the code it is running.
+   * A copy on disk that is NOT the one in use.
+   *
+   * Present when the bundled copy answers over an installed one that is
+   * older, unparseable, built for a newer host, or newer but failing to load
+   * (`error` says why). Absent when the installed copy wins, and when it is a
+   * healthy copy of the bundle's own — the state every boot seeds, where
+   * naming a shadow would make every row look like a conflict.
+   */
+  shadowed?: {
+    /** The disk copy's version, as its sidecar or package.json states it */
+    version: string;
+    /** Where that copy came from */
+    source: "build" | "npm" | "unrecorded";
+    /** Why it is not loaded, when that is a failure rather than a version */
+    error?: string;
+  };
+  /**
+   * A copy on disk whose bytes differ from the code this process imported.
    *
    * A module cannot be swapped inside a live process (see `IMPORTED` in
    * `@internal/pane-runtime`), so `version` here is what is on disk while the
    * behaviour is the previous build's. Reported rather than hidden, because
-   * the pair is what makes the remedy obvious: restart the agent.
+   * the pair is what makes the remedy obvious: restart the SERVER that runs
+   * the plugin. A copy the process had not imported yet is live immediately
+   * and carries no flag, and no agent restart is involved — a node loads no
+   * disk plugins.
    */
   restartRequired?: boolean;
 };
