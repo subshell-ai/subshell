@@ -256,7 +256,9 @@ async function killScratchTmuxServers(base: string): Promise<void> {
       const full = path.join(base, uidDir, socket);
       sockets.push(full);
       try {
-        spawnSync("tmux", ["-S", full, "kill-server"]);
+        // A wedged server can hang the client; the probe below still reports
+        // whether it died, so a timed-out kill is not an error here.
+        spawnSync("tmux", ["-S", full, "kill-server"], { timeout: 5_000 });
       } catch {
         // Best-effort: an unkillable socket must not abort teardown.
       }
