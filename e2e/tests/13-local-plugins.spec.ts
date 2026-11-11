@@ -53,10 +53,11 @@ test.describe("instance plugins", () => {
   test("uninstall and reinstall pi through the page, and every node's rows and the picker follow", async ({ page }) => {
     let removed = false;
     try {
-      // ── 1. The Installed card offers the enable switch and an Uninstall.
+      // ── 1. The Installed card offers the enable switch and the row's menu.
       await page.goto("/settings/plugins");
       await expect(piRow(page).getByRole("switch", { name: "pi enabled" })).toBeChecked();
-      await expect(piRow(page).getByRole("button", { name: "Uninstall pi" })).toBeVisible();
+      const piActions = piRow(page).getByRole("button", { name: "Actions for pi" });
+      await expect(piActions).toBeVisible();
 
       // ── 2. Uninstall through the §6.1 dialog. It states the instance-wide
       // consequence, names what uses the harness (fetched, not assumed), and
@@ -65,7 +66,8 @@ test.describe("instance plugins", () => {
       // the store↔picker contract: the row leaves the store, the agent row
       // greys rather than vanishes (step 3), and reinstall makes it
       // selectable again (step 4).
-      await piRow(page).getByRole("button", { name: "Uninstall pi" }).click();
+      await piActions.click();
+      await page.getByRole("menuitem", { name: "Uninstall" }).click();
       const dialog = page.getByRole("dialog");
       await expect(dialog.getByRole("heading", { name: "Uninstall this plugin?" })).toBeVisible();
       await expect(dialog.getByText("stops offering it on every node")).toBeVisible();
@@ -108,7 +110,7 @@ test.describe("instance plugins", () => {
       await catalogAgain.getByRole("button", { name: "Install pi" }).click();
       await expect.poll(() => storeHoldsPi(page), { timeout: 10_000 }).toBe(true);
       removed = false;
-      await expect(piRow(page).getByRole("button", { name: "Uninstall pi" })).toBeVisible();
+      await expect(piRow(page).getByRole("button", { name: "Actions for pi" })).toBeVisible();
       // Reinstall round-trips the grey: the agent is selectable again, and
       // this host is a clean target for it.
       await page.goto("/new");
