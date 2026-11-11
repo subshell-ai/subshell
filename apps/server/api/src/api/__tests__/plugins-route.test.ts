@@ -16,6 +16,7 @@ import { authDatabase } from "@/modules/auth/database.js";
 import { ensureSystemUser } from "@/modules/auth/system-user.js";
 import { usableHarnessIds } from "@/modules/plugins/availability.js";
 import { installLocalPlugin, localPluginReports, uninstallLocalPlugin } from "@/modules/plugins/store.js";
+import { clearPluginUpdateMemo } from "@/modules/plugins/update-check.js";
 import { type FakeRegistry, makePluginTgz, startFakeRegistry } from "@/testing/nodes/fake-npm-registry.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../testing/api/auth-tables.js";
 
@@ -56,6 +57,13 @@ interface Impact {
   presets: number;
   distinctUsers: number;
   runningSubshells: number;
+}
+
+/** Mirror of the update-check schema: offers, failures, and when this answer was collected. */
+interface UpdateView {
+  updates: { id: string; name: string; from: string; to: string }[];
+  errors: { id: string; name: string; message: string }[];
+  checkedAt: number;
 }
 
 const app = new Elysia().use(errorHandlerPlugin).use(pluginsRoutes);
@@ -114,6 +122,14 @@ describe("/api/plugins", () => {
 
   /** What this suite may leave installed/removed; afterAll puts the host back. */
   let thirdInstalled = false;
+
+  /** The updates section's fixture: `third` on disk at 1.0.0, with 1.1.0 offered. */
+  async function ensureThirdInstalled(): Promise<void> {
+    if (!(await localPluginReports()).some((r) => r.id === "third")) {
+      await installLocalPlugin("third", "plg-third@1.0.0", reg.base);
+    }
+    thirdInstalled = true;
+  }
 
   beforeAll(async () => {
     await setupAuthTables();
@@ -347,6 +363,104 @@ describe("/api/plugins", () => {
     // gone, and a presetless launch of the new harness works the moment the
     // overlay lands — which the assertions above just proved.
     expect(await presets.listByHarness("third")).toEqual([]);
+  });
+
+  // ── update detection: cookie-admin, and memoised against the registry ─────
+
+  it("GET /api/plugins/updates names the offer, and a second GET spends no registry request", async () => {
+    // `third` was installed from the registry above; publish a newer release of
+    // its package so the offer is real, and judge it by the copy IN USE — the
+    // report's version, which is what the resolver is handed.
+    reg.served.set("plg-third", {
+      latest: "1.1.0",
+      versions: {
+        "1.0.0": makePluginTgz({ name: "plg-third", version: "1.0.0", id: "third" }),
+        "1.1.0": makePluginTgz({ name: "plg-third", version: "1.1.0", id: "third" }),
+      },
+    });
+    await ensureThirdInstalled();
+    clearPluginUpdateMemo();
+    try {
+      const res = await get("/api/plugins/updates", adminCookie);
+      expect(res.status).toBe(200);
+      const view = (await res.json()) as UpdateView;
+      expect(view.updates.find((u) => u.id === "third")).toEqual({
+        id: "third",
+        name: "plg-third",
+        from: "1.0.0",
+        to: "1.1.0",
+      });
+      // Per-id: the plugins dir is shared with every suite in this run.
+      expect(view.errors.find((e) => e.id === "third")).toBeUndefined();
+      // Epoch milliseconds: the page renders "checked N min ago".
+      expect(typeof view.checkedAt).toBe("number");
+
+      const hits = reg.hits.length;
+      const again = await get("/api/plugins/updates", adminCookie);
+      expect(again.status).toBe(200);
+      expect(((await again.json()) as UpdateView).updates).toContainEqual(view.updates.find((u) => u.id === "third"));
+      expect(reg.hits.length).toBe(hits); // the memo answers; the registry is not asked again
+    } finally {
+      clearPluginUpdateMemo();
+      reg.served.set("plg-third", {
+        latest: "1.0.0",
+        versions: { "1.0.0": makePluginTgz({ name: "plg-third", version: "1.0.0", id: "third" }) },
+      });
+    }
+  });
+
+  it("POST /api/plugins/updates/check drops the memo and reads the registry again", async () => {
+    reg.served.set("plg-third", {
+      latest: "1.1.0",
+      versions: {
+        "1.0.0": makePluginTgz({ name: "plg-third", version: "1.0.0", id: "third" }),
+        "1.1.0": makePluginTgz({ name: "plg-third", version: "1.1.0", id: "third" }),
+      },
+    });
+    await ensureThirdInstalled();
+    clearPluginUpdateMemo();
+    try {
+      // A GET first, so the POST is measured against a populated memo.
+      expect((await get("/api/plugins/updates", adminCookie)).status).toBe(200);
+      const hits = reg.hits.length;
+      const res = await send("POST", "/api/plugins/updates/check", adminCookie);
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as UpdateView).updates.find((u) => u.id === "third")?.to).toBe("1.1.0");
+      expect(reg.hits.length).toBeGreaterThan(hits);
+    } finally {
+      clearPluginUpdateMemo();
+      reg.served.set("plg-third", {
+        latest: "1.0.0",
+        versions: { "1.0.0": makePluginTgz({ name: "plg-third", version: "1.0.0", id: "third" }) },
+      });
+    }
+  });
+
+  it("a registry that cannot be asked lands in errors, never in updates", async () => {
+    await ensureThirdInstalled();
+    // The seam every spec install uses: the check reads the same configured URL.
+    setPluginsRegistryUrlForTests("http://127.0.0.1:1");
+    clearPluginUpdateMemo();
+    try {
+      const res = await get("/api/plugins/updates", adminCookie);
+      expect(res.status).toBe(200);
+      const view = (await res.json()) as UpdateView;
+      expect(view.updates).toEqual([]);
+      expect(view.errors.find((e) => e.id === "third")).toMatchObject({ name: "plg-third" });
+      expect(view.errors[0]?.message).toContain("registry");
+    } finally {
+      setPluginsRegistryUrlForTests(reg.base);
+      clearPluginUpdateMemo();
+    }
+  });
+
+  it("both update reads refuse a non-admin cookie and a bearer key", async () => {
+    expect((await get("/api/plugins/updates", aliceCookie)).status).toBe(403);
+    expect((await send("POST", "/api/plugins/updates/check", aliceCookie)).status).toBe(403);
+    expect((await bearerSend("GET", "/api/plugins/updates", systemKey)).status).toBe(403);
+    expect((await bearerSend("POST", "/api/plugins/updates/check", systemKey)).status).toBe(403);
+    // The gate fired before the store: nothing about the host changed.
+    expect((await localPluginReports()).find((r) => r.id === "third")).toBeDefined();
   });
 
   it("a registry copy of a built-in older than the bundle loses: the bundle answers and the shadow is named", async () => {

@@ -630,33 +630,63 @@ export interface PluginUpdate {
   id: string;
   /** The npm package name it was installed from (from the sidecar) */
   name: string;
-  /** Installed version */
+  /**
+   * The version `to` was judged against: the EFFECTIVE version the caller
+   * supplies (the copy actually in use), falling back to the sidecar's when
+   * the caller cannot say.
+   */
   from: string;
-  /** Newest registry version, or null when the install is already at or above it */
+  /** Newest registry version, or null when `from` is already at or above it — and on a failed check */
   to: string | null;
+  /** Why the registry could not be asked, when it could not. The row is reported, never guessed at. */
+  error?: string;
 }
 
-/** Newest registry version for every sidecar'd install (embedded installs are never upgraded behind their operator). */
+/**
+ * Newest registry version for every sidecar'd install (embedded installs are
+ * never upgraded behind their operator).
+ *
+ * `from` is the EFFECTIVE version supplied by the caller, not necessarily the
+ * one recorded on disk: a built-in whose installed copy lost to the bundle
+ * runs the BUNDLE's bytes, and an offer must be judged against what the
+ * operator actually has rather than stale bytes beside it. The resolver never
+ * imports plugin code to answer that — `effectiveVersion` is the caller's
+ * fact, and the sidecar is the fallback when the caller cannot say.
+ *
+ * A registry that cannot be asked answers a row with `error` set and
+ * `to: null`: "could not check" is reported beside the others, never guessed
+ * at and never silently missing from the list.
+ */
 export async function resolvePluginUpdates(
   dataDir: string,
-  opts: { id?: string; registryUrl?: string } = {},
+  opts: {
+    /** Narrow the answer to one plugin id */
+    id?: string;
+    /** The registry to ask; defaults to {@link DEFAULT_REGISTRY_URL} */
+    registryUrl?: string;
+    /** The version of the copy in use for `id`, when the caller knows more than the sidecar */
+    effectiveVersion?: (id: string) => string | undefined;
+  } = {},
 ): Promise<PluginUpdate[]> {
   const out: PluginUpdate[] = [];
   for (const p of await listInstalled(dataDir)) {
     if (opts.id !== undefined && p.id !== opts.id) continue;
     const record = await readInstallRecord(dataDir, p.id);
     if (!record) continue;
+    const from = opts.effectiveVersion?.(p.id) ?? record.version;
     try {
       const latest = await resolvePackageVersion(record.name, undefined, opts.registryUrl ?? DEFAULT_REGISTRY_URL);
       out.push({
         id: p.id,
         name: record.name,
-        from: record.version,
-        to: semverLt(record.version, latest.version) ? latest.version : null,
+        from,
+        to: semverLt(from, latest.version) ? latest.version : null,
       });
     } catch (err) {
-      // "could not ask" is reported, never guessed at — but it is not an update.
+      // "could not ask" is reported, never guessed at — an error row is not an
+      // update, and the log line stays for whoever reads logs.
       pluginLog().warn(`update check for '${record.name}' failed: ${describe(err)}`);
+      out.push({ id: p.id, name: record.name, from, to: null, error: describe(err) });
     }
   }
   return out;
