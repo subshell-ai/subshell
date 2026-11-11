@@ -633,15 +633,18 @@ which is why they share their own smoke, parameterized by app id.
   `-f version=X.Y.Z`; blank = read `apps/<dir>/package.json`). `all` is the
   input's default: every component is cuttable, and each desktop bundle ships
   the CLI it wraps, so the whole set is the safe cut.
-  The reusable full verification workflow must succeed on the dispatch's
-  revision before the tag job creates or pushes tags, and every publish job
-  needs that tag job. It runs all workspace, script, browser, compiled CLI,
-  Rust, and native-helper tests, plus static checks and the dependency audit.
-  Unit and browser retries are disabled. Failed, cancelled, or missing required
-  checks block the cut; fix the cause and dispatch the corrected revision. npm
-  publication uses the same gate. A manifest-only refresh and version-PR
-  maintenance don't publish binaries or packages and don't need this gate.
-  **Verification runs alongside the build phase**: the plan job and the build
+  The release gate reuses the standalone `Test` run for the dispatch's
+  revision: it waits for that run when it is still in flight, requires it to
+  pass with a full plan, and refuses a missing, partial, or failed run. It
+  doesn't re-run the suite. A version-PR merge qualifies because package.json
+  changed, so the push run selects every workspace, script, browser, compiled
+  CLI, Rust, and native-helper test, plus static checks and the dependency
+  audit. Unit and browser retries are disabled. Failed, cancelled, or missing
+  required checks block the cut; fix the cause and dispatch the corrected
+  revision. npm publication uses the same gate. A manifest-only refresh and
+  version-PR maintenance don't publish binaries or packages and don't need
+  this gate.
+  **The gate waits while the build phase runs**: the plan job and the build
   shards start immediately, so a cut's wall clock is the build path rather
   than verification plus builds. A failed verification spends build minutes
   but leaves no tag and no release. The tag job then pushes the missing tags
