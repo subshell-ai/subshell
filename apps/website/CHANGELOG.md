@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.33
+
+### Patch Changes
+
+- [#528](https://github.com/subshell-ai/subshell/pull/528) [`0613970`](https://github.com/subshell-ai/subshell/commit/0613970ebb9ee74a1bf6a07ed905c6ce35099117) Thanks [@theogravity](https://github.com/theogravity)! - Refresh the release listing and download links for the upcoming component releases.
+
 ## 0.2.32
 
 ### Patch Changes
