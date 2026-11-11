@@ -194,7 +194,8 @@ test("the CLI writes machine-readable outputs and plans without dependencies", (
   expect(lines.map((line: string) => line.slice(0, line.indexOf("=")))).toEqual([
     "plan",
     "units",
-    "integration",
+    "cli",
+    "e2e",
     "rust",
   ]);
 });

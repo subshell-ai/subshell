@@ -33,7 +33,8 @@ jobs:
     outputs:
       plan: ${{ steps.route.outputs.plan }}
       units: ${{ steps.route.outputs.units }}
-      integration: ${{ steps.route.outputs.integration }}
+      cli: ${{ steps.route.outputs.cli }}
+      e2e: ${{ steps.route.outputs.e2e }}
       rust: ${{ steps.route.outputs.rust }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -112,40 +113,66 @@ jobs:
           fi
           bun scripts/run-test-plan.ts unit
 
-  integration:
-    name: Browser and compiled CLI tests
+  cli:
+    name: Compiled CLI and smoke
     needs: plan
-    if: needs.plan.outputs.integration == 'true'
-    # Bare runner: Testcontainers needs the host Docker daemon and reachable mapped ports.
+    if: needs.plan.outputs.cli == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 25
     env:
       TEST_PLAN: ${{ needs.plan.outputs.plan }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-ci
         with:
-          cache-suffix: integration
+          cache-suffix: cli
+      - name: Ensure CLI tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux jq openssh-client openssh-server
+      - run: bun scripts/run-test-plan.ts cli
+
+  e2e:
+    name: Browser tests (${{ matrix.name }})
+    needs: plan
+    if: needs.plan.outputs.e2e == 'true'
+    # Bare runner: Testcontainers needs the host Docker daemon and reachable mapped ports.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: e2e-1
+            shard: "1/2"
+          - name: e2e-2
+            shard: "2/2"
+    env:
+      TEST_PLAN: ${{ needs.plan.outputs.plan }}
+      TEST_SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-ci
+        with:
+          cache-suffix: ${{ matrix.name }}
       - name: Ensure integration tools
         run: |
           sudo apt-get update
           sudo apt-get install -y tmux jq openssh-client openssh-server
           docker info >/dev/null
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: fromJSON(needs.plan.outputs.plan).e2e
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('e2e/package.json') }}
       - name: Install browser
-        if: fromJSON(needs.plan.outputs.plan).e2e
         working-directory: e2e
         run: bunx playwright install --with-deps chromium
-      - run: bun scripts/run-test-plan.ts integration
+      - run: bun scripts/run-test-plan.ts e2e
       - name: Upload browser failures
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.name }}
           path: |
             e2e/playwright-report/
             e2e/test-results/
@@ -211,7 +238,7 @@ jobs:
   result:
     name: Tests passed
     if: always()
-    needs: [plan, checks, unit, integration, rust, macos]
+    needs: [plan, checks, unit, cli, e2e, rust, macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -226,7 +253,8 @@ jobs:
           outputs = jobs['plan']['outputs']
           required = ['checks']
           if json.loads(outputs['units']): required.append('unit')
-          if outputs['integration'] == 'true': required.append('integration')
+          if outputs['cli'] == 'true': required.append('cli')
+          if outputs['e2e'] == 'true': required.append('e2e')
           if outputs['rust'] == 'true': required += ['rust', 'macos']
           failed = [name for name in required if jobs[name]['result'] != 'success']
           assert not failed, f'Required checks did not pass: {failed}'

@@ -137,8 +137,9 @@ shared release helpers. Keep those rules current when a test begins reading an
 external file. An unknown root input or deleted workspace selects everything.
 
 PR CI has one planner, one static-check job, up to four unit jobs (the server
-suite runs as two `--shard` legs), one selected integration job, and selected
-Linux/macOS native jobs. `Tests passed` aggregates
+suite runs as two `--shard` legs), separate compiled-CLI and browser jobs (the
+browser suite runs as two shards), and selected Linux/macOS native jobs.
+`Tests passed` aggregates
 those results and rejects a required job that failed, was skipped, or was
 cancelled. Only selected consumers and their dependencies build; planning needs
 neither a dependency install nor Turbo. All existing workspace test scripts are

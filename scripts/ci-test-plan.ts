@@ -256,7 +256,11 @@ if (import.meta.main) {
     const output = {
       plan,
       units: unitLanes(plan, readWorkspaces()),
-      integration: plan.e2e || plan.cli || plan.smoke,
+      // The compiled-CLI suite and the browser suite are separate CI jobs;
+      // they used to share one, but the browser half is the long pole and
+      // serialized the CLI work ahead of itself.
+      cli: plan.smoke || plan.cli,
+      e2e: plan.e2e,
       rust: plan.rust.length > 0,
     };
     for (const [key, value] of Object.entries(output))

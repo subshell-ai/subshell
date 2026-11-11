@@ -2,6 +2,7 @@
 /* biome-ignore-all lint/suspicious/noUndeclaredEnvVars: This driver runs outside Turbo. */
 import { join } from "node:path";
 import { ROOT, readWorkspaces, type TestPlan } from "./ci-test-plan";
+import { E2E_SHARDS, e2eShardFiles } from "./e2e-shard";
 
 /** Spawn argv directly: package names and changed paths must never become shell code. */
 export function run(command: string[], cwd = ROOT): void {
@@ -46,16 +47,33 @@ export function runChecks(plan: TestPlan): void {
   if (plan.audit) run(["bun", "run", "audit:deps"]);
 }
 
+export function runCli(plan: TestPlan): void {
+  if (!(plan.smoke || plan.cli)) return;
+  turbo(["build"], ["@internal/server", "@internal/node", "@internal/server-web", "@internal/node-web"]);
+  if (plan.cli) run(["bun", "run", "test:cli"]);
+  if (plan.smoke) run(["bash", "scripts/test-compiled-smoke.sh"]);
+}
+
+export function runE2e(plan: TestPlan, shard?: string): void {
+  if (!plan.e2e) return;
+  const retries = plan.full ? ["--retries=0"] : [];
+  const selected = plan.e2eFiles.map((f) => f.replace(/^e2e\//, ""));
+  let files = selected;
+  if (shard) {
+    const [index, count] = shard.split("/").map(Number);
+    if (count !== E2E_SHARDS) throw new Error(`unknown e2e shard '${shard}' (expected i/${E2E_SHARDS})`);
+    files = e2eShardFiles(selected, index);
+    if (!files.length) {
+      console.log(`e2e shard ${shard}: no selected files`);
+      return;
+    }
+  }
+  turbo(["test:e2e"], ["@internal/e2e"], ["--", ...retries, ...files]);
+}
+
 export function runIntegration(plan: TestPlan): void {
-  if (plan.smoke || plan.cli) {
-    turbo(["build"], ["@internal/server", "@internal/node", "@internal/server-web", "@internal/node-web"]);
-    if (plan.cli) run(["bun", "run", "test:cli"]);
-    if (plan.smoke) run(["bash", "scripts/test-compiled-smoke.sh"]);
-  }
-  if (plan.e2e) {
-    const args = plan.e2eFiles.map((f) => f.replace(/^e2e\//, ""));
-    turbo(["test:e2e"], ["@internal/e2e"], ["--", ...(plan.full ? ["--retries=0"] : []), ...args]);
-  }
+  runCli(plan);
+  runE2e(plan);
 }
 
 export function runRust(plan: TestPlan): void {
@@ -79,6 +97,12 @@ if (import.meta.main) {
       runUnit(plan, lane.packages, lane.scripts, lane.shard);
       break;
     }
+    case "cli":
+      runCli(plan);
+      break;
+    case "e2e":
+      runE2e(plan, process.env.TEST_SHARD);
+      break;
     case "integration":
       runIntegration(plan);
       break;
@@ -86,6 +110,6 @@ if (import.meta.main) {
       runRust(plan);
       break;
     default:
-      throw new Error("Expected checks, unit, integration, or rust");
+      throw new Error("Expected checks, unit, integration, cli, e2e, or rust");
   }
 }

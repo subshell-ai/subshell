@@ -32,7 +32,8 @@ test("the aggregate result waits for every test tier even after a failure", () =
   expect(verification.jobs.result?.if).toBe("always()");
   expect(verification.jobs.result?.needs?.toSorted()).toEqual([
     "checks",
-    "integration",
+    "cli",
+    "e2e",
     "macos",
     "plan",
     "rust",

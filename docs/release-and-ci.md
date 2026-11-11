@@ -368,8 +368,9 @@ Script tests run for the repository contracts they read, not for every app
 edit. Pure test edits stay in their owning package. Unknown inputs or missing
 history run everything.
 
-Browser and compiled CLI checks share an integration job on a bare Ubuntu
-runner, where Testcontainers can reach the host Docker daemon and mapped ports.
+Browser checks run as two shards on bare Ubuntu runners, each with its own
+stack, where Testcontainers can reach the host Docker daemon and mapped ports.
+The compiled CLI and compiled-smoke checks run in their own job beside them.
 Rust checks run selected crates on Linux in the builder image and on macOS;
 a shared-core change selects both desktop consumers. The single `Tests passed`
 result requires every selected job to succeed, including after a cancellation
