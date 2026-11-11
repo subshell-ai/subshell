@@ -55,8 +55,8 @@ before the swap, so the previous copy stays exactly as it was.
 
 Handing the package spec explicitly is what keeps the embedded-first rule out
 of this path: an install with no spec answers from the bundle, and an update
-must not. A successful update drops the update memo; an install and an
-uninstall do the same, because all three move the store, and is audited as
+must not. A successful update drops the update memo (installs and
+uninstalls do the same, because all three move the store) and is audited as
 `plugin.update` with the plugin id, the package, and the `from`/`to`
 versions, after the bytes land. This process cannot evict a module it has
 already imported, so the updated row carries `restartRequired` until the
