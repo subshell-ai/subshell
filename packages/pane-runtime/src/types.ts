@@ -143,6 +143,14 @@ export interface HarnessPlugin {
   updateHint?: UpdateHint;
   /** Whether the harness ships enabled out of the box */
   enabledByDefault: boolean;
+  /**
+   * Which optional members this plugin implements.
+   *
+   * Carried into the adapter's shape so the report can describe a built-in
+   * from the compiled copy the launcher uses, instead of importing the
+   * directory on disk to ask it — that disk copy may be the one that lost.
+   */
+  capabilities(): string[];
   /** Whether the harness binary is currently installed/usable. */
   isInstalled(): Promise<boolean>;
   /**

@@ -115,6 +115,11 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
     },
     versionAt: (binaryPath: string) => versionOf(plugin, binaryPath),
 
+    // The plugin's own declaration, forwarded so a consumer of this shape can
+    // label a plugin without reaching for the module behind it. The report is
+    // the consumer that needs it: a built-in's row is built from THIS object,
+    // never from the directory on disk.
+    capabilities: () => plugin.capabilities(),
     buildCommand: (input) => plugin.buildCommand(input),
     validatePreset: (preset) => plugin.validatePreset(preset),
     settingsFields: () => plugin.presetSettings?.() ?? [],
