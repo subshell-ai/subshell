@@ -640,7 +640,8 @@ jobs:
             console.log(`cli_apps=${half(a, "cli-")}`);
             console.log(`desktop_apps=${half(a, "desktop-")}`);
           ' "[$entries]" "[$appsjson]" >> "$GITHUB_OUTPUT"
-          echo "apps=$appsjson" >> "$GITHUB_OUTPUT"
+          # Bracketed: the tag job JSON.parses this output directly.
+          echo "apps=[$appsjson]" >> "$GITHUB_OUTPUT"
           echo "refresh_manifest=$refresh_manifest" >> "$GITHUB_OUTPUT"
           {
             echo "### Release plan"
