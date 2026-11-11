@@ -1,5 +1,12 @@
 # @internal/desktop-client
 
+## 1.5.12
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @internal/node@3.6.3
+
 ## 1.5.11
 
 ### Patch Changes

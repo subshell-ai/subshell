@@ -1,5 +1,13 @@
 # @internal/node
 
+## 3.6.3
+
+### Patch Changes
+
+- Updated dependencies [[`2991783`](https://github.com/subshell-ai/subshell/commit/2991783f913f4e0403097784d0a9c7d492cd169b), [`707867f`](https://github.com/subshell-ai/subshell/commit/707867f1808e7a29f634537e25fe79fd3aa835e0)]:
+  - @subshell-ai/plugin-api@3.6.0
+  - @internal/pane-runtime@1.0.0
+
 ## 3.6.2
 
 ### Patch Changes
