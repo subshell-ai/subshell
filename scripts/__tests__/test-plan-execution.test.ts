@@ -97,6 +97,6 @@ test("a browser shard passes setup plus only its own spec files", () => {
   expect(argv.slice(0, 6)).toEqual(["turbo", "run", "test:e2e", "--filter=@internal/e2e", "--", "--retries=0"]);
   expect(argv).toContain("tests/00-smoke.spec.ts");
   expect(argv).toContain("tests/01-setup-wizard.spec.ts");
-  expect(argv).toContain("tests/12-nodes.spec.ts");
+  expect(argv).toContain("tests/22-ssh-terminal.spec.ts");
   expect(argv).not.toContain("tests/04-presets.spec.ts");
 });

@@ -12,7 +12,6 @@ import { ROOT } from "./ci-test-plan";
  * to shard 1 and unbalances the split (coverage is unaffected).
  */
 export const FIXTURE_HEAVY: Record<string, true> = {
-  "tests/12-nodes.spec.ts": true,
   "tests/14-registry-install.spec.ts": true,
   "tests/22-ssh-terminal.spec.ts": true,
   "tests/23-connect-flow.spec.ts": true,
