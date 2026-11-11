@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { getHarness, listInstalled } from "@internal/pane-runtime";
+import { bundledPluginVersion, getHarness, listInstalled } from "@internal/pane-runtime";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { errorHandlerPlugin } from "@/api/middleware/error-handler.plugin.js";
@@ -45,6 +45,10 @@ interface PluginRow {
   builtIn: boolean;
   version?: string;
   broken?: string;
+  /** Mirror of PluginRowSchema: which copy answers, and the one it displaced. */
+  source?: "build" | "npm" | "unrecorded";
+  restartRequired?: boolean;
+  shadowed?: { version: string; source: "build" | "npm" | "unrecorded"; error?: string };
   /** Mirror of PluginRowSchema: present only as false (the plugin's own word). */
   pickable?: false;
 }
@@ -181,6 +185,10 @@ describe("/api/plugins", () => {
     // from this one read: every built-in carries its manifest's value.
     expect(cc?.type).toBe("agent-harness");
     expect(rowOf(plugins, "terminal")?.type).toBe("terminal");
+    // A seeded built-in's copy in use is this build's own, and nothing was
+    // displaced — so the row claims `build` and names no shadow.
+    expect(cc?.source).toBe("build");
+    expect(cc?.shadowed).toBeUndefined();
   });
 
   it("the list merges the catalog: an embedded built-in missing from disk still appears, uninstalled", async () => {
@@ -191,6 +199,10 @@ describe("/api/plugins", () => {
       expect(codex).toBeDefined();
       expect(codex?.installed).toBe(false);
       expect(codex?.builtIn).toBe(true); // one click away — the page's catalog region
+      // Nothing is installed, so there is no copy in use to describe: the row
+      // claims no origin and names no shadow.
+      expect(codex?.source).toBeUndefined();
+      expect(codex?.shadowed).toBeUndefined();
     } finally {
       await installLocalPlugin("codex");
     }
@@ -319,6 +331,10 @@ describe("/api/plugins", () => {
     // overlay exactly because `toRow` asks the compiled set, not `getHarness`.
     expect(getHarness("third")).toBeDefined();
     expect(row.builtIn).toBe(false);
+    // The bytes came from a registry, not this build: the row says which copy
+    // answers, and the shadow is silent because no built-in was displaced.
+    expect(row.source).toBe("npm");
+    expect(row.shadowed).toBeUndefined();
     thirdInstalled = true;
 
     expect((await listInstalled(SUBSHELL_SERVER_DATA_DIR)).map((p) => p.id)).toContain("third");
@@ -331,6 +347,39 @@ describe("/api/plugins", () => {
     // gone, and a presetless launch of the new harness works the moment the
     // overlay lands — which the assertions above just proved.
     expect(await presets.listByHarness("third")).toEqual([]);
+  });
+
+  it("a registry copy of a built-in older than the bundle loses: the bundle answers and the shadow is named", async () => {
+    // An OLDER copy of the built-in's own package, installed from a registry.
+    // The id-claim guard admits it because the package name matches the copy
+    // already claiming `pi`; a differently-named package claiming that id is
+    // refused instead. The bundle is newer, so the compiled copy answers while
+    // the npm copy sits on disk — which is exactly what the row must say.
+    const bundled = await bundledPluginVersion("pi");
+    if (!bundled) throw new Error("this build must carry pi");
+    reg.served.set("@subshell-ai/plugin-pi", {
+      latest: "0.0.1",
+      versions: { "0.0.1": makePluginTgz({ name: "@subshell-ai/plugin-pi", version: "0.0.1", id: "pi" }) },
+    });
+    try {
+      const res = await send("POST", "/api/plugins", adminCookie, {
+        pluginId: "pi",
+        spec: "@subshell-ai/plugin-pi@0.0.1",
+      });
+      expect(res.status).toBe(200);
+      const row = (await res.json()) as PluginRow;
+      // The EFFECTIVE version, not the one on disk: the bundle's.
+      expect(row.version).toBe(bundled);
+      expect(row.source).toBe("build");
+      expect(row.shadowed).toEqual({ version: "0.0.1", source: "npm" });
+      expect(row.restartRequired).toBeUndefined();
+    } finally {
+      // pi is a seeded built-in the rest of the run expects: put this build's
+      // copy back (a fresh install carries no sidecar), which is also the
+      // state that silences the shadow.
+      await installLocalPlugin("pi");
+      reg.served.delete("@subshell-ai/plugin-pi");
+    }
   });
 
   // ── the enable flag: computed availability, rows never touched ────────────
