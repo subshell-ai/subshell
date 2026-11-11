@@ -169,7 +169,6 @@ async function resolveBody(
   io: ReportIo,
 ): Promise<{ path: string; json: Record<string, unknown> } | undefined> {
   const [verb, ...rest] = argv;
-
   if (verb === "subagents") {
     const raw = await (io.readStdin ?? readStdinBounded)();
     const payload = JSON.parse(raw) as Record<string, unknown>;
@@ -190,7 +189,41 @@ async function resolveBody(
       hook === "SessionStart" &&
       (payload.source === "clear" || payload.source === "fork" || payload.source === "resume")
     )
-      return { path: "subagents/report", json: { event: "reset" } };
+      return {
+        path: "subagents/report",
+        json: { event: "reset" },
+      };
+    // Codex's spawn tool posts its completed call as PostToolUse, carrying the
+    // human task name the TUI shows; its SubagentStart payload itself carries
+    // only the generic `default` type. Measured against codex-cli 0.167.0, the
+    // spawn's PostToolUse arrives BEFORE that child's SubagentStart, so park
+    // the name for the start that follows. Only a successful spawn reports an
+    // `/root/<name>` task path; a failed call leaves no label behind. Re-check
+    // this shape on a Codex version bump: a nested path would also stop names.
+    // This avoids replacing the user's PreToolUse policy hook. The task body arrives
+    // encrypted and is deliberately not forwarded.
+    if (
+      hook === "PostToolUse" &&
+      (payload.tool_name === "collaborationspawn_agent" || payload.tool_name === "spawn_agent")
+    ) {
+      const toolInput =
+        payload.tool_input && typeof payload.tool_input === "object"
+          ? (payload.tool_input as Record<string, unknown>)
+          : {};
+      const taskName = toolInput.task_name;
+      const agentName = typeof taskName === "string" ? taskName.trim().slice(0, 160) : "";
+      if (!agentName) return undefined;
+      let response: Record<string, unknown> | undefined;
+      try {
+        const raw = payload.tool_response;
+        response = (typeof raw === "string" ? JSON.parse(raw) : raw) as Record<string, unknown> | undefined;
+      } catch {
+        return undefined;
+      }
+      const childPath = response?.task_name;
+      if (typeof childPath !== "string" || !/^\/root\/[^/]+$/.test(childPath)) return undefined;
+      return { path: "subagents/report", json: { event: "describe", agentName } };
+    }
     // Claude Code's SubagentStart payload carries no task label (measured
     // against the hooks reference), but the Agent tool's own input does:
     // PreToolUse for a spawn hands over {subagent_type, description, prompt},
@@ -258,7 +291,10 @@ async function resolveBody(
           ];
         })
         .slice(0, 256);
-      return { path: "subagents/report", json: { event: "snapshot", agents } };
+      return {
+        path: "subagents/report",
+        json: { event: "snapshot", agents },
+      };
     }
     const id = hermes ? extra.child_session_id : payload.agent_id;
     if (typeof id !== "string" || !id || id.length > 256) return undefined;

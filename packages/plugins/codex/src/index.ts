@@ -1,6 +1,9 @@
 import {
   type BuildCommandInput,
   type HarnessPluginFactory,
+  type HarnessSubagentPane,
+  type HarnessSubagentSelectInput,
+  type HarnessSubagentSelectResult,
   MCP_SERVER_NAME,
   type McpLaunchSpec,
   type McpRegistration,
@@ -82,6 +85,232 @@ function tomlStringArray(values: string[]): string {
   return `[${values.map(tomlString).join(", ")}]`;
 }
 
+const OVERLAY_MARKER = "Select an agent to watch.";
+const EMPTY_COMPOSER = "Ask Codex to do anything";
+/** ESC [ 1 ; 3 D — Codex's Alt+Left, which returns a subagent view to Main. */
+const ALT_LEFT = "\u001b[1;3D";
+
+/**
+ * The text sitting in Codex's composer, if any. The placeholder is not input;
+ * the overlay's numbered lines are not the composer either. Returning a
+ * non-empty string means typing `/subagents` would append to a real prompt,
+ * so the picker act refuses instead of clobbering it.
+ */
+function composerText(screen: string): string {
+  const line = screen
+    .split("\n")
+    .reverse()
+    .find((row) => /^\s*›\s*/.test(row));
+  const text = line?.replace(/^\s*›\s*/, "").trim() ?? "";
+  return text === EMPTY_COMPOSER ? "" : text;
+}
+
+/** One keystroke batch's settle; Codex can fold an Enter sent in the same burst into the paste. */
+const COMMAND_SETTLE_MS = 120;
+
+/** Main's status line, not a transcript mention of it. */
+function isMainView(screen: string): boolean {
+  const tail = screen
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .slice(-4)
+    .join(" ")
+    .replace(/\s+/g, " ");
+  return tail.includes("Main [default]") && !tail.includes("Viewing sub-agent");
+}
+
+/**
+ * A real picker, not the marker text appearing in transcript history. The
+ * footer and the first numbered row are what distinguish the overlay.
+ */
+function hasPicker(screen: string): boolean {
+  // The LAST marker owns a visible overlay; an earlier one is transcript text.
+  const overlay = screen.lastIndexOf(OVERLAY_MARKER);
+  if (overlay === -1) return false;
+  const block = screen.slice(overlay);
+  const tail = screen
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .slice(-2)
+    .join(" ");
+  return (
+    /enter select\s*·\s*esc back/.test(tail) && block.includes("enter select") && /^\s*(?:›\s*)?1\.\s+•\s+/m.test(block)
+  );
+}
+
+async function typeCommand(pane: HarnessSubagentPane, text: string): Promise<void> {
+  await pane.type(text);
+  // Codex can fold an Enter sent in the same paste burst into the text. Wait
+  // for the composer to show the command before submitting it.
+  const rendered = await waitForScreen(pane, (screen) => composerText(screen) === text, 1500)
+    .catch(() => undefined)
+    .then(async (value) => value ?? (composerText(await pane.read()) === text ? "" : undefined));
+  if (rendered === undefined) throw new Error("Codex didn't render the command in its composer.");
+  await pane.type("\r");
+}
+
+async function waitForScreen(
+  pane: HarnessSubagentPane,
+  predicate: (screen: string) => boolean,
+  timeoutMs: number,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let screen = await pane.read();
+  while (!predicate(screen)) {
+    if (Date.now() >= deadline) throw new Error("Timed out waiting for Codex's agent picker.");
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    screen = await pane.read();
+  }
+  return screen;
+}
+
+/** A closed picker must survive two consecutive reads; a half-painted frame doesn't. */
+async function waitForPickerClosed(pane: HarnessSubagentPane, timeoutMs: number): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let previous: string | undefined;
+  while (Date.now() < deadline) {
+    const screen = await pane.read();
+    if (!hasPicker(screen) && previous !== undefined && !hasPicker(previous)) return screen;
+    previous = screen;
+    await new Promise((resolve) => setTimeout(resolve, 75));
+  }
+  throw new Error("Timed out waiting for Codex's agent picker to close.");
+}
+
+/**
+ * The picker's 1-based row for this id, read from the ids it prints. A narrow
+ * pane wraps a long id onto the next line, so each numbered row is assembled
+ * from its own lines before the id is matched. Reading the ids matters:
+ * completed children stay listed in Codex's picker, so a roster position
+ * would pick the wrong row as soon as a child finishes.
+ */
+const PICKER_ROW = /^\s*(?:›\s*)?(\d+)\.\s+•\s+(.*)$/;
+const HIGHLIGHTED_ROW = /^\s*›\s*(\d+)\.\s+•\s+(.*)$/;
+const PICKER_ID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+
+function pickerLines(screen: string): string[] | undefined {
+  const overlay = screen.lastIndexOf(OVERLAY_MARKER);
+  return overlay === -1 ? undefined : screen.slice(overlay).split("\n");
+}
+
+/** A row plus up to three indented id fragments; labels and descriptions don't join. */
+function pickerRowText(lines: string[], start: number, match: RegExpMatchArray): string {
+  let text = match[2] ?? "";
+  for (let j = start + 1; j < Math.min(lines.length, start + 4); j++) {
+    const next = lines[j] ?? "";
+    if (!/^\s+[0-9a-f-]+\s*$/i.test(next)) break;
+    text += next;
+  }
+  return text;
+}
+
+function pickerRowId(text: string): string | undefined {
+  // Codex prints the child id in the row's trailing column. A task label that
+  // happens to contain a UUID must not win: take the LAST id on the row.
+  return text.replace(/\s+/g, "").match(new RegExp(PICKER_ID.source, "ig"))?.at(-1);
+}
+
+function pickerIndex(screen: string, agentId: string | null): number | undefined {
+  if (!hasPicker(screen)) return undefined;
+  const lines = pickerLines(screen) ?? [];
+  let expected = 1;
+  let main: number | undefined;
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i]?.match(PICKER_ROW);
+    if (!match) continue;
+    const index = Number(match[1]);
+    // Picker rows are numbered consecutively. A wrapped task name that
+    // happens to start with "2. " must not open a bogus second row.
+    if (index !== expected) continue;
+    expected = index + 1;
+    const text = pickerRowText(lines, i, match);
+    if (agentId === null) {
+      if (/^\s*Main\s*\[default\]/.test(match[2] ?? "")) main = index;
+      continue;
+    }
+    if (pickerRowId(text)?.toLowerCase() === agentId.toLowerCase()) return index;
+  }
+  return agentId === null ? main : undefined;
+}
+
+/** The row Codex marks with `›` after a picker keypress, plus its printed id. */
+function highlightedPickerRow(screen: string): { index: number; text: string; label: string } | undefined {
+  const lines = pickerLines(screen);
+  if (!lines) return undefined;
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i]?.match(HIGHLIGHTED_ROW);
+    if (match) return { index: Number(match[1]), text: pickerRowText(lines, i, match), label: match[2] ?? "" };
+  }
+  return undefined;
+}
+
+/**
+ * Codex keeps its agent picker entirely inside the TUI. Read the pane, send
+ * the picker's own keys, then read it back to confirm the view actually moved.
+ * Completed children remain in the list, so the target is chosen by the id
+ * printed on its row, never by the server roster's position.
+ */
+async function selectCodexSubagent(input: HarnessSubagentSelectInput): Promise<HarnessSubagentSelectResult> {
+  const { agentId, pane } = input;
+  const deadline = Date.now() + 20_000;
+  const wait = (ms: number) => Math.max(0, Math.min(ms, deadline - Date.now()));
+  let screen = await pane.read();
+  // Codex disables direct input while a child view is showing, and a command
+  // typed there never opens the picker. Alt+Left cycles agent views; walk
+  // back until Main's status line is on screen. This touches no prompt text.
+  // An open picker is the picker wherever it was opened from: Alt+Left moves
+  // its highlight, never the agent view, so stop walking once it is visible.
+  for (let i = 0; i < 64 && Date.now() < deadline && !hasPicker(screen) && !isMainView(screen); i++) {
+    await pane.type(ALT_LEFT);
+    await new Promise((resolve) => setTimeout(resolve, COMMAND_SETTLE_MS));
+    screen = await pane.read();
+  }
+  if (!hasPicker(screen) && !isMainView(screen)) {
+    throw new Error("Codex is showing a subagent and didn't return to Main.");
+  }
+  if (agentId === null && !hasPicker(screen) && isMainView(screen)) {
+    return { selectedId: null };
+  }
+  if (!hasPicker(screen)) {
+    // Only outside the picker: its `›` row would read as composer text.
+    if (composerText(screen)) {
+      throw new Error("Finish or clear the prompt before switching agents.");
+    }
+    await typeCommand(pane, "/subagents");
+    screen = await waitForScreen(pane, hasPicker, wait(3000));
+  }
+  const index = pickerIndex(screen, agentId);
+  if (index === undefined) throw new Error("Codex didn't list that subagent in its picker.");
+  await pane.type(String(index));
+  // Codex 0.167 selects the numbered row and closes the picker on the digit
+  // itself; older/other builds keep it open and move the highlight. Wait for
+  // either shape, then verify before sending Enter.
+  screen = await waitForScreen(
+    pane,
+    (next) => !hasPicker(next) || highlightedPickerRow(next)?.index === index,
+    wait(1500),
+  );
+  if (!hasPicker(screen)) {
+    screen = await waitForPickerClosed(pane, wait(1000));
+    if (agentId === null ? !isMainView(screen) : isMainView(screen)) {
+      throw new Error("Codex didn't switch to the selected agent.");
+    }
+    return { selectedId: agentId };
+  }
+  const row = highlightedPickerRow(screen);
+  if (!row) throw new Error("Codex didn't highlight the selected row in its picker.");
+  const shownId = agentId === null ? null : (pickerRowId(row.text) ?? null);
+  if (agentId === null ? !/^\s*Main\s*\[default\]/.test(row.label) : shownId?.toLowerCase() !== agentId.toLowerCase()) {
+    throw new Error("Codex highlighted a different row in its picker.");
+  }
+  await pane.type("\r");
+  screen = await waitForPickerClosed(pane, wait(3000));
+  if (agentId === null ? !isMainView(screen) : isMainView(screen)) {
+    throw new Error("Codex didn't switch to the selected agent.");
+  }
+  return { selectedId: agentId };
+}
+
 /**
  * Built-in harness: Codex (OpenAI's `@openai/codex` CLI).
  *
@@ -121,9 +350,10 @@ function tomlStringArray(values: string[]): string {
 const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin => ({
   subagents: {
     discovery: "hooks",
-    navigation: "unavailable",
+    navigation: "native",
     setup:
       "Review the Subshell subagent monitoring hooks in /hooks and trust them to show active subagents in the sidebar.",
+    select: selectCodexSubagent,
   },
   capabilities: (): PluginCapability[] => ["subagents", "mcp", "settings"],
 
@@ -132,7 +362,7 @@ const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin =>
     const args: string[] = [binary];
     if (input.reporter) {
       const command = [input.reporter.command, ...input.reporter.args, "subagents"].map(host.shellQuote).join(" ");
-      for (const event of ["SubagentStart", "SubagentStop", "SessionStart"]) {
+      for (const event of ["SubagentStart", "SubagentStop", "SessionStart", "PostToolUse"]) {
         args.push(
           "-c",
           `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)},statusMessage="Subshell subagent monitoring",timeout=2}]}]`,

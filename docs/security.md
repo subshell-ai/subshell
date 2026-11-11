@@ -963,15 +963,22 @@ a value read out of a `.env`.
   created 0600/0700 by the `pane-log` verb and `launch`'s dir ensure.)
 
 **Subagent view selection is navigation.** `POST /api/subshells/:id/subagents/select`
-requires visibility and `subshells:read`, deliberately allowing view grantees.
-Subshell keys are refused on this door. The request carries only a reported
-child ID or null for the parent, never terminal input or an arbitrary harness
-command. The current harness integration must have reported native navigation
-support within 15 seconds. Queued requests expire after five seconds, and only
-a subsequent harness report changes the selected header. A switch affects all
-viewers of the existing terminal. Typing, steering and approval responses still
-use the existing edit gate. Integrations without a native selection API remain
-status-only; keyboard automation is not a fallback.
+requires visibility and `subshells:read`. Subshell keys are refused on this
+door. The request carries only a reported child ID or null for the parent,
+never terminal input or an arbitrary harness command. A switch affects all
+viewers of the existing terminal.
+
+An extension integration refreshes its snapshot while attached and can queue a
+view command; view grantees may use that path, the integration must have
+reported native navigation within 15 seconds, queued requests expire after five
+seconds, and only a subsequent harness report changes the selected header.
+A hook integration uses the plugin's `select` callback instead: the trusted
+plugin types only its own fixed picker keys into the pane, so this path requires
+`edit` (and the ssh owner-only input rule), not merely visibility. It has no
+bridge heartbeat to wait on; it chooses the row by the id Codex prints, verifies the highlight when the picker stays open, and records that row's id. Typing,
+steering and approval responses still use the existing edit gate. Integrations
+without either native mechanism remain status-only; caller-provided keyboard
+automation is not a fallback.
 
 Child reports are bounded metadata, accepted only from the parent's own token.
 Restart rotates that token and the run timestamp invalidates the old in-memory

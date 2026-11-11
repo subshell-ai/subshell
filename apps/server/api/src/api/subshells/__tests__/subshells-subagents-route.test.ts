@@ -16,8 +16,9 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../../testing
 const app = new Elysia().use(errorHandlerPlugin).use(subshellRoutes);
 
 /**
- * Only the parent's own bearer may report children. Shared viewers may switch
- * the native view, but that permission must never grant terminal input.
+ * Only the parent's own bearer may report children. Extension-backed navigation
+ * stays open to viewers; the native picker types into the pane and needs edit,
+ * which must never widen into terminal input for a viewer.
  */
 describe("harness subagent reporting and selection", () => {
   let userId: string;
@@ -45,17 +46,22 @@ describe("harness subagent reporting and selection", () => {
     await deleteUserByEmailOrId(email);
   });
 
-  async function subshellWithToken(status = "running"): Promise<{ id: string; key: string }> {
+  async function subshellWithToken(
+    status = "running",
+    harnessId = "claude-code",
+    ssh: string | null = null,
+  ): Promise<{ id: string; key: string }> {
     const id = crypto.randomUUID();
     createdSubshells.push(id);
     await new SubshellsRepository(db).create({
       id,
       userId,
       presetId: "p",
-      harnessId: "claude-code",
+      harnessId,
       name: "hagents-test",
       workingDir: "/tmp",
       tmuxSocket: null,
+      ssh,
     });
     if (status !== "running") {
       await new SubshellsRepository(db).update(id, { status: status as "terminated", alive: 0 });
@@ -98,6 +104,29 @@ describe("harness subagent reporting and selection", () => {
       403,
     );
   });
+  it("keeps a hook picker selectable without a bridge heartbeat", async () => {
+    const a = await subshellWithToken("running", "codex");
+    const own = { authorization: `Bearer ${a.key}` };
+    // A hook-only harness has no snapshot loop to refresh `lastSeen`; its
+    // plugin drives the picker itself, so the served snapshot must not fall
+    // back to the extension bridge's "integration stopped answering" state.
+    expect(
+      (
+        await request(a.id, "/report", own, {
+          event: "snapshot",
+          agents: [{ id: "child", name: "Review", status: "running" }],
+          canSelect: false,
+        })
+      ).status,
+    ).toBe(200);
+    const state = (await (await request(a.id, "", { cookie: `better-auth.session_token=${ownerCookie}` })).json()) as {
+      canSelect: boolean;
+      unavailableReason?: string;
+    };
+    expect(state.canSelect).toBe(true);
+    expect(state.unavailableReason).toBeUndefined();
+  });
+
   it("answers the batch collection through its own route, visible only to those who see the pane", async () => {
     // GET /api/subshells/subagents sits where the :id detail route could
     // shadow it (id = "subagents"), and it is the sidebar's ONE poll per tick.
@@ -284,6 +313,98 @@ describe("harness subagent reporting and selection", () => {
         }),
       );
       expect(input.status).toBe(403);
+    } finally {
+      await deleteUserByEmailOrId(email);
+    }
+  });
+  it("refuses an edit grantee before the native picker can type into an ssh pane", async () => {
+    const email = `subagent-ssh-viewer-${crypto.randomUUID()}@subshell.local`;
+    const viewerId = await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    try {
+      const a = await subshellWithToken("running", "codex", "root@example");
+      await request(
+        a.id,
+        "/report",
+        { authorization: `Bearer ${a.key}` },
+        { event: "snapshot", agents: [{ id: "child", name: "Review", status: "running" }] },
+      );
+      await new SubshellSharesRepository(db).replaceForSubshell(
+        a.id,
+        [{ granteeUserId: viewerId, permission: "edit" }],
+        userId,
+      );
+      const cookie = { cookie: `better-auth.session_token=${await signIn(email, pw)}` };
+      const refused = await request(a.id, "/select", cookie, { agentId: "child" });
+      // The service refuses before the plugin gets a pane; the route must not
+      // flatten SSH_OWNER_INPUT_ONLY into a generic picker 409.
+      expect(refused.status).toBe(403);
+      expect(((await refused.json()) as { code?: string }).code).toBe("SSH_OWNER_INPUT_ONLY");
+    } finally {
+      await deleteUserByEmailOrId(email);
+    }
+  });
+  it("does not advertise native selection to a view-only grantee", async () => {
+    const email = `subagent-native-viewer-${crypto.randomUUID()}@subshell.local`;
+    const viewerId = await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    try {
+      const a = await subshellWithToken("running", "codex");
+      await request(
+        a.id,
+        "/report",
+        { authorization: `Bearer ${a.key}` },
+        { event: "snapshot", agents: [{ id: "child", name: "Review", status: "running" }] },
+      );
+      await new SubshellSharesRepository(db).replaceForSubshell(
+        a.id,
+        [{ granteeUserId: viewerId, permission: "view" }],
+        userId,
+      );
+      const cookie = { cookie: `better-auth.session_token=${await signIn(email, pw)}` };
+      const snapshot = (await (await request(a.id, "", cookie)).json()) as {
+        canSelect: boolean;
+        unavailableReason?: string;
+      };
+      // Native selection types bytes; a view grant cannot reach it.
+      expect(snapshot.canSelect).toBe(false);
+      expect(snapshot.unavailableReason).toContain("edit access");
+    } finally {
+      await deleteUserByEmailOrId(email);
+    }
+  });
+  it("advertises native selection to an edit grantee", async () => {
+    const email = `subagent-native-editor-${crypto.randomUUID()}@subshell.local`;
+    const viewerId = await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    try {
+      const a = await subshellWithToken("running", "codex");
+      await request(
+        a.id,
+        "/report",
+        { authorization: `Bearer ${a.key}` },
+        { event: "snapshot", agents: [{ id: "child", name: "Review", status: "running" }] },
+      );
+      await new SubshellSharesRepository(db).replaceForSubshell(
+        a.id,
+        [{ granteeUserId: viewerId, permission: "edit" }],
+        userId,
+      );
+      const cookie = { cookie: `better-auth.session_token=${await signIn(email, pw)}` };
+      const snapshot = (await (await request(a.id, "", cookie)).json()) as { canSelect: boolean };
+      expect(snapshot.canSelect).toBe(true);
     } finally {
       await deleteUserByEmailOrId(email);
     }

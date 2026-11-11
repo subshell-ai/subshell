@@ -90,6 +90,41 @@ describe("runReport", () => {
     expect(await seen[2]?.json()).toEqual({ event: "describe", agentType: "scout", activity: "Map the repo" });
   });
 
+  it("uses Codex's spawn task name for the child the next start announces", async () => {
+    // Measured against codex-cli 0.167.0: the spawn's PostToolUse arrives
+    // before that child's SubagentStart, and its response names the created
+    // path. Only a successful spawn carries that path.
+    const { seen, fetchImpl } = recorder();
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () =>
+        JSON.stringify({
+          hook_event_name: "PostToolUse",
+          tool_name: "collaborationspawn_agent",
+          tool_input: { task_name: "sleeper", message: "encrypted-private" },
+          tool_response: '{"task_name":"/root/sleeper"}',
+        }),
+    });
+    expect(await seen[0]?.json()).toEqual({ event: "describe", agentName: "sleeper" });
+  });
+
+  it("doesn't park a Codex task name when the spawn failed", async () => {
+    const { seen, fetchImpl } = recorder();
+    await runReport(["subagents"], {
+      env: paneEnv,
+      fetch: fetchImpl,
+      readStdin: async () =>
+        JSON.stringify({
+          hook_event_name: "PostToolUse",
+          tool_name: "collaborationspawn_agent",
+          tool_input: { task_name: "sleeper", message: "encrypted-private" },
+          tool_response: '{"error":"spawn failed"}',
+        }),
+    });
+    expect(seen).toHaveLength(0);
+  });
+
   it("reports exact background child names without forwarding output or prompts", async () => {
     const { seen, fetchImpl } = recorder();
     await runReport(["subagents"], {

@@ -57,6 +57,47 @@ export interface HarnessSubagentSnapshot {
 }
 
 /**
+ * Pane operations the host hands a hook integration that drives its harness's
+ * own agent picker. The plugin runs in the control plane, so it cannot open a
+ * terminal itself; these are the only two acts it needs, and neither submits
+ * a prompt on its own.
+ */
+export interface HarnessSubagentPane {
+  /** The parent pane's current screen with ANSI stripped, exactly as painted. */
+  read(): Promise<string>;
+  /**
+   * Type raw bytes into the pane's own input. Nothing is appended or
+   * translated: send `\r` for Enter, `\u001b[1;3D` for Alt+Left, and so on.
+   */
+  type(text: string): Promise<void>;
+}
+
+/** What the host hands an integration's {@link HarnessSubagentSupport.select}. */
+export interface HarnessSubagentSelectInput {
+  /** The child to show, or null to return the parent itself */
+  agentId: string | null;
+  /** The roster the child came from, server-stamped and bounded */
+  agents: readonly HarnessSubagentView[];
+  /** The parent terminal this selection must happen in */
+  pane: HarnessSubagentPane;
+}
+
+/** What the integration must report back after the harness actually switched. */
+export interface HarnessSubagentSelectResult {
+  /** The view the harness showed when the act finished; null for the parent */
+  selectedId: string | null;
+}
+
+/**
+ * A hook integration's own way to move its terminal's view. This is for
+ * harnesses whose picker exists only inside their TUI (Codex's `/subagents`,
+ * for example): the integration reads the pane, sends the picker's keys, and
+ * reports the view it verified. Extension integrations use the report-loop
+ * command instead, because their bridge can call the harness's real API.
+ */
+export type HarnessSubagentSelect = (input: HarnessSubagentSelectInput) => Promise<HarnessSubagentSelectResult>;
+
+/**
  * What a plugin declares about its harness's child agents. The host uses
  * `discovery`/`navigation` to decide what the sidebar may offer; `setup`, when
  * the harness needs a one-time human act (trusting hooks, installing an
@@ -69,4 +110,9 @@ export interface HarnessSubagentSupport {
   navigation: HarnessSubagentNavigation;
   /** One-time user action required for reporting to work, if any */
   setup?: string;
+  /**
+   * A hook integration's own picker driver, when it has one. Requires
+   * `navigation: "native"`; the host uses it instead of queueing a command.
+   */
+  select?: HarnessSubagentSelect;
 }
