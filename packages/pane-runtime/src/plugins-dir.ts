@@ -663,11 +663,14 @@ export async function resolvePluginUpdates(
 }
 
 /**
- * Re-installs any built-in whose on-disk copy differs from this build's.
+ * Re-installs any built-in whose on-disk copy is behind this build's.
  *
  * The binary and its built-ins ship together, so a stale on-disk copy of a
  * built-in is never something a user chose: it means the agent was upgraded
- * underneath it. A plugin this build carries no copy of is left strictly
+ * underneath it. A refresh therefore moves an embedded copy FORWARD to the
+ * bundle and never backward: an embedded copy at or ahead of this build's
+ * version is left alone, because downgrading it would discard work rather
+ * than recover it. A plugin this build carries no copy of is left strictly
  * alone, because overwriting a third-party plugin from nowhere would be data
  * loss rather than a refresh.
  *
@@ -676,7 +679,8 @@ export async function resolvePluginUpdates(
  * differs from a registry-pinned one is not the agent having been upgraded
  * underneath the plugin, it is the operator having chosen that version, and
  * reinstalling the embedded copy would silently undo the install (and drop
- * the sidecar that says so).
+ * the sidecar that says so). Such a copy is never touched, whichever way its
+ * version compares.
  * @returns the ids that were refreshed, id-sorted
  */
 export async function refreshStaleBuiltIns(dataDir: string): Promise<string[]> {
@@ -697,7 +701,10 @@ export async function refreshStaleBuiltIns(dataDir: string): Promise<string[]> {
     // guarded there, where a malformed built-in makes it answer null instead
     // of ending this loop.
     const sourceVersion = String((JSON.parse(packageJsonText(source.files)) as { version?: unknown }).version ?? "");
-    if (sourceVersion === installed.version && !installed.broken) continue;
+    // Forward only: a broken copy is repaired, and one older than the bundle
+    // is brought up to it. An equal or newer copy is what the user has, not
+    // staleness, so it stays exactly as it is.
+    if (!installed.broken && !semverLt(installed.version, sourceVersion)) continue;
     try {
       await installEmbedded(dataDir, installed.id);
       refreshed.push(installed.id);
