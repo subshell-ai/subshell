@@ -616,8 +616,8 @@ describe("instance plugins page", () => {
     try {
       renderPage();
       const gets = (pathname: string) => m.calls.filter((c) => c.method === "GET" && c.pathname === pathname).length;
-      const updatesBefore = gets("/api/plugins/updates");
       await waitFor(() => expect(gets("/api/plugins/updates")).toBeGreaterThanOrEqual(1));
+      const updatesBefore = gets("/api/plugins/updates");
       fireEvent.click(await screen.findByRole("button", { name: "Restart server" }));
       const dialog = await screen.findByRole("dialog");
       fireEvent.click(within(dialog).getByRole("button", { name: "Restart server" }));
