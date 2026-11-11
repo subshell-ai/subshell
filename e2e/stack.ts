@@ -242,8 +242,12 @@ function readdirSafe(dir: string): string[] {
  * after the wipe deleted the scratch dir re-creates the tree under it, and
  * the wipe then fails `ENOTEMPTY` while every spec passed (2026-11-11: twice
  * on CI, both shard 2, 29/29 green). `list-sessions` on a dead socket answers
- * "no server running" and exits non-zero, so it is the probe; the wait is
- * bounded because a server that refuses to die must not hold the job open.
+ * "no server running" and exits non-zero, so it is the probe. A spawn failure
+ * or a timeout says nothing about the server ("inconclusive", not "gone"),
+ * and a socket needs three consecutive non-zero answers, so one unlucky exit
+ * does not end the wait; every probe carries its own 1 s cap and the wait as
+ * a whole is bounded, because a server that refuses to die must not hold the
+ * job open.
  */
 async function killScratchTmuxServers(base: string): Promise<void> {
   const sockets: string[] = [];
@@ -259,10 +263,23 @@ async function killScratchTmuxServers(base: string): Promise<void> {
     }
   }
   const deadline = Date.now() + 2_000;
+  /** Consecutive answers that said this socket's server is gone. */
+  const goneAnswers = new Map<string, number>();
   while (sockets.length > 0 && Date.now() < deadline) {
     for (let i = sockets.length - 1; i >= 0; i -= 1) {
-      const probe = spawnSync("tmux", ["-S", sockets[i] as string, "list-sessions"]);
-      if (probe.status !== 0) sockets.splice(i, 1);
+      const socket = sockets[i];
+      if (socket === undefined) continue;
+      const probe = spawnSync("tmux", ["-S", socket, "list-sessions"], { timeout: 1_000 });
+      // A spawn failure or timeout, and a process killed by a signal, are
+      // inconclusive: the socket keeps its place in the next pass.
+      if (probe.error !== undefined || probe.status === null) continue;
+      if (probe.status === 0) {
+        goneAnswers.delete(socket);
+        continue;
+      }
+      const answers = (goneAnswers.get(socket) ?? 0) + 1;
+      goneAnswers.set(socket, answers);
+      if (answers >= 3) sockets.splice(i, 1);
     }
     if (sockets.length > 0) await sleep(50);
   }
