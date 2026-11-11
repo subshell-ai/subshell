@@ -5,21 +5,16 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-  workflow_call:
-    inputs:
-      full:
-        description: Run every check on the caller's exact revision before a release.
-        type: boolean
-        default: false
 
 permissions:
   contents: read
   packages: read
 
-# A release caller must not cancel itself or a PR run of the same revision.
+# Pushes and PRs cancel older runs on their ref. A manual full run gets its
+# own group so it can't cancel the push run a release gate may be waiting on.
 concurrency:
-  group: tests-${{ github.workflow }}-${{ github.ref }}-${{ inputs.full || false }}
-  cancel-in-progress: ${{ !inputs.full }}
+  group: tests-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 env:
   # Keep the measured serial regime; package/job selection removes unrelated work.
@@ -47,7 +42,7 @@ jobs:
         id: route
         env:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-          FULL: ${{ inputs.full || github.event_name == 'workflow_dispatch' }}
+          FULL: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           if [ "$FULL" = true ]; then
             bun scripts/ci-test-plan.ts --full

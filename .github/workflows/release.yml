@@ -30,14 +30,16 @@
 #                 apps/<dir>/package.json, tag = <app>-v<version>) and SKIPS
 #                 apps that already have a published release. It runs
 #                 ALONGSIDE `verify`, so the build shards start immediately;
-#                 nothing is tagged or published until verification passes.
+#                 nothing is tagged or published until the revision's reused
+#                 Test run has passed.
 #                 The `refresh` app choice cuts nothing: empty matrix, and the
 #                 `refresh_manifest=true` output that wakes site-manifest alone.
-#   tag         — pushes the missing tags once full verification passes (spec
-#                 §7.2: no tag race downstream). A failed verification leaves
-#                 no tag and no release; publishes need this job, so build
-#                 artifacts from an unverified revision can never ship. The
-#                 cost is build minutes spent on a revision that fails verify.
+#   tag         — pushes the missing tags once the reused Test run passes
+#                 (spec §7.2: no tag race downstream). A failed or missing
+#                 run leaves no tag and no release; publishes need this job,
+#                 so build artifacts from an unverified revision can never
+#                 ship. The cost is build minutes spent on a revision that
+#                 fails verification.
 #   build-cli   — matrix over the CLI apps' triples, pinned to hardware per triple.
 #   build-desktop — the SAME body as a second job, gated on publish-cli: the
 #                 cut-order ruling (2026-09-30) is CLI first, desktop after,
@@ -262,21 +264,71 @@ jobs:
           create-github-releases: false
 
 
-  # The same workflow as PR verification, forced to run every suite on this SHA.
-  # Version-PR maintenance and a manifest refresh don't publish artifacts.
+  # Reuse the Test run for this revision instead of running the suite again.
+  # A version-PR merge changes package.json and bun.lock, so the push run's
+  # plan is full. The gate waits for an in-flight run, refuses a partial or
+  # failed run, and refuses a SHA that has no Test run on main.
   verify:
-    name: Full release verification
+    name: Reuse the revision's verification
     needs: changesets
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.app != 'refresh') ||
       (github.event_name == 'push' && vars.NPM_PUBLISH_ENABLED == 'true' &&
        needs.changesets.outputs.needs_publish == 'true')
-    uses: ./.github/workflows/test.yml
-    with:
-      full: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     permissions:
+      actions: read
       contents: read
-      packages: read
+    steps:
+      - name: Require a green full Test run for this revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          run_id=$(gh api "repos/$REPO/actions/workflows/test.yml/runs?head_sha=$SHA&per_page=100" --jq '[.workflow_runs[] | select(.head_branch == "main" and (.event == "push" or .event == "workflow_dispatch"))] | sort_by(.created_at) | last | .id // ""')
+
+          if [ -z "$run_id" ]; then
+            echo "::error::No Test run on main for $SHA. Run the full suite on that revision first (gh workflow run test.yml --ref main), then dispatch this release again."
+            exit 1
+          fi
+
+          echo "::notice::Reusing Test run $GITHUB_SERVER_URL/$REPO/actions/runs/$run_id for $SHA"
+
+          deadline=$((SECONDS + 2400))
+          while :; do
+            status=$(gh api "repos/$REPO/actions/runs/$run_id" --jq '.status')
+            if [ "$status" = "completed" ]; then break; fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::Test run $run_id for $SHA did not finish within 40 minutes; nothing is publishing."
+              exit 1
+            fi
+            sleep 15
+          done
+
+          conclusion=$(gh api "repos/$REPO/actions/runs/$run_id" --jq '.conclusion')
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::Test run $run_id for $SHA finished as $conclusion. Fix or rerun it before cutting this revision."
+            exit 1
+          fi
+
+          plan_job=$(gh api "repos/$REPO/actions/runs/$run_id/jobs?per_page=100" --jq '[.jobs[] | select(.name == "Plan")][0].id // ""')
+          if [ -z "$plan_job" ]; then
+            echo "::error::Test run $run_id has no Plan job, so its plan can't be checked."
+            exit 1
+          fi
+
+          logs=$(gh api --allow-escape-sequences "repos/$REPO/actions/jobs/$plan_job/logs" \
+            | sed 's/\x1b\[[0-9;]*[A-Za-z]//g')
+          if ! grep -q '"full": true' <<<"$logs"; then
+            echo "::error::Test run $run_id for $SHA ran a partial plan. A docs-only push does not verify the code; run the full suite first (gh workflow run test.yml --ref main), then dispatch this release again."
+            exit 1
+          fi
+
+          echo "::notice::Test run $run_id passed a full plan on $SHA."
 
   # Hosted by necessity rather than by policy: npm's OIDC trusted publishing
   # does not support self-hosted runners ("not currently supported but are
@@ -362,8 +414,8 @@ jobs:
     name: Plan the cut
     # Deliberately NOT gated on verify: the compute step only reads manifests
     # and the remote tag/release state, and the build shards start while the
-    # full suite runs. Every write — tags, releases, npm — is gated on a
-    # green verification separately below.
+    # revision's Test run finishes. Every write — tags, releases, npm — is
+    # gated on that run's green result separately below.
     needs: [changesets]
     if: >-
       !cancelled() && needs.changesets.result == 'success'
@@ -598,8 +650,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # Tags wait for verification; builds do not. This job is what turns "the
-  # revision passed the full suite" into a publishable release, which is why
-  # the build shards can start alongside `verify` without ever shipping
+  # revision's Test run passed" into a publishable release, which is why the
+  # build shards can start alongside `verify` without ever shipping
   # unverified bytes. An existing tag needs no write: it is either the retry
   # state (publish completes it) or was already skipped by plan as published.
   tag:

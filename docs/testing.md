@@ -86,7 +86,7 @@ termination.
 | Rust app | Selected crate | That app on Linux and macOS |
 | Shared Rust/native helper | Focused native checks | Core and both desktop apps on Linux and macOS |
 | Toolchain, CI selection, or unknown input | Planner/workflow checks | Full verification |
-| Release | Explicit full verification | Fresh full verification on the release revision before publication |
+| Release | Explicit full verification | Green full `Test` run on the release revision before publication |
 
 Use the package `test` script for a suite run, so it gets its worker settings
 and cleanup. A single `bun test ./path/to/file.test.ts` from that package is
@@ -148,11 +148,12 @@ explicitly depends on the real node daemon its fixtures launch, so a node-only
 production change also selects browser coverage. Brand tests and e2e
 capture-helper tests now have ordinary workspace `test` scripts too.
 
-Full release verification bypasses change selection. `release.yml`, `docs.yml`, and `website.yml` call the
-same workflow with `full: true` before their tag-writing plans; npm
-publication uses that gate too. Unit and browser tests run without retries. A failed release gate
-requires fixing the failure before publishing; it cannot borrow a green result
-from another revision. Local full verification covers the current host, while
+A release reuses the revision's own CI instead of re-running it: `release.yml` waits for the standalone
+`Test` run on the exact dispatch SHA, requires its plan to be full, and refuses a missing or failed run;
+npm publication uses that gate too. `docs.yml` and `website.yml` gate on their own site build and tests.
+Unit and browser tests run without retries. A failed release gate requires fixing the failure before
+publishing; it cannot borrow a green result from another revision. Local full verification covers the
+current host, while
 CI covers both Linux and macOS. Published-artifact smoke checks still run on the
 release shards, and the existing post-cut download check remains separate.
 
