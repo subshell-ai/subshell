@@ -1,5 +1,11 @@
 # @internal/server
 
+## 3.7.0
+
+### Minor Changes
+
+- [#531](https://github.com/subshell-ai/subshell/pull/531) [`dee7c18`](https://github.com/subshell-ai/subshell/commit/dee7c1867d080f9c2480b1e881d4d0e80ab02c4d) Thanks [@theogravity](https://github.com/theogravity)! - Plugins installed from npm can be updated from Settings → Plugins, one at a time or all at once, with a server restart offered after the admin is done. Built-in plugin ids now resolve to the newer of the bundled and installed copies, gated by the plugin's `subshell.apiVersion`; a server upgrade no longer downgrades a newer installed copy.
+
 ## 3.6.2
 
 ### Patch Changes
