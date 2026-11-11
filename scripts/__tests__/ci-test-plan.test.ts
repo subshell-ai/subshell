@@ -138,17 +138,24 @@ describe("change selection", () => {
     expect(planChanges("").full).toBe(true);
   });
 
-  test("full verification reaches every registered test script once and every extra tier", () => {
+  test("full verification reaches every registered test script and splits the server lane", () => {
     const selected = fullPlan(workspaces, "release");
     const lanes = unitLanes(selected, workspaces);
-    const names = lanes.flatMap((l) => l.packages).sort();
+    // Sharded legs share their package list, so coverage is by NAME.
+    const names = [...new Set(lanes.flatMap((l) => l.packages))].sort();
     expect(names).toEqual(
       workspaces
         .filter((w) => w.scripts.test)
         .map((w) => w.name)
         .sort(),
     );
-    expect(new Set(names).size).toBe(names.length);
+    const shards = lanes.filter((l) => l.shard);
+    expect(shards.map((l) => [l.name, l.shard])).toEqual([
+      ["server-1", "1/2"],
+      ["server-2", "2/2"],
+    ]);
+    expect(shards[0].packages).toEqual(shards[1].packages);
+    expect(shards[0].packages).toContain("@internal/server");
     expect(lanes.filter((l) => l.scripts)).toHaveLength(1);
     expect(selected.e2e && selected.cli && selected.smoke && selected.audit).toBe(true);
     expect(selected.rust).toEqual(RUST_CRATES);
@@ -187,7 +194,8 @@ test("the CLI writes machine-readable outputs and plans without dependencies", (
   expect(lines.map((line: string) => line.slice(0, line.indexOf("=")))).toEqual([
     "plan",
     "units",
-    "integration",
+    "cli",
+    "e2e",
     "rust",
   ]);
 });

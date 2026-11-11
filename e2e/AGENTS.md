@@ -14,7 +14,7 @@ E2E_VERBOSE=1 bun run test:e2e     # stream backend stdout/stderr for debugging
 
 Run from the repo root via the root `test:e2e` script (which routes here), or
 inside `e2e/` directly. Never part of `turbo test`, `bun run test`, or the
-pre-push hook; CI runs it in the selected integration job. The workspace
+pre-push hook; CI runs it as two browser shards. The workspace
 `test` script covers only the capture helpers, not browser scenarios.
 
 ### Standalone live security probes
@@ -105,6 +105,14 @@ the master plan's `subshell-fake.ts` was superseded before it was written
 
 `playwright.config.ts` forces `workers: 1` and files run in alphabetical order
 against ONE shared database:
+
+CI shards the suite into two browser jobs, each on its own runner with its own
+stack and database. Both shards run `00-smoke` and `01-setup-wizard`; shard 2
+then runs the fixture-heavy specs that boot their own backend, container or
+sshd, and shard 1 runs everything else in the order below. The split lives in
+`scripts/e2e-shard.ts` (`FIXTURE_HEAVY`); a renamed heavy spec that is not
+listed there just moves to shard 1, so keep the list current. A PR's selected
+specs split the same way, and a shard with no selected file skips.
 
 - `00-smoke` proves the pristine stack.
 - `01-setup-wizard` creates the admin (`.test` email TLD: better-auth rejects

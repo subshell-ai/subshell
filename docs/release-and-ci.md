@@ -361,13 +361,16 @@ into repo secrets, remains rejected rather than quietly adopted.
 `test.yml` handles PR and main-branch verification and exposes the same jobs
 as a reusable workflow for releases. The planner reads workspace manifests
 without installing dependencies, follows dependency edges, and selects at most
-three unit jobs. Each runs only selected packages; Turbo builds their required
-dependencies. Build/type/lint checks share that selection. Script tests run for
-the repository contracts they read, not for every app edit. Pure test edits stay
-in their owning package. Unknown inputs or missing history run everything.
+four unit jobs; the server suite runs as two `--shard` legs, balanced by the
+committed `.bun-test-timings.json`. Each runs only selected packages; Turbo
+builds their required dependencies. Build/type/lint checks share that selection.
+Script tests run for the repository contracts they read, not for every app
+edit. Pure test edits stay in their owning package. Unknown inputs or missing
+history run everything.
 
-Browser and compiled CLI checks share an integration job on a bare Ubuntu
-runner, where Testcontainers can reach the host Docker daemon and mapped ports.
+Browser checks run as two shards on bare Ubuntu runners, each with its own
+stack, where Testcontainers can reach the host Docker daemon and mapped ports.
+The compiled CLI and compiled-smoke checks run in their own job beside them.
 Rust checks run selected crates on Linux in the builder image and on macOS;
 a shared-core change selects both desktop consumers. The single `Tests passed`
 result requires every selected job to succeed, including after a cancellation
@@ -631,15 +634,19 @@ which is why they share their own smoke, parameterized by app id.
   input's default: every component is cuttable, and each desktop bundle ships
   the CLI it wraps, so the whole set is the safe cut.
   The reusable full verification workflow must succeed on the dispatch's
-  revision before the plan job can create or push tags. It runs all workspace,
-  script, browser, compiled CLI, Rust, and native-helper tests, plus static
-  checks and the dependency audit. Unit and browser retries are disabled.
-  Failed, cancelled, or missing required checks block the cut; fix the cause
-  and dispatch the corrected revision. npm publication uses the same gate.
-  A manifest-only refresh and version-PR maintenance don't publish binaries or
-  packages and don't need this gate.
-  The plan job then pushes the missing tags, followed by one build shard per
-  app×triple on GitHub-hosted runners, each triple on hardware of its own
+  revision before the tag job creates or pushes tags, and every publish job
+  needs that tag job. It runs all workspace, script, browser, compiled CLI,
+  Rust, and native-helper tests, plus static checks and the dependency audit.
+  Unit and browser retries are disabled. Failed, cancelled, or missing required
+  checks block the cut; fix the cause and dispatch the corrected revision. npm
+  publication uses the same gate. A manifest-only refresh and version-PR
+  maintenance don't publish binaries or packages and don't need this gate.
+  **Verification runs alongside the build phase**: the plan job and the build
+  shards start immediately, so a cut's wall clock is the build path rather
+  than verification plus builds. A failed verification spends build minutes
+  but leaves no tag and no release. The tag job then pushes the missing tags
+  before the publish jobs run. Each app×triple is built by one shard on
+  GitHub-hosted runners, each triple on hardware of its own
   arch: linux on `ubuntu-24.04` (linux-x64 native; linux-arm64 cross-built
   there, so it alone gets the `file` magic check and is never exec'd),
   darwin-arm64 on `macos-15`, darwin-x64 on `macos-15-intel`. Both Mac

@@ -189,18 +189,17 @@ describe("release.yml darwin-x64 venue (settled by run 36196527394 + the hosted-
     }
   });
 
-  test("the cargo cache cannot hand one Mac arch the other's host-tooling tree", () => {
-    // The key already carried runner.os, but runner.os is "macOS" on BOTH
-    // hosted labels. With --target, cargo keeps host-arch build scripts and
-    // proc-macro dylibs in the unqualified target/release/, so a key shared
-    // across architectures lets an Intel shard restore an arm64 host's tree
-    // and die executing binaries it cannot run. runner.arch (ARM64 vs
-    // X86_64) is what splits it; both key and restore-keys must carry it,
-    // or a prefix restore re-crosses the line the full key just drew.
-    expect(WORKFLOW).toMatch(
-      /key: \$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-cargo-release-v2-\$\{\{ matrix\.app \}\}-/,
-    );
-    expect(WORKFLOW).toMatch(/restore-keys: \$\{\{ runner\.os \}\}-\$\{\{ runner\.arch \}\}-cargo-release-v2-/);
+  test("the release cargo cache carries only the registry, never a target tree", () => {
+    // Target trees ran several GB, overran the repo's 10GB cache quota, and
+    // were evicted between cuts (2026-11-11: both darwin desktop shards
+    // compiled cold). Both duplicated build bodies cache the registry only.
+    const blocks = [...WORKFLOW.matchAll(/- name: Cache cargo registry\n([\s\S]*?)\n\n/g)].map((m) => m[1]);
+    expect(blocks).toHaveLength(2);
+    for (const block of blocks) {
+      expect(block).not.toContain("src-tauri/target");
+      expect(block).toMatch(/key: \$\{\{ runner\.os \}\}-cargo-registry-\$\{\{ hashFiles\('\*\*\/Cargo\.lock'\) \}\}/);
+      expect(block).toMatch(/restore-keys: \$\{\{ runner\.os \}\}-cargo-registry-/);
+    }
   });
 
   test("the desktop bundle smoke execs its sidecar: same-arch hardware makes it native", () => {

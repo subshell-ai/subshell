@@ -136,8 +136,10 @@ have explicit repository-input rules for manifests, publishing, installers, and
 shared release helpers. Keep those rules current when a test begins reading an
 external file. An unknown root input or deleted workspace selects everything.
 
-PR CI has one planner, one static-check job, up to three unit jobs, one selected
-integration job, and selected Linux/macOS native jobs. `Tests passed` aggregates
+PR CI has one planner, one static-check job, up to four unit jobs (the server
+suite runs as two `--shard` legs), separate compiled-CLI and browser jobs (the
+browser suite runs as two shards), and selected Linux/macOS native jobs.
+`Tests passed` aggregates
 those results and rejects a required job that failed, was skipped, or was
 cancelled. Only selected consumers and their dependencies build; planning needs
 neither a dependency install nor Turbo. All existing workspace test scripts are
@@ -383,9 +385,10 @@ claim about a whole-repo migration speedup. It does show that adding workers to
 very short suites can cost more than it saves. Don't raise worker counts by
 instinct, enable in-file concurrency on shared DB/DOM state, or disable isolation
 without measuring the representative suite. Keep the existing local package
-widths. CI keeps other lanes serial, but the server lane uses `--parallel=1`
-for isolation: a shared process leaks singleton state between server fixtures.
-Increasing that width still needs representative hosted measurements.
+widths. CI keeps other lanes serial; the server lane runs as two `--shard`
+legs at `--parallel=4`, the width it was pinned to on the four-core hosted
+runner. `--parallel` still isolates every file, which is what the server
+fixtures need, and the shards split files by the committed timing data.
 
 After the third cull, workspace unit verification on Bun 1.4.4 reports 12,251
 passed, two skipped, and none failed across 1,000 files. All 60 Turbo tasks

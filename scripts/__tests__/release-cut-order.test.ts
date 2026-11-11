@@ -42,27 +42,34 @@ function steps(name: string): string {
 describe("cut phases: CLI first, desktop after", () => {
   test("the plan splits its matrix and app lists by phase", () => {
     const plan = job("plan");
-    for (const out of ["cli_matrix", "desktop_matrix", "cli_apps", "desktop_apps"]) {
+    for (const out of ["cli_matrix", "desktop_matrix", "cli_apps", "desktop_apps", "apps"]) {
       expect(plan).toContain(`${out}: \${{ steps.compute.outputs.${out} }}`);
       expect(plan).toContain(`echo '${out}=[]' >> "$GITHUB_OUTPUT"`);
     }
     // The single-phase spellings are gone: no consumer may read a mixed
-    // matrix and re-parallelize the phases by accident.
+    // matrix and re-parallelize the phases by accident. `outputs.apps` is the
+    // tag job's handoff, not a mixed build matrix.
     expect(plan).not.toMatch(/outputs\.matrix\b/);
-    expect(plan).not.toMatch(/outputs\.apps\b/);
   });
 
   test("the wiring is a chain, not a fan", () => {
     expect(job("build-cli")).toContain("needs: plan");
     expect(job("build-cli")).toContain("cli_matrix");
-    expect(job("publish-cli")).toContain("needs: [plan, build-cli]");
+    expect(job("publish-cli")).toContain("needs: [plan, tag, build-cli]");
     expect(job("build-desktop")).toContain("needs: [plan, publish-cli]");
     expect(job("build-desktop")).toContain("desktop_matrix");
     // A skipped CLI phase (a desktop-only dispatch, an earlier CLI cut) must
     // not strand the desktop half; a FAILED one must stop it.
     expect(header("build-desktop")).toContain("needs.publish-cli.result == 'skipped'");
-    expect(job("publish-desktop")).toContain("needs: [plan, build-desktop]");
+    expect(job("publish-desktop")).toContain("needs: [plan, tag, build-desktop]");
     expect(job("publish-desktop")).toContain("desktop_apps");
+    // The verification gate is the TAG job, not plan: builds run alongside
+    // verify, and every publish needs the tag it creates.
+    expect(job("tag")).toContain("needs: [plan, verify]");
+    expect(job("tag")).toContain("needs.plan.outputs.apps");
+    expect(header("tag")).toContain("needs.plan.result == 'success'");
+    expect(header("tag")).toContain("needs.verify.result == 'success'");
+    expect(header("tag")).toContain("github.event_name == 'push' || inputs.app == 'refresh'");
     // The failure half of the tolerance: a SKIPPED publish-cli (desktop-only
     // dispatch) may pass, a FAILED one must stop it. The tolerance is
     // only for CLI ancestors: publication still requires a successful build.
@@ -72,6 +79,7 @@ describe("cut phases: CLI first, desktop after", () => {
     expect(header("publish-cli")).not.toContain("result ==");
     expect(header("publish-desktop")).toContain("!cancelled()");
     expect(header("publish-desktop")).toContain("needs.plan.result == 'success'");
+    expect(header("publish-desktop")).toContain("needs.tag.result == 'success'");
     expect(header("publish-desktop")).toContain("needs.build-desktop.result == 'success'");
     // GitHub's implicit-success trap: an `if` with NO status-check function
     // is wrapped in success() over all needs, and that gate runs before the
@@ -81,6 +89,7 @@ describe("cut phases: CLI first, desktop after", () => {
     // with `!cancelled()` — the weakest function that does it, since a
     // cancelled run must still stop publishes and pushes.
     expect(header("build-desktop")).toContain("!cancelled()");
+    expect(header("tag")).toContain("!cancelled()");
     expect(header("site-manifest")).toContain("!cancelled()");
     // And because build-desktop's `'' != '[]'` matrix guard reads TRUE on a
     // dead plan's empty outputs, it names plan's success itself — the clause
@@ -92,7 +101,7 @@ describe("cut phases: CLI first, desktop after", () => {
     // way — papering over a FAILED or CANCELLED chain. (The one always() in
     // the build bodies is a STEP guard, un-rooting the container workspace,
     // not a gate, so the check stays scoped to headers.)
-    for (const name of ["build-cli", "build-desktop", "publish-cli", "publish-desktop", "site-manifest"]) {
+    for (const name of ["build-cli", "build-desktop", "publish-cli", "publish-desktop", "tag", "site-manifest"]) {
       expect(header(name)).not.toContain("always()");
     }
     // The website's manifest refresh waits for every phase that ran.
@@ -107,8 +116,9 @@ describe("cut phases: CLI first, desktop after", () => {
       "cancelled",
       `return (${expression.replaceAll("needs.build-desktop", 'needs["build-desktop"]')});`,
     );
-    const needs = (plan: string, build: string, apps = '[{"app":"desktop-client"}]') => ({
+    const needs = (plan: string, build: string, tag = "success", apps = '[{"app":"desktop-client"}]') => ({
       plan: { result: plan, outputs: { desktop_apps: apps } },
+      tag: { result: tag },
       "build-desktop": { result: build },
       "publish-cli": { result: "skipped" },
     });
@@ -116,9 +126,11 @@ describe("cut phases: CLI first, desktop after", () => {
     for (const result of ["failure", "cancelled", "skipped"]) {
       expect(permits(needs("success", result), () => false)).toBe(false);
       expect(permits(needs(result, "success"), () => false)).toBe(false);
+      // An unverified revision leaves tag skipped; its build must not publish.
+      expect(permits(needs("success", "success", result), () => false)).toBe(false);
     }
-    expect(permits(needs("success", "success", "[]"), () => false)).toBe(false);
-    expect(permits(needs("success", "success"), () => true)).toBe(false);
+    expect(permits(needs("success", "success", "success", "[]"), () => false)).toBe(false);
+    expect(permits(needs("success", "success", "success"), () => true)).toBe(false);
   });
 
   test("the desktop shard gets a job token to download the release with", () => {
@@ -129,6 +141,25 @@ describe("cut phases: CLI first, desktop after", () => {
     // The fetch is Bun's fetch against the API, not the gh CLI: the linux
     // desktop shard's container has no gh, and a cut may not care.
     expect(steps("build-desktop")).not.toMatch(/\bgh release\b/);
+  });
+
+  test("each shard builds the workspace dists its release script preflights", () => {
+    // The release scripts refuse a missing SPA or dashboard before a build
+    // starts: the server half needs apps/server/web/dist, the node half needs
+    // apps/node/web/dist, and desktop-server's preflight checks the SPA too.
+    // A filtered closure that omits them turns a shard into a red preflight,
+    // so the closures carry those packages explicitly.
+    const body = steps("build-cli");
+    expect(body).toMatch(
+      /cli-server\)\s+bunx turbo run build --filter=@internal\/server\.\.\. --filter=@internal\/server-web\.\.\./,
+    );
+    expect(body).toMatch(
+      /cli-node\)\s+bunx turbo run build --filter=@internal\/node\.\.\. --filter=@internal\/node-web\.\.\./,
+    );
+    expect(body).toMatch(
+      /desktop-server\)\s+bunx turbo run build --filter=@internal\/desktop-server\.\.\. --filter=@internal\/server-web\.\.\./,
+    );
+    expect(body).toMatch(/desktop-client\)\s+bunx turbo run build --filter=@internal\/desktop-client\.\.\./);
   });
 
   test("the plan's phase splitter divides by prefix, actually", () => {
