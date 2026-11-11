@@ -154,7 +154,7 @@ that report the on-disk set:
 
 Plugins live on the control plane (spec 2026-09-10): the door is
 `api/plugins.route.ts` (`/api/plugins`: list for any authenticated
-actor; install / enable / impact / uninstall cookie-admin only).
+actor; install / enable / impact / uninstall / update cookie-admin only).
 `<dataDir>/plugins/` is the ONE installed set; "usable" is (instance
 installed ∧ `plugin_state.enabled`, absent row = enabled) × (this
 node's detection found the binary), computed once in
@@ -162,12 +162,16 @@ node's detection found the binary), computed once in
 set: `modules/plugins/store.ts` points the pane-runtime registry
 overlay at the store at boot and after every install and uninstall, so
 `getHarness` answers for a registry-installed plugin the moment the
-install returns. Built-in ids always resolve to the compiled copy, and a
-registry package claiming a built-in id is warned about once and never
-loaded, which is why `plugins.route.ts` and `setup.route.ts` read
-`builtInHarnesses()` for their catalog. A registry `spec` installs
-VERBATIM; the URL is `SUBSHELL_PLUGIN_REGISTRY_URL`; the anonymous setup
-route has NO spec field, forever.
+install returns. A built-in id resolves to the copy that wins: a newer
+installed copy when its manifest parses, otherwise the bundle; the loser
+rides on the row as `shadowed`, and a registry package claiming a built-in
+id that is not newer is warned about once and never loaded. That is why
+`plugins.route.ts` and `setup.route.ts` read `builtInHarnesses()` for their
+catalog. A registry `spec` installs VERBATIM; the URL is
+`SUBSHELL_PLUGIN_REGISTRY_URL`; the anonymous setup route has NO spec field,
+forever. Update detection is `GET /api/plugins/updates` and `POST
+/api/plugins/updates/check`; `POST /api/plugins/:pluginId/update` installs
+`<package>@latest` through the install door and audits `plugin.update`.
 
 **Working on the plugins routes, the store, seeding or the overlay:
 read `apps/server/api/docs/plugins-on-the-plane.md` first.**
@@ -179,7 +183,7 @@ plane-built argv) live in the root **`AGENTS.md` ("Plugins are packages…")**;
 that section is the source. The security half (moved here from the security
 summary; it was auto-loaded everywhere and belongs to these routes):
 
-- **The control plane owns which plugins exist** (§6, §11.9): one store, `<SUBSHELL_SERVER_DATA_DIR>/plugins/`; one install arms every node. A node holds no plugin concept. `/api/plugins` writes are **cookie-admin only** (bearer refused): installing runs third-party code unsandboxed in the process that holds the node signing keypair, so a malicious plugin reaches every enrolled node (§11.9); audited `plugin.install|enable|disable|uninstall|unpublish`. The anonymous setup route stays built-in-ids-only forever (its body carries no `spec` field).
+- **The control plane owns which plugins exist** (§6, §11.9): one store, `<SUBSHELL_SERVER_DATA_DIR>/plugins/`; one install arms every node. A node holds no plugin concept. `/api/plugins` writes are **cookie-admin only** (bearer refused): installing runs third-party code unsandboxed in the process that holds the node signing keypair, so a malicious plugin reaches every enrolled node (§11.9); audited `plugin.install|update|enable|disable|uninstall|unpublish`. The anonymous setup route stays built-in-ids-only forever (its body carries no `spec` field).
 - Registry install (`POST /api/plugins` with a package spec): sha512 over the raw bytes against the announced hash before anything is written; the extractor refuses links/traversal/oversize; the load-check runs on a staging copy; a refused install leaves the previous state byte-identical; **any package name is installable** (deliberate, decided against an allowlist); `SUBSHELL_PLUGIN_REGISTRY_URL` is operator-configurable. Over an http mirror, integrity proves only that bytes match what THAT server published. A claimed-id collision is refused BEFORE the module runs (`assertIdClaim`), re-checked immediately before the swap against a concurrent install; a registry package claiming a built-in id is never loaded.
 - `GET /api/plugins/:pluginId/icon` serves plugin-chosen bytes to any authenticated reader: Content-Type from the extension, never sniffed; the resolved path re-checked under the plugin's own dir; `CSP: default-src 'none'; sandbox` + `nosniff`. Keep all three.
 - **Agent CLI install** `POST /api/setup/agents/:id/install`: admin cookie only, never public (not in the no-users window); the id is the only input; the command comes from a BUILT-IN manifest; single-flight per id; 10-minute bound; audited `agent.install` WITHOUT output (returned to the admin's browser, never logged); the child's env is the allowlist, not the server's.
