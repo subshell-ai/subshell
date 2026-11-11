@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { useInvalidateWorkspaces, useWorkspaces } from "@/hooks/use-workspaces";
 import { type FieldProblems, makeForm, useSubmitDisabled, useSubmitDisabledReason } from "@/lib/form";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 import { defaultWorkspaceName, uniqueWorkspaceName, WORKSPACE_NAME_MAX } from "@/lib/workspace-name";
 
 /**
@@ -135,7 +136,7 @@ export function NewWorkspaceDialog({
             autoFocus
           />
           {nameTouched && !nameFocused && !normalizeLabel(name, WORKSPACE_NAME_MAX) && (
-            <p role="alert" className="mt-1 text-destructive text-detail">
+            <p role="alert" className={`mt-1 ${REQUIREMENT_CAPTION_CLASS}`}>
               Enter a workspace name.
             </p>
           )}
