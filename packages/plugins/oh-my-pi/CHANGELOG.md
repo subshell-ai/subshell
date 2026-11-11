@@ -1,5 +1,11 @@
 # @subshell-ai/plugin-oh-my-pi
 
+## 0.3.1
+
+### Patch Changes
+
+- [#522](https://github.com/subshell-ai/subshell/pull/522) [`533395a`](https://github.com/subshell-ai/subshell/commit/533395aa8bd97b1e8b228c1fa4be112eebab4d49) Thanks [@theogravity](https://github.com/theogravity)! - Oh My Pi subagent rows in the sidebar now switch the parent terminal to the selected child, and the header follows agent changes made inside omp. The selected child's row carries the focus ring instead of the parent. Subagent tooltips render beside the row they explain instead of over the parent above it, and no longer intercept clicks. Clicking a subagent's parent row returns the shared view to the main agent instead of collapsing the child rows.
+
 ## 0.3.0
 
 ### Minor Changes

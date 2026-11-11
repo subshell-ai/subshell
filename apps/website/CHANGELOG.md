@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.32
+
+### Patch Changes
+
+- [`6d94c38`](https://github.com/subshell-ai/subshell/commit/6d94c3830ee74c710467ddbdfed44c217909ac4f) Thanks [@theogravity](https://github.com/theogravity)! - Refresh the release listing and download links for the server 3.6.1, node 3.6.3, Subshell Server 1.7.14 and Subshell Client 1.5.12 releases.
+
 ## 0.2.31
 
 ### Patch Changes

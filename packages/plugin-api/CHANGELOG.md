@@ -1,5 +1,15 @@
 # @subshell-ai/plugin-api
 
+## 3.6.0
+
+### Minor Changes
+
+- [#524](https://github.com/subshell-ai/subshell/pull/524) [`707867f`](https://github.com/subshell-ai/subshell/commit/707867f1808e7a29f634537e25fe79fd3aa835e0) Thanks [@theogravity](https://github.com/theogravity)! - Codex subagents now show their own task names in the sidebar instead of generic numbered labels, and clicking one switches the parent pane to it. The Codex plugin declares native navigation and drives its own `/subagents` picker from the control plane; completed children stay listed there, so the picker row is chosen by the id it prints rather than by roster position. Hook integrations get a standard optional `subagents.select` method with pane `read`/`type` access, and the plugin chooses the picker row by the id Codex prints, verifies the highlight when the picker stays open, and records that row's id; if Codex closes the picker on the digit, the numbered row was the one whose printed id matched. Codex's monitoring hooks must still be reviewed once in `/hooks` before its rows appear.
+
+### Patch Changes
+
+- [#526](https://github.com/subshell-ai/subshell/pull/526) [`2991783`](https://github.com/subshell-ai/subshell/commit/2991783f913f4e0403097784d0a9c7d492cd169b) Thanks [@theogravity](https://github.com/theogravity)! - Claude Code and pi subagents are clickable in the sidebar. Claude Code drives its native agent panel, opening the selected child transcript; pi opens `/subagents-fleet` focused on the selected child, with `Esc` closing the inspector. pi's async children stay in the sidebar until their run completes instead of disappearing when the launching tool returns. Both paths require edit access for the pane's own input, and the plugin API now allows `subagents.select` on extension integrations as well as hook integrations.
+
 ## 3.5.0
 
 ### Minor Changes

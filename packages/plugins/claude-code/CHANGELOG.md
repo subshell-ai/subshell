@@ -1,5 +1,11 @@
 # @subshell-ai/plugin-claude-code
 
+## 3.1.3
+
+### Patch Changes
+
+- [#526](https://github.com/subshell-ai/subshell/pull/526) [`2991783`](https://github.com/subshell-ai/subshell/commit/2991783f913f4e0403097784d0a9c7d492cd169b) Thanks [@theogravity](https://github.com/theogravity)! - Claude Code and pi subagents are clickable in the sidebar. Claude Code drives its native agent panel, opening the selected child transcript; pi opens `/subagents-fleet` focused on the selected child, with `Esc` closing the inspector. pi's async children stay in the sidebar until their run completes instead of disappearing when the launching tool returns. Both paths require edit access for the pane's own input, and the plugin API now allows `subagents.select` on extension integrations as well as hook integrations.
+
 ## 3.1.2
 
 ### Patch Changes
