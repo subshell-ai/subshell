@@ -33,6 +33,7 @@ import {
   localPluginsDir,
   uninstallLocalPlugin,
 } from "@/modules/plugins/store.js";
+import { collectPluginUpdates } from "@/modules/plugins/update-check.js";
 import { HttpError } from "@/shared/errors.js";
 
 /**
@@ -187,6 +188,38 @@ const DeleteResponseSchema = t.Object({
     description: "The mode the uninstall ran in (defaults to keep)",
   }),
   presetsRemoved: t.Number({ description: "Presets deleted (0 for keep, and 0 for a plugin nothing used)" }),
+});
+
+/** One plugin with a newer version on the configured registry. */
+const PluginUpdateSchema = t.Object({
+  id: t.String({ description: "Plugin id (its directory name under the instance's plugins dir)" }),
+  name: t.String({ description: "The npm package name the installed bytes came from" }),
+  from: t.String({
+    description:
+      "The version in use now — the copy that actually answers, which for a shadowed built-in is the bundle's, not the stale bytes beside it",
+  }),
+  to: t.String({ description: "The newest registry version, always newer than `from`" }),
+});
+
+/** One plugin whose registry check failed. */
+const PluginCheckErrorSchema = t.Object({
+  id: t.String({ description: "Plugin id" }),
+  name: t.String({ description: "The npm package name the installed bytes came from" }),
+  message: t.String({
+    description:
+      "Why the registry could not be asked. The plugin was not checked, which is not an update, and one failure never hides the other rows",
+  }),
+});
+
+const PluginUpdatesResponseSchema = t.Object({
+  updates: t.Array(PluginUpdateSchema, { description: "Plugins with a newer version on the configured registry" }),
+  errors: t.Array(PluginCheckErrorSchema, {
+    description: "Plugins the registry could not be asked about; empty when every check answered",
+  }),
+  checkedAt: t.Number({
+    description:
+      "Epoch milliseconds when this answer was collected. GET is memoised for 15 minutes; POST /updates/check re-reads",
+  }),
 });
 
 const PARAMS = t.Object({ pluginId: t.String({ description: "Plugin id" }) });
@@ -411,6 +444,46 @@ const readRoutes = new Elysia()
 const adminRoutes = new Elysia()
   .use(requireAdmin)
   .use(apiModels)
+
+  // Update detection reads: cookie-admin, the same gate as every other route on
+  // this sub-instance, because each answer spends an outbound registry request
+  // per installed package. NEITHER IS AUDITED, deliberately — they change
+  // nothing about this instance, and a row per press would bury the
+  // `plugin.install` lines the page's other buttons write.
+  .get(
+    "/updates",
+    async () =>
+      await collectPluginUpdates({
+        force: false,
+        registryUrl: registryUrlOverride ?? SUBSHELL_PLUGIN_REGISTRY_URL,
+      }),
+    {
+      response: PluginUpdatesResponseSchema,
+      detail: {
+        operationId: "listInstancePluginUpdates",
+        tags: ["plugins"],
+        description:
+          "Which installed plugins have a newer version on the configured registry (cookie admin). Memoised for 15 minutes. Judged against the copy in use, and every failed check rides in `errors` rather than disappearing",
+      },
+    },
+  )
+  .post(
+    "/updates/check",
+    async () =>
+      await collectPluginUpdates({
+        force: true,
+        registryUrl: registryUrlOverride ?? SUBSHELL_PLUGIN_REGISTRY_URL,
+      }),
+    {
+      response: PluginUpdatesResponseSchema,
+      detail: {
+        operationId: "checkInstancePluginUpdates",
+        tags: ["plugins"],
+        description:
+          "Re-read the plugin registry now, bypassing the 15-minute memo, and answer the same view GET /api/plugins/updates does. Changes nothing on this host and is not audited. Cookie admin only",
+      },
+    },
+  )
   .post(
     "/",
     async ({ body, user }) => {

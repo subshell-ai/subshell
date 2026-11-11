@@ -5,6 +5,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { packageJsonText, readBuiltIn } from "../builtin-source.js";
+import { bundledPluginVersion } from "../plugin-versions.js";
 import {
   installPlugin,
   listInstalled,
@@ -449,7 +450,58 @@ describe("resolvePluginUpdates", () => {
     expect(await resolvePluginUpdates(dir, { id: "pi", registryUrl: base })).toEqual([]);
   });
 
-  it("an unreachable registry is reported on the log, never guessed at", async () => {
+  it("compares latest against the effective version, not the sidecar", async () => {
+    const dir = tempDataDir();
+    served.set("shadowed-pi", {
+      latest: "0.0.5",
+      versions: {
+        "0.0.1": await builtInAsTgz("pi", "0.0.1"),
+        "0.0.5": await builtInAsTgz("pi", "0.0.5"),
+      },
+    });
+    await installPlugin(dir, { id: "pi", spec: "shadowed-pi@0.0.1", registryUrl: base });
+    const bundled = await bundledPluginVersion("pi");
+    if (!bundled) throw new Error("this build must carry pi");
+    // The sidecar says 0.0.1 and the registry offers 0.0.5, but the copy IN USE
+    // is the bundle's — so the offer is judged against the version that
+    // actually runs, never the bytes that lost on disk.
+    expect(await resolvePluginUpdates(dir, { registryUrl: base, effectiveVersion: () => bundled })).toEqual([
+      { id: "pi", name: "shadowed-pi", from: bundled, to: null },
+    ]);
+  });
+
+  it("offers the newest registry version for a third-party install", async () => {
+    const dir = tempDataDir();
+    served.set("upd-next", {
+      latest: "1.1.0",
+      versions: {
+        "1.0.0": makePluginTgz({ name: "upd-next", version: "1.0.0", id: "upd-next" }),
+        "1.1.0": makePluginTgz({ name: "upd-next", version: "1.1.0", id: "upd-next" }),
+      },
+    });
+    await installPlugin(dir, { spec: "upd-next@1.0.0", registryUrl: base });
+    expect(await resolvePluginUpdates(dir, { registryUrl: base, effectiveVersion: () => "1.0.0" })).toEqual([
+      { id: "upd-next", name: "upd-next", from: "1.0.0", to: "1.1.0" },
+    ]);
+  });
+
+  it("reports a registry failure on the row", async () => {
+    const dir = tempDataDir();
+    served.set("third-party", {
+      latest: "1.0.0",
+      versions: { "1.0.0": makePluginTgz({ name: "third-party", version: "1.0.0", id: "third" }) },
+    });
+    await installPlugin(dir, { spec: "third-party@1.0.0", registryUrl: base });
+    const [row] = await resolvePluginUpdates(dir, {
+      registryUrl: trapBase,
+      effectiveVersion: (id) => (id === "third" ? "1.0.0" : undefined),
+    });
+    // A failed check is neither an offer nor silence: the row carries why.
+    expect(row?.to).toBeNull();
+    expect(row?.error).toContain("registry");
+  });
+
+  it("an unreachable registry is reported on the row and the log, never guessed at", async () => {
     const dir = tempDataDir();
     served.set("upd", {
       latest: "1.2.0",
@@ -460,7 +512,9 @@ describe("resolvePluginUpdates", () => {
     setPluginLog({ info: () => {}, warn: (m) => void warnings.push(m) });
     try {
       trapHits = 0;
-      expect(await resolvePluginUpdates(dir, { registryUrl: trapBase })).toEqual([]);
+      expect(await resolvePluginUpdates(dir, { registryUrl: trapBase })).toEqual([
+        { id: "upd", name: "upd", from: "1.0.0", to: null, error: expect.stringContaining("registry") },
+      ]);
       expect(trapHits).toBeGreaterThan(0);
     } finally {
       resetPluginLogForTests();
