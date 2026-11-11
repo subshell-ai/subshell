@@ -41,7 +41,8 @@ function renderDialog(props: {
   initialForm?: { nodeId?: string };
   title?: string;
   description?: string;
-  onAdd?: (subshellId: string, direction: SplitDirection) => Promise<unknown>;
+  // biome-ignore lint/suspicious/noConfusingVoidType: mirrors the dialog's success contract
+  onAdd?: (subshellId: string, direction: SplitDirection) => Promise<boolean | void>;
 }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // The launch form reads the roster and the per-node filtered halves. Pin

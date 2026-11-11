@@ -136,7 +136,7 @@ test("a subshell whose summary read fails still becomes the active tab", async (
     await showNewSubshellForm(page);
     await pickAgent(page.locator("#picker-agent"), "pi");
     await page.fill("#picker-working-dir", "/tmp");
-    await dismissDirectoryPanel(page, /Add a subshell|New subshell/);
+    await dismissDirectoryPanel(page, "Add a subshell");
     const beforeAdd = await subshellIds(page);
     await page.getByRole("button", { name: "Start subshell" }).click();
 

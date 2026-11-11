@@ -113,8 +113,6 @@ async function settle() {
 }
 
 async function launchSsh() {
-  const newMode = screen.queryByRole("button", { name: "New subshell" });
-  if (newMode) fireEvent.click(newMode);
   fireEvent.click(await screen.findByRole("button", { name: "SSH terminal" }));
   await settle();
   const field = await screen.findByLabelText("SSH destination");
@@ -175,4 +173,14 @@ it("a created SSH subshell that fails to attach drops to a Close-only state", as
   expect(screen.getAllByRole("button", { name: "Close" }).some((button) => button.textContent === "Close")).toBe(true);
   expect(screen.queryByRole("button", { name: "Start SSH subshell" })).toBeNull();
   expect(screen.queryByRole("button", { name: "SSH terminal" })).toBeNull();
+});
+
+it("a caller that resolves false after the attach drops to a Close-only state", async () => {
+  api();
+  await mount(() => <AddSubshellDialog open onOpenChange={() => {}} onAdd={async () => false} />);
+  await launchSsh();
+  expect(await screen.findByText(/couldn't be added \(the workspace refused the pane\)/)).toBeTruthy();
+  // The dock and tab callers report failure by resolving false; this path
+  // must not fall through to a successful close.
+  expect(screen.queryByRole("button", { name: "Start SSH subshell" })).toBeNull();
 });

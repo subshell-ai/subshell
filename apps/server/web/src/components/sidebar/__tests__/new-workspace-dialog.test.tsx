@@ -124,11 +124,15 @@ describe("NewWorkspaceDialog", () => {
       await waitFor(() =>
         expect(screen.getByRole("button", { name: "Create workspace" }).getAttribute("aria-disabled")).not.toBe("true"),
       );
+      fireEvent.focus(nameField());
       fireEvent.change(nameField(), { target: { value: "   " } });
       await waitFor(() =>
         expect(screen.getByRole("button", { name: "Create workspace" }).getAttribute("aria-disabled")).toBe("true"),
       );
-      expect(screen.getByText("Enter a workspace name.")).toBeTruthy();
+      // The caret rule: no complaint while the caret is in the field.
+      expect(screen.queryByText("Enter a workspace name.")).toBeNull();
+      fireEvent.blur(nameField());
+      expect(screen.getByRole("alert").textContent).toBe("Enter a workspace name.");
       fireEvent.change(nameField(), { target: { value: "Team" } });
       await waitFor(() =>
         expect(screen.getByRole("button", { name: "Create workspace" }).getAttribute("aria-disabled")).not.toBe("true"),

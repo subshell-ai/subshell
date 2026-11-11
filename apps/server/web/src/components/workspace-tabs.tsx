@@ -261,8 +261,8 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
 
   /**
    * Adds `subshellId` to the workspace and selects it. `direction` comes from
-   * `SubshellPicker`'s placement control, which this flat tab list has no use
-   * for — every pane it adds becomes one more tab, never a split.
+   * the add dialog; this flat tab list has no use for it — every pane it adds
+   * becomes one more tab, never a split.
    */
   async function handleAdd(subshellId: string, _direction: SplitDirection): Promise<boolean> {
     let landed = false;

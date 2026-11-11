@@ -130,9 +130,9 @@ export function WorkspaceBranch({
 
   return (
     // An HTML5 DROP target, not a click handler: drag events carry no tap or
-    // keyboard semantics to lose, and the reachable equivalent of filing a
-    // pane into a workspace is that workspace's Add-subshell dialog (same
-    // precedent as the dock's drop overlay).
+    // keyboard semantics to lose, and selecting the subshell's row is the
+    // reachable equivalent of filing a pane into a workspace (same precedent
+    // as the dock's drop overlay).
     // biome-ignore lint/a11y/noStaticElementInteractions: HTML5 drop target
     <div
       onDragOver={droppable ? onDragOver : undefined}

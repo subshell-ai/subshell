@@ -145,7 +145,7 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
   await expect(page.getByRole("dialog").getByRole("heading").first()).toHaveText("Add a subshell");
   await showNewSubshellForm(page);
 
-  // The split seeds the New half from the subshell being split, so the form
+  // The split seeds the launch form from the subshell being split, so it
   // arrives as "another one like this" and needs no filling in. Asserting the
   // seeded values IS the test of `initialForm`; a form that had to be filled
   // by hand here would pass every later step just the same.

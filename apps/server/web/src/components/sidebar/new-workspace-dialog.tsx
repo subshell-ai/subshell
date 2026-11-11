@@ -10,6 +10,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  formDialogOpenChange,
 } from "@/components/ui/dialog";
 import { useInvalidateWorkspaces, useWorkspaces } from "@/hooks/use-workspaces";
 import { type FieldProblems, makeForm, useSubmitDisabled, useSubmitDisabledReason } from "@/lib/form";
@@ -37,6 +38,9 @@ export function NewWorkspaceDialog({
   const { data: workspaces } = useWorkspaces();
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  // The caret rule: a complaint waits until the field has been left.
+  const [nameFocused, setNameFocused] = useState(false);
+  const [nameTouched, setNameTouched] = useState(false);
 
   const draft = makeForm({
     // Seeded before the open effect runs, so the first frame has a valid,
@@ -60,6 +64,8 @@ export function NewWorkspaceDialog({
     if (!open) return;
     setError(null);
     setCreating(false);
+    setNameFocused(false);
+    setNameTouched(false);
     setName(uniqueWorkspaceName(defaultWorkspaceName(), takenAtOpen.current));
   }, [open, setName]);
 
@@ -98,11 +104,11 @@ export function NewWorkspaceDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={(next) => {
+      onOpenChange={formDialogOpenChange((next) => {
         if (creating) return;
         if (next) onOpenChange(true);
         else dismiss();
-      }}
+      })}
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
@@ -118,13 +124,20 @@ export function NewWorkspaceDialog({
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
+            onFocus={() => setNameFocused(true)}
+            onBlur={() => {
+              setNameFocused(false);
+              setNameTouched(true);
+            }}
             maxLength={WORKSPACE_NAME_MAX}
             aria-label="Workspace name"
             aria-invalid={!normalizeLabel(name, WORKSPACE_NAME_MAX)}
             autoFocus
           />
-          {!normalizeLabel(name, WORKSPACE_NAME_MAX) && (
-            <p className="mt-1 text-destructive text-detail">Enter a workspace name.</p>
+          {nameTouched && !nameFocused && !normalizeLabel(name, WORKSPACE_NAME_MAX) && (
+            <p role="alert" className="mt-1 text-destructive text-detail">
+              Enter a workspace name.
+            </p>
           )}
           {error && <p className="mt-1 text-destructive text-detail">{error}</p>}
           <DialogFooter className="mt-4">

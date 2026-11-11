@@ -65,7 +65,7 @@ establish that every native screen or every conditional state was tested.
 | SSH preset and SSH launch | Authentication choices and local, remote and SOCKS forward fields opened. Populated SSH import reviewed, refusal displayed with outgoing SSH disabled, then canonical fixture imported successfully with SSH enabled. Saved editor reopened. View-only grant saved and read-only details verified while signed in as the member. No SSH connection started. |
 | Node enrollment and remote-node settings | Setup key generated; terminal and desktop enrollment instructions inspected. A real isolated node daemon enrolled. Re-registration confirmation and generated-key fields inspected; service page showed unsupervised restrictions. After stopping the fixture daemon and refreshing, overview displayed offline status with relative last-seen time. |
 | Node detail | Combined OS facts, SSH toggle and its conditional control, rename, sharing, allowed-directory editor and guidance inspected. SSH policy restored. Earlier Cua pass also verified recommendation add/remove and both maintenance confirmations. |
-| Workspace create/rename and add-subshell | Empty workspace created and renamed; existing/new subshell choices and save-as-preset field opened. |
+| Workspace create/rename and add-subshell | Named workspace created and renamed; launch form and save-as-preset field opened. |
 | Standalone subshell launch | Preset application and expanded agent settings inspected; temporary plain terminal launched through the workspace form. |
 | Subshell title, clone, sharing, switch-preset and insert-prompt | Dialogs opened; saved prompt selected and insertion preview inspected without inserting. Temporary terminal closed; empty workspace retired automatically. |
 

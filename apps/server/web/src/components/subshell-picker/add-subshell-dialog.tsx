@@ -51,16 +51,20 @@ export function AddSubshellDialog({
    */
   initialForm?: Partial<NewSubshellFormValue>;
   /**
-   * The dialog's heading. Defaults to "Add a subshell"; the Split flow passes
-   * the IDE word "Split" instead (operator ruling 2026-09-27), so the dialog
-   * is named by the button that opened it — the button itself is icon-only
-   * now, and this heading is where the word lives.
+   * The dialog's heading. Defaults to "Add a subshell"; a caller that names
+   * the flow passes its own word. The button that opens it is icon-only, so
+   * this heading is where the word lives.
    */
   title?: string;
-  /** The line under the heading; the Split flow says what a split DOES. */
+  /** The line under the heading. Defaults to the launch description. */
   description?: string;
-  /** Adds `subshellId` to the workspace at `direction`. */
-  onAdd: (subshellId: string, direction: SplitDirection) => Promise<unknown>;
+  /**
+   * Adds `subshellId` to the workspace at `direction`. Resolves `false` when
+   * the caller showed its own failure and did not add the pane; resolving
+   * nothing means the pane was added.
+   */
+  // biome-ignore lint/suspicious/noConfusingVoidType: success carries no value; only a refusal needs a signal
+  onAdd: (subshellId: string, direction: SplitDirection) => Promise<boolean | void>;
 }): JSX.Element {
   // Placement is this dialog's own decision (the workspace it was opened
   // from, or the split's, or the workspace it just created) — the hook must
@@ -114,7 +118,8 @@ export function AddSubshellDialog({
     }
 
     try {
-      await onAdd(created.id, "within");
+      const added = await onAdd(created.id, "within");
+      if (added === false) throw new Error("the workspace refused the pane");
       onOpenChange(false);
       reset();
     } catch (err) {
@@ -171,7 +176,8 @@ export function AddSubshellDialog({
                   onLeave={dismiss}
                   onCreated={async (id) => {
                     try {
-                      await onAdd(id, "within");
+                      const added = await onAdd(id, "within");
+                      if (added === false) throw new Error("the workspace refused the pane");
                       onOpenChange(false);
                       reset();
                     } catch (err) {

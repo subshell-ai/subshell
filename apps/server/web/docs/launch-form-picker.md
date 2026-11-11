@@ -169,7 +169,7 @@ only).
 
 ## SSH subshells
 
-New subshell, Add/Split, and New workspace offer the same `SubshellKindPicker`:
+New subshell and Add/Split offer the same `SubshellKindPicker`:
 Agent or terminal, or SSH terminal. The SSH choice uses `ConnectPanel`, with
 callbacks that attach the created subshell to the caller's workspace instead
 of navigating away. Keep launch pending until that attachment finishes.

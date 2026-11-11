@@ -16,9 +16,11 @@ export interface SubshellPickerProps {
   /**
    * Adds `subshellId` to the workspace at `direction`. Every entry point in
    * this component funnels through this one callback, so there is exactly
-   * one place that actually adds a pane.
+   * one place that actually adds a pane. Resolving nothing means success;
+   * `false` means the caller showed its own failure.
    */
-  onAdd: (subshellId: string, direction: SplitDirection) => Promise<unknown>;
+  // biome-ignore lint/suspicious/noConfusingVoidType: success carries no value; only a refusal needs a signal
+  onAdd: (subshellId: string, direction: SplitDirection) => Promise<boolean | void>;
 }
 
 /**

@@ -95,11 +95,10 @@ There is no subshell-side of the app to fall out of (operator ruling, spec
   device last visited when it still exists, else the most recently
   touched - and the dialog lands there. Only an instance with no
   workspace at all (or a join that lost a retire race) opens a fresh one
-  around the pane, named after it. Callers that file the pane themselves
-  - the add-a-pane dialog, whose `onAdd` is the split's and the dock's
-  path, and the new-workspace dialog, which created the workspace first -
-  pass `autoFile: false`, or one launch would leave two workspaces
-  holding the same row.
+  around the pane, named after it. The add-a-pane dialog files the pane
+  itself (its `onAdd` is the split's and the dock's path), so it passes
+  `autoFile: false`, or one launch would leave two workspaces holding the
+  same row.
 - A SELECTION means a tab. `hooks/use-open-pane-as-tab.ts` backs every plain
   left-click on a rail row or cell: focus the pane if the
   dock on screen holds it (`requestWorkspacePaneFocus`), else open the most
