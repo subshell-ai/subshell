@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
@@ -198,6 +199,47 @@ describe("cut phases: CLI first, desktop after", () => {
       "desktop-server",
       "desktop-client",
     ]);
+  });
+
+  test("the plan hands the tag job a JSON array it can parse", () => {
+    // Run 43108391412 built every CLI shard and then died in the tag job with
+    // `SyntaxError: Unexpected non-whitespace character after JSON`: the plan
+    // emitted comma-separated objects while the tag job JSON.parses the
+    // output as an array. Pinning the handoff by RUNNING both halves catches
+    // the shape drift a text assertion would miss.
+    const emitter = WORKFLOW.match(/^[ \t]+(echo "apps=.*" >> "\$GITHUB_OUTPUT")$/m);
+    if (emitter === null) throw new Error("the plan's apps emitter is gone or reshaped");
+    const parser = job("tag").match(/node -e '\n([\s\S]*?)'\s*<<<"\$APPS"/);
+    if (parser === null) throw new Error("the tag job's apps parser is gone or reshaped");
+
+    const entries = [
+      { app: "cli-server", dir: "server/api", version: "3.7.0", tag: "cli-server-v3.7.0" },
+      { app: "cli-node", dir: "node/agent", version: "3.6.4", tag: "cli-node-v3.6.4" },
+    ];
+    const appsjson = entries.map((entry) => JSON.stringify(entry)).join(",");
+
+    const dir = mkdtempSync(join(tmpdir(), "release-apps-"));
+    const outputFile = join(dir, "github-output");
+    writeFileSync(outputFile, "");
+    const emit = Bun.spawnSync(["bash", "-c", emitter[1]], {
+      env: { ...process.env, appsjson, GITHUB_OUTPUT: outputFile },
+    });
+    expect(emit.exitCode).toBe(0);
+    const appsValue = readFileSync(outputFile, "utf8")
+      .split("\n")
+      .find((line) => line.startsWith("apps="))
+      ?.slice("apps=".length);
+    expect(appsValue).toBeDefined();
+    expect(JSON.parse(appsValue as string).map((x: { tag: string }) => x.tag)).toEqual(
+      entries.map((entry) => entry.tag),
+    );
+
+    const parse = Bun.spawnSync(["bash", "-c", 'node -e "$PARSER" <<<"$APPS"'], {
+      env: { ...process.env, PARSER: parser[1], APPS: appsValue },
+    });
+    expect(parse.exitCode).toBe(0);
+    expect(parse.stdout.toString().trim().split("\n")).toEqual(entries.map((entry) => entry.tag));
+    rmSync(dir, { recursive: true, force: true });
   });
 
   test("the duplicated job bodies have not drifted apart", () => {
