@@ -363,7 +363,7 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
         fallbackName={detail.workspace.name}
         panes={detail.panes}
         workspaceId={detail.workspace.id}
-        actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
+        actions={<SubshellPicker workspaceId={detail.workspace.id} onAdd={handleAdd} />}
       />
       {/* The selected pane's key bar owns home-indicator clearance. Padding
         this column as well would leave an extra safe-area band below it.

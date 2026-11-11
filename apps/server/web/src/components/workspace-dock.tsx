@@ -811,7 +811,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         fallbackName={detail.workspace.name}
         panes={detail.panes}
         workspaceId={detail.workspace.id}
-        actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
+        actions={<SubshellPicker workspaceId={detail.workspace.id} onAdd={handleAdd} />}
       />
       {/* biome-ignore lint/a11y/noStaticElementInteractions: an HTML5 DROP
           target, not a click handler — drag events carry no tap/keyboard

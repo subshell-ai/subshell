@@ -27,7 +27,7 @@ test.beforeEach(async ({ page }) => {
  *
  * The flow under test is deliberately end-to-end: a split creates a real
  * workspace — named after the subshell, on the server, from the first
- * moment — carries the picked second pane through `?add=`/`?dir=` search
+ * moment — carries the launched second pane through `?add=`/`?dir=` search
  * params, and the dock adds it through the same `handleAdd` every later add
  * uses, then strips the params. None of that is visible to a unit test, and
  * the two failures it is guarding against are both URL-shaped: a reload that
@@ -140,10 +140,9 @@ test("split a subshell into a real, named workspace", async ({ page }) => {
   await page.goto(`/subshells/${rootSubshellId}`);
 
   await page.getByRole("button", { name: "Add a subshell to a workspace" }).click();
-  // The split's dialog is titled by the button that opened it (2026-09-27),
-  // unless nothing is left to add besides the split source: then it opens
-  // straight on the New half, titled "New subshell" (newOnly, 2026-10-19).
-  await expect(page.getByRole("dialog").getByRole("heading").first()).toContainText(/Add a subshell|New subshell/);
+  // The dialog only launches a new subshell; existing ones join by click or
+  // drag. The heading names the action that opened it.
+  await expect(page.getByRole("dialog").getByRole("heading").first()).toHaveText("Add a subshell");
   await showNewSubshellForm(page);
 
   // The split seeds the New half from the subshell being split, so the form
@@ -242,25 +241,19 @@ test("removing panes keeps the workspace until the last tab goes", async ({ page
   test.setTimeout(180_000);
   const attempt = test.info().retry;
   const rootName = `e2e-split-close-root-${attempt}`;
-  const otherName = `e2e-split-close-other-${attempt}`;
 
-  // Two subshells, launched separately: this half of the flow splits onto an
-  // EXISTING one, which is both the faster path and the other half of the
-  // picker.
-  const { subshellId: otherSubshellId } = await launchSubshell(page, otherName);
+  // One subshell to hold the workspace; the second pane is launched through
+  // the split dialog, which seeds itself from this one.
   const { subshellId: rootSubshellId } = await launchSubshell(page, rootName);
   // Split is the subshell page's control; go there from the launch landing.
   await page.goto(`/subshells/${rootSubshellId}`);
   await page.getByRole("button", { name: "Add a subshell to a workspace" }).click();
   // The split's dialog is titled by the button that opened it (2026-09-27).
   await expect(page.getByRole("heading", { name: "Add a subshell", exact: true })).toBeVisible();
-  // The subshell being split is excluded from its own picker; the other one
-  // is the only sensible pick and picking it adds the pane immediately.
-  // Rows are buttons whose accessible name is the whole line (name, directory,
-  // agent, elapsed), so they are addressed by a pattern rather than a string.
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByRole("button", { name: new RegExp(rootName) })).toHaveCount(0);
-  await dialog.getByRole("button", { name: new RegExp(otherName) }).click();
+  await showNewSubshellForm(page);
+  // The form arrives as "another one like this": no filling in required.
+  await expect(page.locator("#picker-agent")).toHaveValue("pi");
+  await page.getByRole("button", { name: "Start subshell" }).click();
 
   await expect(page).toHaveURL(/\/workspaces\/[0-9a-f-]{36}(?:[?#]|$)/, { timeout: SPAWN_TIMEOUT });
   const workspaceId = await idFromUrl(page);
@@ -270,8 +263,11 @@ test("removing panes keeps the workspace until the last tab goes", async ({ page
   await expect(page.getByRole("button", { name: "Rename subshell" })).toBeVisible();
   const named = (await (await page.request.get(`/api/workspaces/${workspaceId}`)).json()) as {
     workspace: { name: string };
+    panes: { subshellId: string }[];
   };
   expect(named.workspace.name).toBe(rootName);
+  const launchedSubshellId = named.panes.find((pane) => pane.subshellId !== rootSubshellId)?.subshellId;
+  if (!launchedSubshellId) throw new Error("the split launched no second pane");
 
   // Under the old draft model a two-pane split was an unsaved arrangement and
   // closing either tab threw the whole thing away. Since spec 2026-10-17 a
@@ -298,7 +294,7 @@ test("removing panes keeps the workspace until the last tab goes", async ({ page
   // one workspace this test made (the delete-side self-retire is pinned by
   // the 404s earlier in the file). These lines only confirm nothing this
   // test launched is still filed anywhere.
-  await closeSubshells(page, [rootSubshellId, otherSubshellId]);
+  await closeSubshells(page, [rootSubshellId, launchedSubshellId]);
   expect(await workspacesHolding(page, rootSubshellId)).toEqual([]);
-  expect(await workspacesHolding(page, otherSubshellId)).toEqual([]);
+  expect(await workspacesHolding(page, launchedSubshellId)).toEqual([]);
 });

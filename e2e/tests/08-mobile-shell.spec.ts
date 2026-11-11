@@ -208,12 +208,6 @@ test("launch dialog survives the agent dropdown's scroll shift", async ({ page }
   const scroller = page.locator("[data-slot='dialog-content'] > div").first();
   await expect(scroller).toBeVisible();
 
-  // Keep the real trigger visible before parking the dialog. The launch-type
-  // tabs moved Agent below this short viewport; a fixed25px scroll tapped
-  // outside the viewport and never opened the dropdown at all.
-  if (await page.getByRole("dialog", { name: "Add a subshell", exact: true }).isVisible()) {
-    await dialog.getByRole("button", { name: "New subshell", exact: true }).click();
-  }
   const agent = page.getByRole("combobox", { name: "Agent" });
   await agent.scrollIntoViewIfNeeded();
   await expect(agent).toBeInViewport();
@@ -242,25 +236,13 @@ test("launch dialog survives the agent dropdown's scroll shift", async ({ page }
 });
 
 test("add-subshell dialog fits and scrolls on small screens", async ({ page }, testInfo) => {
-  // Workspace via API, not the "New workspace" button: the UI auto-names with
-  // a minute-granularity timestamp and the backend enforces per-user name
-  // uniqueness on the ONE shared DB — spec 05 already created one this run
-  // (and mobile + ipad-landscape run back-to-back), so a UI click reliably
-  // 409s here. The flow itself is spec 05's job; this test owns the shell
-  // rule and dialog fit on the workspace page.
+  // Workspace via API: this test owns the shell rule and the add dialog's
+  // fit on the workspace page, not the New workspace flow.
   const created = await page.request.post("/api/workspaces", {
     data: { name: `mobile-shell-${testInfo.project.name}-${Date.now()}` },
   });
   expect(created.ok(), await created.text()).toBe(true);
   const { id } = (await created.json()) as { id: string };
-
-  // One real subshell to offer: with nothing pickable the dialog opens
-  // straight on the New half (newOnly, 2026-10-19), and the tall
-  // Existing/New form this test measures would not exist at all.
-  const spawned = await page.request.post("/api/subshells", {
-    data: { harnessId: "pi", workingDir: "/tmp", name: `e2e-mobile-fit-${testInfo.project.name}-${Date.now()}` },
-  });
-  expect(spawned.ok(), await spawned.text()).toBe(true);
 
   await page.goto(`/workspaces/${id}`);
 
@@ -294,10 +276,10 @@ test("add-subshell dialog fits and scrolls on small screens", async ({ page }, t
   expect(dialogHeight, `dialog ${dialogHeight}px vs viewport ${viewportHeight}px`).toBeLessThanOrEqual(
     viewportHeight + 1,
   );
-  // A control near the bottom of the dialog ("New subshell" tab) must be
-  // reachable — scroll inside the dialog, the whole point of the
-  // max-h/overflow change.
-  const start = page.getByRole("button", { name: "New subshell" });
+  // A control near the bottom of the dialog ("Start subshell" in the
+  // footer) must be reachable — scroll inside the dialog, the whole point of
+  // the max-h/overflow change.
+  const start = page.getByRole("button", { name: "Start subshell" });
   await start.scrollIntoViewIfNeeded();
   await expect(start).toBeInViewport();
   await page.keyboard.press("Escape");

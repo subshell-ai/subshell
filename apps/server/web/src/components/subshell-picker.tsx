@@ -4,7 +4,7 @@ import { type JSX, useEffect, useState } from "react";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
 import { TippedIconButton } from "@/components/tipped-icon-button";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
-import type { SplitDirection, WorkspacePaneRow } from "@/types/workspace";
+import type { SplitDirection } from "@/types/workspace";
 
 /** Props for {@link SubshellPicker}. */
 export interface SubshellPickerProps {
@@ -13,8 +13,6 @@ export interface SubshellPickerProps {
    * requests to open this dialog; pane mutations go through `onAdd`.
    */
   workspaceId: string;
-  /** Panes already on this workspace; their subshells are excluded from the list */
-  existing: WorkspacePaneRow[];
   /**
    * Adds `subshellId` to the workspace at `direction`. Every entry point in
    * this component funnels through this one callback, so there is exactly
@@ -24,12 +22,11 @@ export interface SubshellPickerProps {
 }
 
 /**
- * The "Add subshell" button on a workspace, and the dialog it opens.
+ * The "Add subshell" button on a workspace, and the launch dialog it opens.
  *
- * Search keeps larger collections usable. Additions open as tabs; desktop
- * users can drag them to arrange splits.
+ * Additions open as tabs; desktop users can drag them to arrange splits.
  */
-export function SubshellPicker({ workspaceId, existing, onAdd }: SubshellPickerProps): JSX.Element {
+export function SubshellPicker({ workspaceId, onAdd }: SubshellPickerProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -70,12 +67,7 @@ export function SubshellPicker({ workspaceId, existing, onAdd }: SubshellPickerP
           <Plus className="h-3.5 w-3.5" />
         </TippedIconButton>
       )}
-      <AddSubshellDialog
-        open={open}
-        onOpenChange={setOpen}
-        excludeSubshellIds={existing.map((p) => p.subshellId)}
-        onAdd={onAdd}
-      />
+      <AddSubshellDialog open={open} onOpenChange={setOpen} onAdd={onAdd} />
     </>
   );
 }

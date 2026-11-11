@@ -9,7 +9,6 @@ import {
 } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { NewWorkspaceDialog } from "@/components/sidebar/new-workspace-dialog";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
 
 const originalFetch = globalThis.fetch;
@@ -134,7 +133,6 @@ it("adds the SSH result to the current split and blocks duplicate launches while
   await mount(() => (
     <AddSubshellDialog
       open
-      excludeSubshellIds={[]}
       onOpenChange={() => {
         closed = true;
       }}
@@ -160,13 +158,21 @@ it("adds the SSH result to the current split and blocks duplicate launches while
   await waitFor(() => expect(closed).toBe(true));
 });
 
-it("keeps a newly launched SSH subshell selected when creating a workspace", async () => {
-  const calls = api();
-  await mount(() => <NewWorkspaceDialog open onOpenChange={() => {}} />);
+it("a created SSH subshell that fails to attach drops to a Close-only state", async () => {
+  api();
+  await mount(() => (
+    <AddSubshellDialog
+      open
+      onOpenChange={() => {}}
+      onAdd={async () => {
+        throw new Error("add refused");
+      }}
+    />
+  ));
   await launchSsh();
-  await screen.findByText("1 subshell to add");
-  fireEvent.click(screen.getByRole("button", { name: /Create workspace/ }));
-  await waitFor(() =>
-    expect(calls).toContainEqual({ path: "/api/workspaces/workspace-new/panes", body: { subshellId: "ssh-new" } }),
-  );
+  expect(await screen.findByText(/couldn't be added \(add refused\)/)).toBeTruthy();
+  // No launch controls: pressing Start again would create a second subshell.
+  expect(screen.getAllByRole("button", { name: "Close" }).some((button) => button.textContent === "Close")).toBe(true);
+  expect(screen.queryByRole("button", { name: "Start SSH subshell" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "SSH terminal" })).toBeNull();
 });

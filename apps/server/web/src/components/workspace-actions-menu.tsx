@@ -14,10 +14,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useInvalidateWorkspaces } from "@/hooks/use-workspaces";
+import { WORKSPACE_NAME_MAX } from "@/lib/workspace-name";
 import type { WorkspaceRow } from "@/types/workspace";
-
-/** The server normalizes workspace names at 120 characters; the field matches. */
-const NAME_MAX = 120;
 
 /**
  * Everything you can do to a workspace, behind the shared overflow menu —
@@ -162,7 +160,7 @@ export function WorkspaceActionsMenu({
             <Input
               value={nameDraft}
               onChange={(e) => setNameDraft(e.target.value)}
-              maxLength={NAME_MAX}
+              maxLength={WORKSPACE_NAME_MAX}
               aria-label="Workspace name"
               autoFocus
             />

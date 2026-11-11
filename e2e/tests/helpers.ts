@@ -182,30 +182,9 @@ export async function dismissDirectoryPanel(page: Page, heading: string | RegExp
   await page.getByRole("heading", { name: heading }).click();
 }
 
-/**
- * Drive the workspace add dialog onto its NEW half, whichever half it opened on.
- *
- * When no subshell is available to add (nothing exists, or everything that
- * does is already in the target workspace), the dialog skips the Existing/New
- * choice entirely (newOnly, 2026-10-19): no segmented control, title
- * "New subshell". During the roster fetch it still shows the old title and the
- * segmented control, so the click can race the flip — retry until the launch
- * form (`#picker-agent`) is on screen.
- */
+/** Wait for the workspace add dialog's launch form. */
 export async function showNewSubshellForm(page: Page): Promise<void> {
-  const dialog = page.getByRole("dialog");
-  const segment = dialog.getByRole("button", { name: "New subshell", exact: true });
-  await expect
-    .poll(
-      async () => {
-        if (await segment.isVisible().catch(() => false)) {
-          await segment.click({ timeout: 2_000 }).catch(() => {});
-        }
-        return dialog.locator("#picker-agent").isVisible();
-      },
-      { timeout: 20_000 },
-    )
-    .toBe(true);
+  await expect(page.getByRole("dialog").locator("#picker-agent")).toBeVisible({ timeout: 20_000 });
 }
 
 /**

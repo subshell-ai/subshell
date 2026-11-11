@@ -17,9 +17,9 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
   await page.goto("/workspaces");
   await page.getByRole("combobox", { name: "Switch workspace" }).click();
   await page.getByRole("option", { name: "New workspace", exact: true }).click();
-  // Creation no longer happens on click (spec 2026-09-03 sidebar-quickadd §4b):
-  // the button opens NewWorkspaceDialog. Zero selected is the valid "empty
-  // workspace, fill it inside" answer — the old immediate-create behavior.
+  // Creation happens on submit (spec 2026-09-03 sidebar-quickadd §4b):
+  // the button opens NewWorkspaceDialog, which asks for a name and creates
+  // the workspace empty. It opens with a default name already filled in.
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading", { name: "New workspace" })).toBeVisible();
   await dialog.getByRole("button", { name: "Create workspace" }).click();
@@ -29,9 +29,8 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
   // pill; its accessible name is its aria-label "Add a subshell to this
   // workspace", so a partial label would not match.
   await page.getByRole("button", { name: "Add a subshell to this workspace" }).click();
-  // With nothing on the instance yet, the dialog can open straight on the
-  // New half (newOnly): no segmented control, title "New subshell". The
-  // helper lands on the launch form whichever half it opened on.
+  // The add dialog launches a new subshell; existing ones join by click or
+  // drag, so it opens straight on the launch form.
   await showNewSubshellForm(page);
   // Stable id from NewSubshellForm; the only other control group in the dialog
   // (direction) is buttons, not comboboxes, but the id survives either way.
@@ -49,8 +48,7 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
   // heading: inside the dialog (stays open) but outside the picker root
   // (panel closes). Env-dependent: only bites when /tmp has directory entries
   // to populate the panel (CI's own playwright-artifacts-*).
-  // The dialog's title is "New subshell" in the newOnly state, so match either.
-  await dismissDirectoryPanel(page, /Add a subshell|New subshell/);
+  await dismissDirectoryPanel(page, "Add a subshell");
   // Sampled BEFORE the launch: the pane's title is the name the server gives
   // the new subshell, and the only way to know which row is new is to know
   // which rows are not.
@@ -258,7 +256,7 @@ test("deleting the open workspace from the sidebar drops you to the subshell", a
   await showNewSubshellForm(page);
   await pickAgent(page.locator("#picker-agent"), "pi");
   await page.fill("#picker-working-dir", "/tmp");
-  await dismissDirectoryPanel(page, /Add a subshell|New subshell/);
+  await dismissDirectoryPanel(page, "Add a subshell");
   const before = await subshellIds(page);
   await page.getByRole("button", { name: "Start subshell" }).click();
   await newSubshellName(page, before);

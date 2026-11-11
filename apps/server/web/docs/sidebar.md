@@ -102,9 +102,7 @@ live once in `lib/subshell-indicator.ts`, and `SubshellDot`
 (`components/subshell-dot.tsx`, moved out of `components/sidebar/` on
 2026-09-24 because it is no longer sidebar-only) is its only renderer: the
 rail's rows, the subshell page header, the home cards' corner and the list
-rows' name cell. The text chips (`StatusChip`/`WaitingChip`, kept in
-`subshell-status.tsx`) now survive only in the add-subshell picker, where
-`RowStatusBadges` still spells the state out. Subshell lists everywhere are kept current by ONE
+rows' name cell. Subshell lists everywhere are kept current by ONE
 live socket (`hooks/use-live-subshells-feed.tsx`, mounted in `__root.tsx`
 signed-in-only), which writes `/ws/live`'s frames into `SUBSHELLS_QUERY_KEY`;
 read via `useSubshellsList`/`useLiveSubshells`, never by opening a second one.
