@@ -3,6 +3,8 @@ import {
   type BuildCommandInput,
   type HarnessPluginFactory,
   type HarnessResume,
+  type HarnessSubagentSelectInput,
+  type HarnessSubagentSelectResult,
   MCP_SERVER_NAME,
   type McpLaunchSpec,
   type McpRegistration,
@@ -215,6 +217,85 @@ function projectSlug(cwd: string): string {
  */
 const STATUS_GLYPH = /^[^\p{L}\p{N}]+/u;
 
+const DOWN = "\u001b[B";
+const UP = "\u001b[A";
+const ENTER = "\r";
+const ESC = "\u001b";
+const CLAUDE_SELECT_MARK = "[>❯]";
+const CLAUDE_STATUS_GLYPH = "[●◉◯○◦•]";
+const CLAUDE_AGENT_ROW = new RegExp(
+  `^\\s*(${CLAUDE_SELECT_MARK})?\\s*(${CLAUDE_STATUS_GLYPH})?\\s*([^\\s·]+)(?:\\s+·\\s+|\\s{2,})`,
+);
+const CLAUDE_MAIN_ROW = new RegExp(
+  `^\\s*(${CLAUDE_SELECT_MARK})?\\s*(${CLAUDE_STATUS_GLYPH})?\\s*main(?:\\s{2,}.*)?\\s*$`,
+);
+
+function claudePanelRows(screen: string): { name: string; selected: boolean }[] {
+  const lines = screen.split("\n");
+  const prompt = lines.findLastIndex((line) => /^\s*❯\s+(?![●◉◯○◦•])/.test(line));
+  return (prompt < 0 ? lines : lines.slice(prompt + 1))
+    .map((line) => {
+      const main = line.match(CLAUDE_MAIN_ROW);
+      if (main) return { name: "main", selected: main[1] === ">" || main[1] === "❯" };
+      const agent = line.match(CLAUDE_AGENT_ROW);
+      return agent ? { name: (agent[3] ?? "").trim(), selected: agent[1] === ">" || agent[1] === "❯" } : undefined;
+    })
+    .filter(
+      (row): row is { name: string; selected: boolean } =>
+        row !== undefined && (row.name === "main" || /^[\p{L}\p{N}_.-]+$/u.test(row.name)),
+    );
+}
+
+async function selectClaudeSubagent(input: HarnessSubagentSelectInput): Promise<HarnessSubagentSelectResult> {
+  const { agentId, agents, pane } = input;
+  let screen = await pane.read();
+  let rows = claudePanelRows(screen);
+  if (agentId === null) {
+    if (rows.some((row) => row.selected && row.name === "main")) return { selectedId: null };
+    if (!rows.length) {
+      const looksLikeChildView = /main\s*>\s*\S/.test(screen) || agents.some((agent) => screen.includes(agent.name));
+      if (!looksLikeChildView) throw new Error("Claude isn't showing an agent view to return from.");
+      await pane.type(ESC);
+      screen = await pane.read();
+      rows = claudePanelRows(screen);
+    }
+    if (!rows.length) throw new Error("Claude isn't showing its agent panel.");
+    // An unfocused panel has no selection cursor yet; the first arrow only
+    // hands it focus. The server's null is already the parent view, so a
+    // panel that has not selected a child needs no input at all.
+    if (!rows.some((row) => row.selected)) return { selectedId: null };
+    for (let step = 0; step < rows.length + 2; step++) {
+      const current = claudePanelRows(await pane.read()).findIndex((row) => row.selected);
+      if (current === 0) break;
+      await pane.type(UP);
+    }
+    if (!claudePanelRows(await pane.read()).some((row) => row.selected && row.name === "main"))
+      throw new Error("Claude didn't select the main agent in its agent panel.");
+    await pane.type(ENTER);
+    return { selectedId: null };
+  }
+  const target = agents.find((agent) => agent.id === agentId);
+  if (!target) throw new Error("Claude didn't report that subagent.");
+  if (!rows.length) throw new Error("Claude isn't showing its agent panel.");
+  const targetName = target.name.trim();
+  const ordinal = agents.filter((agent) => agent.name.trim() === targetName).findIndex((agent) => agent.id === agentId);
+  const matchingRows = rows.flatMap((row, index) => (row.name === targetName ? [index] : []));
+  const targetRow = matchingRows[ordinal] ?? -1;
+  if (targetRow < 0) throw new Error("Claude didn't list that subagent in its agent panel.");
+  // Move one step at a time against the screen Claude actually painted:
+  // the first Down on an unfocused panel only focuses it (the selection
+  // cursor stays on main), so a precomputed count overshoots or stalls.
+  for (let step = 0; step < rows.length + 2; step++) {
+    const current = claudePanelRows(await pane.read()).findIndex((row) => row.selected);
+    if (current === targetRow) break;
+    await pane.type(current < 0 || current < targetRow ? DOWN : UP);
+  }
+  if (!claudePanelRows(await pane.read())[targetRow]?.selected)
+    throw new Error("Claude didn't select that subagent in its agent panel.");
+  await pane.type(ENTER);
+  return { selectedId: agentId };
+}
+
 /**
  * Built-in harness: Claude Code.
  *
@@ -233,7 +314,7 @@ const STATUS_GLYPH = /^[^\p{L}\p{N}]+/u;
  * `@subshell-ai/plugin-api`.
  */
 const createPlugin: HarnessPluginFactory = (host: PluginHost): SubshellPlugin => ({
-  subagents: { discovery: "hooks", navigation: "unavailable" },
+  subagents: { discovery: "hooks", navigation: "native", select: selectClaudeSubagent },
   capabilities: (): PluginCapability[] => ["subagents", "mcp", "resume", "attention", "settings"],
 
   /** Claude Code prefixes its pane title with a cycling status glyph. */

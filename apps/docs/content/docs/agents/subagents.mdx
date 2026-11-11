@@ -18,7 +18,7 @@ Each child shows its name and status. When a task description is available, it a
 
 When the harness supports native navigation, select a child to show its view in the parent's existing terminal. The header shows the child's name and a branching icon. Select **Back to main agent** in the header, or the parent row in the sidebar, to return. The workspace tab keeps the parent subshell's name.
 
-The view is shared: switching it changes what everyone attached to that subshell sees. Extension-backed views can be switched by people with view access. Codex's hook picker types into its TUI, so switching it requires edit access; typing, steering, and answering approval prompts also require edit. The door works one way: a subshell's own key can report its children but can't move the shared view, so an agent can't aim its parent's terminal for the humans watching it.
+The view is shared: switching it changes what everyone attached to that subshell sees. A bridge that drives its harness's own view API can be switched by people with view access. Codex, Claude Code, and pi type into their TUI, so a pane driver requires edit access; typing, steering, and answering approval prompts also require edit. The door works one way: a subshell's own key can report its children but can't move the shared view, so an agent can't aim its parent's terminal for the humans watching it.
 
 If native navigation isn't available, the children remain visible as status indicators. Hover over or focus a child for an explanation, and use the harness's own controls to open its view.
 
@@ -26,11 +26,11 @@ If native navigation isn't available, the children remain visible as status indi
 
 | Harness | Discovery | Sidebar navigation |
 | --- | --- | --- |
-| Claude Code | Subagent lifecycle hooks, added at launch. | Status only. |
+| Claude Code | Subagent lifecycle hooks, added at launch. | Opens the selected child transcript from Claude's agent panel; requires edit access. |
 | Codex | Subagent lifecycle and spawn-name hooks, added at launch. Review and trust them through `/hooks`. | Switches the existing `/subagents` picker; rows use the spawn task names. |
 | OpenCode | TUI integration, using the native plugin API verified against OpenCode 1.18.18. | Switches the existing TUI; changes made inside the harness also update the header. |
 | Hermes | Configure and approve `subagent_start` and `subagent_stop` shell hooks. The harness's setup instructions include the configuration. | Status only. |
-| pi | pi's own `subagent` example extension (installed into pi separately), or an extension implementing the bridge below. | Status only. |
+| pi | pi's own `subagent` example extension (installed into pi separately), or an extension implementing the bridge below. | Opens `/subagents-fleet` focused on the selected child; `Esc` closes it. Requires edit access. |
 | Oh My Pi | omp's own subagent events, through an extension added at launch. | Switches the existing TUI; changes made inside the harness also update the header. |
 | Terminal | No harness subagents. | Not applicable. |
 

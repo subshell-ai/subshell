@@ -57,7 +57,7 @@ export interface HarnessSubagentSnapshot {
 }
 
 /**
- * Pane operations the host hands a hook integration that drives its harness's
+ * Pane operations the host hands an integration that drives its harness's
  * own agent picker. The plugin runs in the control plane, so it cannot open a
  * terminal itself; these are the only two acts it needs, and neither submits
  * a prompt on its own.
@@ -89,11 +89,11 @@ export interface HarnessSubagentSelectResult {
 }
 
 /**
- * A hook integration's own way to move its terminal's view. This is for
- * harnesses whose picker exists only inside their TUI (Codex's `/subagents`,
- * for example): the integration reads the pane, sends the picker's keys, and
- * reports the view it verified. Extension integrations use the report-loop
- * command instead, because their bridge can call the harness's real API.
+ * An integration's own way to move its terminal's view. This is for harnesses
+ * whose picker or inspector exists only inside their TUI (Codex's `/subagents`,
+ * Claude's agent panel, pi's fleet inspector): the integration reads the pane,
+ * sends the harness's own keys, and reports the view it verified. Extensions
+ * without a pane driver keep using the report-loop command.
  */
 export type HarnessSubagentSelect = (input: HarnessSubagentSelectInput) => Promise<HarnessSubagentSelectResult>;
 
@@ -111,8 +111,10 @@ export interface HarnessSubagentSupport {
   /** One-time user action required for reporting to work, if any */
   setup?: string;
   /**
-   * A hook integration's own picker driver, when it has one. Requires
+   * The integration's own pane driver, when it has one. Requires
    * `navigation: "native"`; the host uses it instead of queueing a command.
+   * Works for hook and extension discovery alike: the host only needs the
+   * pane's read/type, and the edit gate is the same.
    */
   select?: HarnessSubagentSelect;
 }
