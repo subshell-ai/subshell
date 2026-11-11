@@ -605,6 +605,44 @@ describe("/api/plugins", () => {
     }
   });
 
+  it("updates a built-in id through the registry door, not the embedded one", async () => {
+    // `installPlugin` answers an UNPINNED spec whose package name is a
+    // built-in from the bundle, so an implementation that passed a bare
+    // `record.name` would silently re-seed this build's pi and still answer
+    // 200. A latest ABOVE the bundle means only the registry door can produce
+    // the row asserted below.
+    if (!(await bundledPluginVersion("pi"))) throw new Error("this build must carry pi");
+    reg.served.set("@subshell-ai/plugin-pi", {
+      latest: "99.0.0",
+      versions: {
+        "0.0.1": makePluginTgz({ name: "@subshell-ai/plugin-pi", version: "0.0.1", id: "pi" }),
+        "99.0.0": makePluginTgz({ name: "@subshell-ai/plugin-pi", version: "99.0.0", id: "pi" }),
+      },
+    });
+    // The seeded pi already claims this package name, so the id-claim guard
+    // admits the registry copy — which then loses to the newer bundle.
+    await installLocalPlugin("pi", "@subshell-ai/plugin-pi@0.0.1", reg.base);
+    clearPluginUpdateMemo();
+    try {
+      const res = await send("POST", "/api/plugins/pi/update", adminCookie);
+      expect(res.status).toBe(200);
+      const row = (await res.json()) as PluginRow;
+      expect(row).toMatchObject({ id: "pi", version: "99.0.0", source: "npm", builtIn: true });
+      // Nothing was displaced: this copy is the one that answers.
+      expect(row.shadowed).toBeUndefined();
+      expect(await readInstallRecord(SUBSHELL_SERVER_DATA_DIR, "pi")).toMatchObject({
+        name: "@subshell-ai/plugin-pi",
+        version: "99.0.0",
+      });
+    } finally {
+      // pi is a seeded built-in the rest of the run expects: the embedded
+      // install carries no sidecar, the state that silences the shadow.
+      clearPluginUpdateMemo();
+      await installLocalPlugin("pi");
+      reg.served.delete("@subshell-ai/plugin-pi");
+    }
+  });
+
   it("refuses a plugin whose copy came from this build, and says where its update lives", async () => {
     // Embedded bytes carry no sidecar, so there is no package to re-resolve —
     // whatever npm copy sat here before, this id's copy is now the build's.

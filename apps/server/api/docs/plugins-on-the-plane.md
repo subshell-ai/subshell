@@ -37,7 +37,7 @@ anonymous setup route has NO spec field; built-in ids only, forever (spec
 
 ## Updating a plugin from npm
 
-Two routes, both cookie-admin, and only one of them changes anything on disk.
+Three routes, all cookie-admin; only the update act changes anything on disk.
 `GET /api/plugins/updates` answers which installed plugins have a newer
 version on the configured registry; `POST /api/plugins/updates/check` asks
 again, skipping the fifteen-minute memo. `POST /api/plugins/:pluginId/update`
