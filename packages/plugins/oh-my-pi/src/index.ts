@@ -212,11 +212,14 @@ function withoutLegacyProviderExtension(flags: string[]): string[] {
  *
  * The same directory carries the subagent bridge. omp keeps its child roster
  * on the session event bus; the extension reports it so the sidebar can hang
- * those children under the parent subshell. omp offers no extension API for
- * moving the parent's terminal onto a child, so navigation stays unavailable.
+ * those children under the parent subshell. omp has no extension hook for
+ * moving the parent's terminal onto a child yet, so the bridge reaches the
+ * TUI's own public focus method through the class omp exposes as
+ * pi.pi.InteractiveMode (verified against 18.18.7). If that surface goes
+ * away, the bridge falls back to status-only reporting.
  */
 const createPlugin: HarnessPluginFactory = () => ({
-  subagents: { discovery: "extension", navigation: "unavailable" },
+  subagents: { discovery: "extension", navigation: "native" },
   previews: { reporting: "extension" },
   capabilities: () => ["subagents", "previews", "mcp", "settings"],
 

@@ -119,13 +119,17 @@ export function HarnessSubagentRows({
   alive,
   branchWorkspaceId,
   harnessId,
+  focused = false,
 }: {
   id: string;
+  /** The harness whose activity lines this report can show; Claude's are hidden. */
+  harnessId?: string;
   /** The live parent's display name; names this group the way the sibling sections name theirs. */
   parentName: string;
+  /** The parent row is the pane on screen; only then does the selected child take the ring. */
+  focused?: boolean;
   alive: boolean;
   branchWorkspaceId?: string;
-  harnessId?: string;
 }) {
   const navigate = useNavigate();
   const { data } = useHarnessSubagents(id, alive);
@@ -158,11 +162,13 @@ export function HarnessSubagentRows({
               size="sm"
               className={cn(
                 "h-auto min-h-7 w-full justify-start py-1 pr-2 pl-3 font-regular text-detail [&_svg]:size-3",
-                data.selectedId === agent.id && "bg-accent",
+                data.selectedId === agent.id &&
+                  (focused ? "bg-accent text-accent-foreground ring-1 ring-foreground/70" : "bg-accent"),
               )}
               disabled
               disabledReason={<AgentTooltipLines agent={agent} lead={reason} />}
               disabledReasonText={agentTooltipText(agent, reason)}
+              disabledReasonSide="right"
             >
               <AgentRowText agent={agent} showActivity={showActivity} />
             </Button>
@@ -176,7 +182,8 @@ export function HarnessSubagentRows({
                       size="sm"
                       className={cn(
                         "h-auto min-h-7 w-full justify-start py-1 pr-2 pl-3 font-regular text-detail [&_svg]:size-3",
-                        data.selectedId === agent.id && "bg-accent",
+                        data.selectedId === agent.id &&
+                          (focused ? "bg-accent text-accent-foreground ring-1 ring-foreground/70" : "bg-accent"),
                       )}
                       onClick={() =>
                         select.mutate(agent.id, {
@@ -194,7 +201,7 @@ export function HarnessSubagentRows({
                 >
                   <AgentRowText agent={agent} showActivity={showActivity} />
                 </TooltipTrigger>
-                <TooltipContent>
+                <TooltipContent side="right">
                   <AgentTooltipLines
                     agent={agent}
                     hint="Show in the parent terminal. Everyone attached sees this view."

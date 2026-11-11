@@ -5,6 +5,8 @@ type Report = {
   agents: { id: string; name: string; status: string; activity?: string }[];
   selectedId: string | null;
   canSelect: boolean;
+  acknowledged?: string;
+  unavailableReason?: string;
 };
 
 /** The bridge as a function body with its ambient globals replaced. */
@@ -15,6 +17,7 @@ function installBridge(
     SUBSHELL_ID: "pane",
   },
   send?: (url: string, init: { body: string }) => Promise<Response>,
+  sdk: Record<string, unknown> = {},
 ) {
   const handlers = new Map<string, (event: unknown, ctx?: unknown) => Promise<void> | void>();
   const listeners = new Map<string, (data: unknown) => void>();
@@ -56,6 +59,7 @@ function installBridge(
         listeners.set(name, listener);
       },
     },
+    pi: sdk,
   });
   return {
     handlers,
@@ -102,6 +106,7 @@ function installBridge(
             childListeners.set(name, listener);
           },
         },
+        pi: sdk,
       });
       return {
         handlers: childHandlers,
@@ -115,11 +120,34 @@ function installBridge(
   };
 }
 
-/** Flush the coalescing timer, then let the queued report settle. */
+/** Flush the coalescing timer and let every queued report finish. */
 async function settle(bridge: { flush: () => void }) {
-  bridge.flush();
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let index = 0; index < 10; index += 1) {
+    bridge.flush();
+    await Promise.resolve();
+  }
+}
+
+/** The host class the bridge captures; the live instance stands in for omp's TUI. */
+function fakeInteractiveMode() {
+  class InteractiveMode {
+    static focusCalls = 0;
+    static unfocusCalls = 0;
+    focusedAgentId: string | undefined;
+    collabGuest: unknown;
+    get viewSession() {
+      return this;
+    }
+    async focusAgentSession(id: string) {
+      InteractiveMode.focusCalls += 1;
+      this.focusedAgentId = id;
+    }
+    async unfocusSession() {
+      InteractiveMode.unfocusCalls += 1;
+      this.focusedAgentId = undefined;
+    }
+  }
+  return { InteractiveMode };
 }
 
 const MAIN = { agent: { kind: "main" } };
@@ -335,4 +363,186 @@ test("a live roster is repeated, so a restarted control plane recovers it", asyn
   bridge.beats[0]?.();
   await Promise.resolve();
   expect(bridge.reports.length).toBe(afterSettle);
+});
+
+test("reports canSelect only after the live TUI is captured", async () => {
+  const sdk = fakeInteractiveMode();
+  const bridge = installBridge(undefined, undefined, sdk);
+  await bridge.handlers.get("session_start")?.({ type: "session_start" }, MAIN);
+  bridge.listeners.get("task:subagent:lifecycle")?.(STARTED);
+  await settle(bridge);
+  expect(bridge.reports.at(-1)?.canSelect).toBe(false);
+
+  const live = new sdk.InteractiveMode();
+  // The getter omp reads while rendering is also where the bridge captures
+  // the live class instance it later calls to move the view.
+  void live.viewSession;
+  bridge.beats[0]?.();
+  await settle(bridge);
+  expect(bridge.reports.at(-1)?.canSelect).toBe(true);
+  expect(bridge.reports.at(-1)?.selectedId).toBe(null);
+});
+
+test("a queued command focuses the child and acknowledges the view", async () => {
+  const sdk = fakeInteractiveMode();
+  const sent: Report[] = [];
+  let command: { id: string; agentId: string | null } | undefined;
+  const bridge = installBridge(
+    undefined,
+    async (_url, init) => {
+      sent.push(JSON.parse(init.body));
+      return Response.json(command ? { command } : {});
+    },
+    sdk,
+  );
+  await bridge.handlers.get("session_start")?.({}, MAIN);
+  const live = new sdk.InteractiveMode();
+  void live.viewSession;
+  bridge.listeners.get("task:subagent:lifecycle")?.(STARTED);
+  await settle(bridge);
+  expect(sent.at(-1)?.canSelect).toBe(true);
+
+  command = { id: "switch-1", agentId: "MCPNodeReview" };
+  bridge.beats[0]?.();
+  await settle(bridge);
+  expect(live.focusedAgentId).toBe("MCPNodeReview");
+  expect(sdk.InteractiveMode.focusCalls).toBe(1);
+  expect(sent.at(-1)).toMatchObject({
+    selectedId: "MCPNodeReview",
+    canSelect: true,
+    acknowledged: "switch-1",
+  });
+});
+
+test("a null command returns the parent view to its main agent", async () => {
+  const sdk = fakeInteractiveMode();
+  const sent: Report[] = [];
+  let command: { id: string; agentId: string | null } | undefined;
+  const bridge = installBridge(
+    undefined,
+    async (_url, init) => {
+      sent.push(JSON.parse(init.body));
+      return Response.json(command ? { command } : {});
+    },
+    sdk,
+  );
+  await bridge.handlers.get("session_start")?.({}, MAIN);
+  const live = new sdk.InteractiveMode();
+  live.focusedAgentId = "MCPNodeReview";
+  void live.viewSession;
+  bridge.listeners.get("task:subagent:lifecycle")?.(STARTED);
+  await settle(bridge);
+  expect(sent.at(-1)?.selectedId).toBe("MCPNodeReview");
+
+  command = { id: "back-1", agentId: null };
+  bridge.beats[0]?.();
+  await settle(bridge);
+  expect(live.focusedAgentId).toBeUndefined();
+  expect(sdk.InteractiveMode.unfocusCalls).toBe(1);
+  expect(sent.at(-1)).toMatchObject({ selectedId: null, acknowledged: "back-1" });
+});
+
+test("a collab guest reports why it cannot switch views", async () => {
+  const sdk = fakeInteractiveMode();
+  const bridge = installBridge(undefined, undefined, sdk);
+  await bridge.handlers.get("session_start")?.({}, MAIN);
+  const live = new sdk.InteractiveMode();
+  live.collabGuest = {};
+  void live.viewSession;
+  bridge.listeners.get("task:subagent:lifecycle")?.(STARTED);
+  await settle(bridge);
+  expect(bridge.reports.at(-1)?.canSelect).toBe(false);
+  expect(bridge.reports.at(-1)?.unavailableReason).toContain("collab");
+});
+
+test("a command is ignored while the harness cannot select", async () => {
+  const sdk = fakeInteractiveMode();
+  const sent: Report[] = [];
+  const command = { id: "switch-ignored", agentId: "MCPNodeReview" };
+  const bridge = installBridge(
+    undefined,
+    async (_url, init) => {
+      sent.push(JSON.parse(init.body));
+      return Response.json({ command });
+    },
+    sdk,
+  );
+  await bridge.handlers.get("session_start")?.({}, MAIN);
+  const live = new sdk.InteractiveMode();
+  live.collabGuest = {};
+  void live.viewSession;
+  bridge.listeners.get("task:subagent:lifecycle")?.(STARTED);
+  await settle(bridge);
+  expect(sent.at(-1)?.canSelect).toBe(false);
+
+  bridge.beats[0]?.();
+  await settle(bridge);
+  expect(sdk.InteractiveMode.focusCalls).toBe(0);
+  expect(sent.some((report) => report.acknowledged)).toBe(false);
+});
+
+test("a rejected focus is declined instead of retried every heartbeat", async () => {
+  const sdk = fakeInteractiveMode();
+  const sent: Report[] = [];
+  let command: { id: string; agentId: string | null } = { id: "switch-fail", agentId: "MCPNodeReview" };
+  let attempts = 0;
+  sdk.InteractiveMode.prototype.focusAgentSession = async function (id: string) {
+    attempts += 1;
+    if (attempts === 1) throw new Error("busy");
+    this.focusedAgentId = id;
+  };
+  const bridge = installBridge(
+    undefined,
+    async (_url, init) => {
+      sent.push(JSON.parse(init.body));
+      return Response.json({ command });
+    },
+    sdk,
+  );
+  await bridge.handlers.get("session_start")?.({}, MAIN);
+  const live = new sdk.InteractiveMode();
+  void live.viewSession;
+  bridge.listeners.get("task:subagent:lifecycle")?.(STARTED);
+  await settle(bridge);
+
+  bridge.beats[0]?.();
+  await settle(bridge);
+  expect(attempts).toBe(1);
+  expect(sent.at(-1)?.acknowledged).toBeUndefined();
+  // The same command comes back on the next heartbeat; the declined id keeps
+  // it from trying the host again.
+  bridge.beats[0]?.();
+  await settle(bridge);
+  expect(attempts).toBe(1);
+
+  command = { id: "switch-next", agentId: "MCPNodeReview" };
+  bridge.beats[0]?.();
+  await settle(bridge);
+  expect(attempts).toBe(2);
+  expect(live.focusedAgentId).toBe("MCPNodeReview");
+  expect(sent.at(-1)?.acknowledged).toBe("switch-next");
+});
+
+test("a command for a child this binding dropped is declined", async () => {
+  const sdk = fakeInteractiveMode();
+  const sent: Report[] = [];
+  const command = { id: "switch-stale", agentId: "finished-child" };
+  const bridge = installBridge(
+    undefined,
+    async (_url, init) => {
+      sent.push(JSON.parse(init.body));
+      return Response.json({ command });
+    },
+    sdk,
+  );
+  await bridge.handlers.get("session_start")?.({}, MAIN);
+  const live = new sdk.InteractiveMode();
+  void live.viewSession;
+  bridge.listeners.get("task:subagent:lifecycle")?.(STARTED);
+  await settle(bridge);
+
+  bridge.beats[0]?.();
+  await settle(bridge);
+  expect(sdk.InteractiveMode.focusCalls).toBe(0);
+  expect(sent.some((report) => report.acknowledged)).toBe(false);
 });

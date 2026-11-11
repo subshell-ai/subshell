@@ -97,8 +97,9 @@ function mockFetch(withSubagents = false, canSelect = false) {
   return { restore: () => (globalThis.fetch = original), selectPosts, subagentReads: () => subagentReads };
 }
 
-function renderRow(subshell: SubshellView, focused = false, onOpen?: () => void) {
+function renderRow(subshell: SubshellView, focused = false, onOpen?: () => void, seed?: Record<string, unknown>) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  if (seed) client.setQueryData(["harness-subagents"], seed);
   const rootRoute = createRootRoute();
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -206,10 +207,14 @@ it("selects a child through the parent endpoint and returns to the parent on the
     const child = await screen.findByRole("button", { name: /Review changes/ });
     fireEvent.click(child);
     await waitFor(() => expect(selectPosts).toEqual([{ agentId: "child" }]));
-    // The reset only arms once the SELECTED child comes back confirmed from
-    // the server (a queued command is not a view change), so wait for the
-    // re-render that carries it before clicking the parent.
-    await waitFor(() => expect(child.className).toContain("bg-accent"));
+    // The row remounts when the pending POST flips it from blocked to
+    // actionable, so ask the screen again rather than reading the old node.
+    const childRow = () => screen.getByRole("button", { name: /Review changes/ });
+    await waitFor(() => expect(childRow().className).toContain("bg-accent"));
+    // A selected child in a pane that is not the one on screen keeps the
+    // accent fill only; the white ring marks the focused pane.
+    expect(childRow().className).not.toContain("ring-foreground/70");
+    expect(screen.getByRole("link", { name: /auth-refactor/ }).className).not.toContain("ring-foreground/70");
     fireEvent.click(screen.getByRole("link", { name: /auth-refactor/ }));
     await waitFor(() => expect(selectPosts).toEqual([{ agentId: "child" }, { agentId: null }]));
     expect(opened).toBe(1);
@@ -219,8 +224,82 @@ it("selects a child through the parent endpoint and returns to the parent on the
   }
 });
 
+it("a focused parent row returns its selected child to the main view", async () => {
+  // The row that was on screen is the one a person reaches for to get back:
+  // its click must reset the shared view, not toggle disclosure.
+  const { restore, selectPosts } = mockFetch(true, true);
+  // Keep the child click in the rail: without this the test router's empty
+  // detail route replaces the row, and the parent click has nothing to hit.
+  const stopFocus = onWorkspacePaneFocusRequest((id) => id === "s1");
+  try {
+    let opened = 0;
+    renderRow(makeSubshell(), true, () => {
+      opened++;
+    });
+    const child = await screen.findByRole("button", { name: /Review changes/ });
+    fireEvent.click(child);
+    await waitFor(() => expect(selectPosts).toEqual([{ agentId: "child" }]));
+    const childRow = () => screen.getByRole("button", { name: /Review changes/ });
+    const parent = screen.getByRole("link", { name: /auth-refactor/ });
+    await waitFor(() => expect(childRow().className).toContain("ring-foreground/70"));
+    expect(parent.className).not.toContain("ring-foreground/70");
+    // Collapsing hides the child that carries the marker, so the parent takes
+    // it back until the rows are shown again.
+    fireEvent.click(screen.getByRole("button", { name: "Collapse subshell details" }));
+    await waitFor(() => expect(parent.className).toContain("ring-foreground/70"));
+    fireEvent.click(screen.getByRole("button", { name: "Expand subshell details" }));
+    await waitFor(() => expect(parent.className).not.toContain("ring-foreground/70"));
+    fireEvent.click(parent);
+    await waitFor(() => expect(selectPosts).toEqual([{ agentId: "child" }, { agentId: null }]));
+    await waitFor(() => expect(parent.className).toContain("ring-foreground/70"));
+    expect(childRow().className).not.toContain("ring-foreground/70");
+    expect(opened).toBe(1);
+  } finally {
+    stopFocus();
+    restore();
+  }
+});
+
+it("a parent click returns to main while a child switch is queued", async () => {
+  const { restore, selectPosts } = mockFetch(true, true);
+  const stopFocus = onWorkspacePaneFocusRequest((id) => id === "s1");
+  try {
+    renderRow(makeSubshell(), true, () => {});
+    const child = await screen.findByRole("button", { name: /Review changes/ });
+    const parent = screen.getByRole("link", { name: /auth-refactor/ });
+    // The child click only queues its switch; the parent click lands before
+    // the confirmed selectedId reaches this row, and must still win.
+    fireEvent.click(child);
+    fireEvent.click(parent);
+    await waitFor(() => expect(selectPosts).toEqual([{ agentId: "child" }, { agentId: null }]));
+  } finally {
+    stopFocus();
+    restore();
+  }
+});
+
+it("keeps the focused parent ring when a dead pane's cached child cannot render", async () => {
+  // `useHarnessSubagents` keeps the last roster after a pane dies. A cached
+  // selected child must not steal the ring when its row is no longer drawn.
+  const { restore } = mockFetch();
+  try {
+    renderRow(makeSubshell({ alive: false }), true, undefined, {
+      s1: {
+        agents: [{ id: "child", name: "Review changes", status: "running", startedAt: Date.now() }],
+        selectedId: "child",
+        canSelect: true,
+      },
+    });
+    const parent = await screen.findByRole("link", { name: /auth-refactor/ });
+    expect(parent.className).toContain("ring-foreground/70");
+    expect(screen.queryByRole("button", { name: /Review changes/ })).toBeNull();
+  } finally {
+    restore();
+  }
+});
+
 for (const focused of [true, false]) {
-  it(`toggles child rows from the arrow without opening the ${focused ? "active" : "inactive"} parent`, async () => {
+  it(`toggles child rows from the arrow and opens the ${focused ? "active" : "inactive"} parent without changing disclosure`, async () => {
     const { restore } = mockFetch(true);
     let opened = 0;
     try {
@@ -238,9 +317,11 @@ for (const focused of [true, false]) {
       expect(arrow.getAttribute("aria-expanded")).toBe("false");
       expect(document.getElementById(arrow.getAttribute("aria-controls") ?? "")?.hidden).toBe(true);
       expect(opened).toBe(0);
+      // The row click is navigation only now: disclosure stays where the
+      // arrow left it, and the parent opens from either focus state.
       fireEvent.click(screen.getByRole("link", { name: /auth-refactor/ }));
-      expect(opened).toBe(focused ? 0 : 1);
-      expect(arrow.getAttribute("aria-expanded")).toBe(focused ? "true" : "false");
+      expect(opened).toBe(1);
+      expect(arrow.getAttribute("aria-expanded")).toBe("false");
     } finally {
       restore();
     }

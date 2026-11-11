@@ -80,10 +80,15 @@ export function TooltipContent({
 }): JSX.Element {
   return (
     <BaseTooltip.Portal>
-      <BaseTooltip.Positioner className="z-50" sideOffset={sideOffset} side={side}>
+      <BaseTooltip.Positioner className="pointer-events-none z-50" sideOffset={sideOffset} side={side}>
         <BaseTooltip.Popup
           className={cn(
-            "max-w-xs rounded-md border bg-popover px-2.5 py-1.5 text-body text-popover-foreground shadow-md",
+            // Informational only: a popup that takes the pointer keeps the
+            // trigger hovered while covering the row above it, so a click
+            // meant for that row lands on the explanation instead (operator
+            // report 2026-11-10). Passing the pointer through also closes the
+            // tooltip the moment the pointer leaves its trigger.
+            "pointer-events-none max-w-xs rounded-md border bg-popover px-2.5 py-1.5 text-body text-popover-foreground shadow-md",
             "origin-[var(--transform-origin)] transition-[transform,opacity] data-[ending-style]:opacity-0",
             "data-[starting-style]:opacity-0",
             className,

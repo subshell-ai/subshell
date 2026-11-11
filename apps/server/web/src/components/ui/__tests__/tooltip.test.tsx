@@ -37,6 +37,24 @@ describe("ui/tooltip", () => {
     expect(screen.getByText("hover me").hasAttribute("data-base-ui-tooltip-trigger")).toBe(true);
   });
 
+  it("lets the pointer pass through to whatever the popup covers", async () => {
+    render(
+      <TooltipProvider>
+        <Tooltip open>
+          <TooltipTrigger>hover me</TooltipTrigger>
+          <TooltipContent>the reveal</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>,
+    );
+    const popup = await screen.findByText("the reveal");
+    const content = popup.closest("[class*='text-body']");
+    // Both layers are informational: one that takes the pointer keeps the
+    // trigger hovered while covering the row above it, so a click meant for
+    // that row lands on the explanation instead (operator report 2026-11-10).
+    expect(content?.className).toContain("pointer-events-none");
+    expect(content?.parentElement?.className).toContain("pointer-events-none");
+  });
+
   it("draws an arrow by default (operator rule, 2026-09-25)", async () => {
     render(
       <TooltipProvider>

@@ -52,6 +52,8 @@ export interface ButtonProps extends ButtonPrimitive.Props, VariantProps<typeof 
   disabledReason?: ReactNode;
   /** Plain-text form of a node `disabledReason`, for `aria-description`. */
   disabledReasonText?: string;
+  /** Where the explanation renders; defaults to Base UI's top. */
+  disabledReasonSide?: "top" | "bottom" | "left" | "right";
 }
 
 /**
@@ -71,8 +73,13 @@ export function Button({ className, variant, size, ...props }: ButtonProps) {
 export function ExplainedButton({
   disabledReason,
   disabledReasonText,
+  disabledReasonSide,
   ...props
-}: ButtonPrimitive.Props & { disabledReason?: ReactNode; disabledReasonText?: string }) {
+}: ButtonPrimitive.Props & {
+  disabledReason?: ReactNode;
+  disabledReasonText?: string;
+  disabledReasonSide?: "top" | "bottom" | "left" | "right";
+}) {
   const reasonId = useId();
   const hasExplanation = useRef(false);
   if (disabledReason !== undefined) hasExplanation.current = true;
@@ -142,12 +149,12 @@ export function ExplainedButton({
       <Tooltip.Root disabled={!explained} open={explained && open} onOpenChange={setOpen}>
         <Tooltip.Trigger render={button} closeOnClick={false} />
         <Tooltip.Portal>
-          <Tooltip.Positioner sideOffset={6} className="z-50">
+          <Tooltip.Positioner side={disabledReasonSide} sideOffset={6} className="pointer-events-none z-50">
             <Tooltip.Popup
               id={reasonId}
               role="tooltip"
               aria-hidden={!explained || !open}
-              className="z-50 max-w-xs rounded-md border bg-popover px-2.5 py-1.5 text-body text-popover-foreground shadow-md"
+              className="pointer-events-none z-50 max-w-xs rounded-md border bg-popover px-2.5 py-1.5 text-body text-popover-foreground shadow-md"
             >
               {disabledReason}
               <Tooltip.Arrow className="size-2 rotate-45 bg-popover data-[side=bottom]:-top-1 data-[side=left]:-right-1 data-[side=top]:-bottom-1 data-[side=right]:-left-1 data-[side=bottom]:border-t data-[side=left]:border-t data-[side=left]:border-r data-[side=top]:border-r data-[side=right]:border-b data-[side=top]:border-b data-[side=bottom]:border-l data-[side=right]:border-l" />
