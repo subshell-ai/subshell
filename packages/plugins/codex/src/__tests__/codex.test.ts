@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { McpLaunchSpec, PresetDefinition } from "@subshell-ai/plugin-api";
+import type { HarnessSubagentPane, McpLaunchSpec, PresetDefinition } from "@subshell-ai/plugin-api";
 import { createTestHost } from "@subshell-ai/plugin-api/testing";
 import createPlugin, { manifest } from "../index.js";
 
@@ -11,6 +11,96 @@ function preset(overrides: Partial<PresetDefinition> = {}): PresetDefinition {
 
 const launch: McpLaunchSpec = { command: "/opt/subshell/subshell-mcp", args: [] };
 const bunLaunch: McpLaunchSpec = { command: "/usr/bin/bun", args: ["/opt/subshell/dist/mcp/main.js"] };
+
+type PickerRow = { name: string; id: string };
+
+const MAIN_ROW: PickerRow = { name: "Main [default]", id: "01a1c6b8-2a4c-77f2-a828-5eba0903f64d" };
+
+function childRow(index: number): PickerRow {
+  return { name: `/root/child_${index}`, id: `01a1c7f0-825a-7ce2-8a88-${String(index).padStart(12, "0")}` };
+}
+
+/**
+ * A stand-in for Codex's `/subagents` picker: eight painted rows over the whole
+ * roster, Home/PageDown/arrow navigation, and Enter following the highlight.
+ * The driver is pinned against the shape the real TUI has, not against a page
+ * that happens to fit.
+ */
+function pickerHarness(
+  rows: readonly PickerRow[],
+  options: { open?: boolean; selected?: number; formatId?: (id: string) => string } = {},
+) {
+  const typed: string[] = [];
+  const maxVisible = 8;
+  let open = options.open ?? false;
+  let selected = options.selected ?? 0;
+  let top = open ? Math.max(0, Math.min(selected + 1 - maxVisible, rows.length - maxVisible)) : 0;
+  let composer = "";
+  const ensureVisible = () => {
+    if (selected < top) top = selected;
+    else if (selected >= top + maxVisible) top = selected + 1 - maxVisible;
+  };
+  const renderPicker = () => {
+    const visible = rows.slice(top, top + maxVisible);
+    const lines = ["  Subagents", "  Select an agent to watch. alt+← previous, alt+→ next.", ""];
+    if (top > 0) lines.push("↑");
+    for (const [offset, row] of visible.entries()) {
+      const index = top + offset + 1;
+      const marker = index - 1 === selected ? "›" : " ";
+      const suffix = index === 1 ? " (current)" : "";
+      const id = options.formatId?.(row.id) ?? row.id;
+      lines.push(`${marker} ${index}. • ${row.name}${suffix}  ${id}`);
+    }
+    if (top + visible.length < rows.length) lines.push("↓");
+    lines.push("  enter select · esc back");
+    return lines.join("\n");
+  };
+  const view = () => {
+    if (open) return renderPicker();
+    if (selected > 0) {
+      return [
+        "› Viewing sub-agent — direct input is disabled",
+        `  GPT-6.1-Sol low · ~/projects/hmn-vm · \`${rows[selected]?.name}\``,
+        "  ← for agents · ? for shortcuts",
+      ].join("\n");
+    }
+    return [
+      composer === "/subagents" ? "› /subagents" : "› Ask Codex to do anything",
+      "  GPT-6.1-Sol medium · ~/projects/hmn-vm · Main [default]",
+      "  ← for agents · ? for shortcuts",
+    ].join("\n");
+  };
+  const pane: HarnessSubagentPane = {
+    read: async () => view(),
+    type: async (text) => {
+      typed.push(text);
+      if (open) {
+        if (text === "\u001b[H") {
+          selected = 0;
+          top = 0;
+        } else if (text === "\u001b[6~") {
+          selected = Math.min(rows.length - 1, selected + maxVisible);
+          ensureVisible();
+        } else if (text === "\u001b[A") {
+          selected = Math.max(0, selected - 1);
+          ensureVisible();
+        } else if (text === "\u001b[B") {
+          selected = Math.min(rows.length - 1, selected + 1);
+          ensureVisible();
+        } else if (text === "\u001b" || text === "\r") {
+          open = false;
+        }
+        return;
+      }
+      if (text === "/subagents") composer = "/subagents";
+      else if (text === "\r" && composer === "/subagents") {
+        composer = "";
+        open = true;
+      }
+    },
+  };
+  return { pane, typed, state: () => ({ open, selected, main: selected === 0 }) };
+}
 
 describe("CodexPlugin", () => {
   it("has stable metadata", () => {
@@ -231,130 +321,75 @@ describe("CodexPlugin", () => {
     }
   });
 
-  it("selects a child by the id Codex prints, not the server roster's position", async () => {
-    const overlay = [
-      "Subagents",
-      "Select an agent to watch. alt+← previous, alt+→ next.",
-      "",
-      "› 1. • Main [default] (current)  01a1c7f0-825a-7ce2-8a88-f858e555322f",
-      "  2. • /root/reply               01a1c7f0-9481-7e60-af5d-71094b1d4e8a",
-      "",
-      "  enter select · esc back",
-    ].join("\n");
-    let typed = "";
-    let screen = "› Ask Codex to do anything\nMain [default]";
-    const result = await plugin.subagents?.select?.({
-      agentId: "01a1c7f0-9481-7e60-af5d-71094b1d4e8a",
-      agents: [],
-      pane: {
-        read: async () => screen,
-        type: async (text) => {
-          typed += text;
-          if (text === "/subagents") screen = "› /subagents\nMain [default]";
-          else if (text === "\r" && screen.includes("› /subagents")) screen = overlay;
-          else if (text === "2") screen = overlay.replace("› 1.", "  1.").replace("  2.", "› 2.");
-          else if (text === "\r" && screen.includes("› 2.")) {
-            screen = "This sub-agent is controlled by its parent. Direct input is disabled.";
-          }
-        },
-      },
-    });
-    expect(result).toEqual({ selectedId: "01a1c7f0-9481-7e60-af5d-71094b1d4e8a" });
-    expect(typed).toBe("/subagents\r2\r");
+  it("switches to a visible child by the id Codex prints", async () => {
+    const rows = [MAIN_ROW, childRow(1), childRow(2)];
+    const harness = pickerHarness(rows);
+    const target = rows[2] as PickerRow;
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents: [], pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
+    expect(harness.state()).toEqual({ open: false, selected: 2, main: false });
+    expect(harness.typed).toEqual(["/subagents", "\r", "\u001b[B", "\u001b[B", "\r"]);
+  });
+
+  it("pages past the eight painted rows to reach a child below the fold", async () => {
+    const rows = [MAIN_ROW, ...Array.from({ length: 30 }, (_, index) => childRow(index + 1))];
+    const harness = pickerHarness(rows);
+    const target = rows[20] as PickerRow; // row 21
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents: [], pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
+    expect(harness.state().selected).toBe(20);
+    // The digit shortcut only reaches rows 1-9; this row must be reached by
+    // pages and arrows, never by typing its number.
+    expect(harness.typed.filter((key) => /^\d+$/.test(key))).toEqual([]);
+    expect(harness.typed.filter((key) => key === "\u001b[6~")).toHaveLength(3);
+    expect(harness.typed.filter((key) => key === "\u001b[A")).toHaveLength(4);
+  });
+
+  it("normalizes a picker a previous attempt left scrolled", async () => {
+    const rows = [MAIN_ROW, ...Array.from({ length: 30 }, (_, index) => childRow(index + 1))];
+    const harness = pickerHarness(rows, { open: true, selected: 25 });
+    const target = rows[20] as PickerRow;
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents: [], pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
+    expect(harness.typed[0]).toBe("\u001b[H");
+    expect(harness.state().selected).toBe(20);
+  });
+
+  it("returns to Main when the picker is scrolled away from it", async () => {
+    const rows = [MAIN_ROW, ...Array.from({ length: 30 }, (_, index) => childRow(index + 1))];
+    const harness = pickerHarness(rows, { open: true, selected: 25 });
+    const result = await plugin.subagents?.select?.({ agentId: null, agents: [], pane: harness.pane });
+    expect(result).toEqual({ selectedId: null });
+    expect(harness.state()).toEqual({ open: false, selected: 0, main: true });
+    expect(harness.typed).toEqual(["\u001b[H", "\r"]);
+  });
+
+  it("closes a picker it opened when the clicked child is no longer listed", async () => {
+    const harness = pickerHarness([MAIN_ROW, childRow(1)]);
+    await expect(
+      plugin.subagents?.select?.({ agentId: childRow(99).id, agents: [], pane: harness.pane }),
+    ).rejects.toThrow("didn't list that subagent");
+    expect(harness.typed.at(-1)).toBe("\u001b");
+    expect(harness.state().open).toBe(false);
   });
 
   it("finds a picker row whose id wraps in a narrow pane", async () => {
-    const overlay = [
-      "Subagents",
-      "Select an agent to watch. alt+← previous, alt+→ next.",
-      "",
-      "› 1. • Main [default] (current)  01a1c7f0-825a-7ce2-8a88-",
-      "  f858e555322f",
-      "  2. • /root/reply               01a1c7f0-9481-7e60-af5d-",
-      "  71094b1d4e8a",
-      "",
-      "  enter select · esc back",
-    ].join("\n");
-    let typed = "";
-    let screen = "› Ask Codex to do anything\nMain [default]";
-    const result = await plugin.subagents?.select?.({
-      agentId: "01a1c7f0-9481-7e60-af5d-71094b1d4e8a",
-      agents: [],
-      pane: {
-        read: async () => screen,
-        type: async (text) => {
-          typed += text;
-          if (text === "/subagents") screen = "› /subagents\nMain [default]";
-          else if (text === "\r" && screen.includes("› /subagents")) screen = overlay;
-          else if (text === "2") screen = overlay.replace("› 1.", "  1.").replace("  2.", "› 2.");
-          else if (text === "\r" && screen.includes("› 2.")) {
-            screen = "This sub-agent is controlled by its parent. Direct input is disabled.";
-          }
-        },
-      },
-    });
-    expect(result).toEqual({ selectedId: "01a1c7f0-9481-7e60-af5d-71094b1d4e8a" });
-    expect(typed).toBe("/subagents\r2\r");
-  });
-
-  it("accepts a picker that closes on the digit itself", async () => {
-    const overlay = [
-      "Subagents",
-      "Select an agent to watch. alt+← previous, alt+→ next.",
-      "",
-      "› 1. • Main [default] (current)  01a1c7f0-825a-7ce2-8a88-f858e555322f",
-      "  2. • /root/reply               01a1c7f0-9481-7e60-af5d-71094b1d4e8a",
-      "",
-      "  enter select · esc back",
-    ].join("\n");
-    let typed = "";
-    let screen = "› Ask Codex to do anything\nMain [default]";
-    const result = await plugin.subagents?.select?.({
-      agentId: "01a1c7f0-9481-7e60-af5d-71094b1d4e8a",
-      agents: [],
-      pane: {
-        read: async () => screen,
-        type: async (text) => {
-          typed += text;
-          if (text === "/subagents") screen = "› /subagents\nMain [default]";
-          else if (text === "\r" && screen.includes("› /subagents")) screen = overlay;
-          else if (text === "2") screen = "This sub-agent is controlled by its parent. Direct input is disabled.";
-        },
-      },
-    });
-    expect(result).toEqual({ selectedId: "01a1c7f0-9481-7e60-af5d-71094b1d4e8a" });
-    expect(typed).toBe("/subagents\r2");
+    const wrap = (id: string) => `${id.slice(0, 18)}\n  ${id.slice(18)}`;
+    const rows = [MAIN_ROW, childRow(1), childRow(2)];
+    const harness = pickerHarness(rows, { formatId: wrap });
+    const target = rows[2] as PickerRow;
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents: [], pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
+    expect(harness.state().selected).toBe(2);
   });
 
   it("matches the row's trailing id, not a uuid inside its label", async () => {
-    const id1 = "01a1c7f0-825a-7ce2-8a88-f858e555322f";
-    const id2 = "01a1c7f0-9481-7e60-af5d-71094b1d4e8a";
-    const overlay = [
-      "Subagents",
-      "Select an agent to watch. alt+← previous, alt+→ next.",
-      "",
-      `› 1. • Main [default] (current)  ${id1}`,
-      `  2. • /root/mentions-${id1}       ${id2}`,
-      "",
-      "  enter select · esc back",
-    ].join("\n");
-    let typed = "";
-    let screen = "› Ask Codex to do anything\nMain [default]";
-    const result = await plugin.subagents?.select?.({
-      agentId: id2,
-      agents: [],
-      pane: {
-        read: async () => screen,
-        type: async (text) => {
-          typed += text;
-          if (text === "/subagents") screen = "› /subagents\nMain [default]";
-          else if (text === "\r" && screen.includes("› /subagents")) screen = overlay;
-          else if (text === "2") screen = "Viewing sub-agent";
-        },
-      },
-    });
-    expect(result).toEqual({ selectedId: id2 });
-    expect(typed).toBe("/subagents\r2");
+    const labelWithId = `/root/mentions-${MAIN_ROW.id}`;
+    const target = childRow(2);
+    const harness = pickerHarness([MAIN_ROW, { name: labelWithId, id: target.id }]);
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents: [], pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
+    expect(harness.state().selected).toBe(1);
   });
 
   it("returns to Main without touching a draft prompt", async () => {
