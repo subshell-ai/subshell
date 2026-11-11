@@ -1,5 +1,11 @@
 # @subshell-ai/plugin-codex
 
+## 1.0.4
+
+### Patch Changes
+
+- [#528](https://github.com/subshell-ai/subshell/pull/528) [`0613970`](https://github.com/subshell-ai/subshell/commit/0613970ebb9ee74a1bf6a07ed905c6ce35099117) Thanks [@theogravity](https://github.com/theogravity)! - Clicking a Codex subagent in the sidebar now reaches children that sit below the harness picker's eight-row viewport. The driver pages through `/subagents` and moves the highlight onto the id the picker printed before accepting, so a child past the ninth row (which the digit shortcut cannot select) switches the parent pane instead of failing with "Couldn't switch agent views."
+
 ## 1.0.3
 
 ### Patch Changes

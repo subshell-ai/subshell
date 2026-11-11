@@ -1,5 +1,13 @@
 # @internal/node
 
+## 3.6.4
+
+### Patch Changes
+
+- [#528](https://github.com/subshell-ai/subshell/pull/528) [`0613970`](https://github.com/subshell-ai/subshell/commit/0613970ebb9ee74a1bf6a07ed905c6ce35099117) Thanks [@theogravity](https://github.com/theogravity)! - Ship the Codex subagent picker fix: clicking a child below the harness picker's eight-row viewport now switches the parent terminal to it instead of opening the picker and failing to find the row.
+- Updated dependencies []:
+  - @internal/pane-runtime@1.0.0
+
 ## 3.6.3
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @internal/docs
 
+## 0.11.16
+
+### Patch Changes
+
+- [#528](https://github.com/subshell-ai/subshell/pull/528) [`0613970`](https://github.com/subshell-ai/subshell/commit/0613970ebb9ee74a1bf6a07ed905c6ce35099117) Thanks [@theogravity](https://github.com/theogravity)! - Redeploy the documentation site alongside this release.
+
 ## 0.11.15
 
 ### Patch Changes
