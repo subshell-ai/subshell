@@ -138,7 +138,14 @@ test("a disabled submit explains missing input above its dialog", async ({ page 
   expect(
     await tooltip.evaluate((element) => {
       const box = element.getBoundingClientRect();
-      return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+      // The popup passes the pointer through (operator report 2026-11-10),
+      // so elementFromPoint ignores it. Opt back in for the probe only: the
+      // dialog overlay would win this hit if it painted above the tooltip.
+      const previous = element.style.pointerEvents;
+      element.style.pointerEvents = "auto";
+      const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      element.style.pointerEvents = previous;
+      return element.contains(hit);
     }),
   ).toBe(true);
   await submit.press("Enter");

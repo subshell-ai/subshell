@@ -136,9 +136,8 @@ export function toSubshellCreateBody({
 /**
  * `autoFile` (default true) is the "you are always in a workspace" rule: a
  * launch raised with no workspace on screen gets a workspace opened around
- * it. Callers that FILE the pane themselves — the add-a-pane dialog (its
- * `onAdd` attaches through the idempotent pane path, including the split's)
- * and the new-workspace dialog (which creates the workspace first) — pass
+ * it. The add-a-pane dialog files the pane itself (its `onAdd` attaches
+ * through the idempotent pane path, including the split's), so it passes
  * false, or the shared create would leave a second workspace holding the
  * same row.
  */

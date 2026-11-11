@@ -425,7 +425,7 @@ block the state update the test is waiting for and exhaust CI timeouts.
 
 ## Workspaces and the split flow (spec 2026-10-17)
 
-**Add a subshell to a workspace** opens the ordinary add-subshell dialog, creates a real, NAMED
+**Add a subshell to a workspace** opens the add-subshell launch dialog, creates a real, NAMED
 workspace around the current subshell, and navigates to
 `/workspaces/$id?add=…&dir=…`; the dock and the tab strip consume that intent
 once dockview is ready, through their ordinary `handleAdd`, so the first split
@@ -443,8 +443,8 @@ Closing a subshell itself remains a separate action. The user is ALWAYS in a wor
 with none on screen JOINS an existing one (the remembered-then-recency
 workspace, via the idempotent pane-add; only an instance with none opens
 one around the pane - `autoFile` in
-`hooks/use-create-subshell.ts`; the add-pane and new-workspace dialogs pass
-false and file it themselves), and a plain click on a rail row or cell
+`hooks/use-create-subshell.ts`; the add-pane dialog passes false and files
+it itself), and a plain click on a rail row or cell
 means the tab (`hooks/use-open-pane-as-tab.ts`: focus it on
 screen, else its holder via `armPaneFocusOnArrive`, else create one). The
 landing `/` is a direction, not a page: last visited workspace, else most

@@ -1,19 +1,8 @@
-import { apiPost, Button, errMessage } from "@internal/node-admin";
+import { apiPost, Button, errMessage, Input } from "@internal/node-admin";
+import { normalizeLabel } from "@internal/subshell-protocol";
 import { useStore } from "@tanstack/react-form";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useCallback, useEffect, useRef, useState } from "react";
-import { ConnectPanel } from "@/components/connect/connect-panel";
-import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
-import { LaunchRefusal } from "@/components/launch-error-line";
-import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
-import {
-  canSubmit,
-  emptyNewSubshellForm,
-  launchDisabledReason,
-  type NewSubshellFormValue,
-} from "@/components/subshell-picker/launch-form-rules";
-import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
-import { type SubshellKind, SubshellKindPicker } from "@/components/subshell-picker/subshell-kind-picker";
 import {
   Dialog,
   DialogContent,
@@ -23,32 +12,20 @@ import {
   DialogTitle,
   formDialogOpenChange,
 } from "@/components/ui/dialog";
-import { Segmented } from "@/components/ui/segmented";
-import { useCreateSubshell } from "@/hooks/use-create-subshell";
-import { useSubshellsList } from "@/hooks/use-subshells";
 import { useInvalidateWorkspaces, useWorkspaces } from "@/hooks/use-workspaces";
-import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
-import { displayFieldOwnsRefusal, splitLaunchError } from "@/lib/display-refusal-routing";
-import { makeForm, useSubmitDisabled } from "@/lib/form";
-import { defaultWorkspaceName, uniqueWorkspaceName } from "@/lib/workspace-name";
-
-/** Which half of the dialog is showing (same shape as the add-subshell dialog). */
-type Mode = "existing" | "new";
+import { type FieldProblems, makeForm, useSubmitDisabled, useSubmitDisabledReason } from "@/lib/form";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
+import { defaultWorkspaceName, uniqueWorkspaceName, WORKSPACE_NAME_MAX } from "@/lib/workspace-name";
 
 /**
- * Creates a workspace WITH subshells already on it (spec 2026-09-03
- * sidebar-quickadd §4b) — what the sidebar's Workspaces `+` and the
- * /workspaces page's button open instead of the old immediate create.
+ * Creates a workspace with a name and opens it empty (spec 2026-09-03
+ * sidebar-quickadd §4b, revised 2026-11-10) — what the sidebar's Workspaces
+ * `+`, the /workspaces page's button and the landings open instead of the
+ * old immediate create.
  *
- * Deliberately has no placement control: a fresh workspace has no focused
- * pane to split from, and the dock's reconciliation lays every pane of a
- * workspace with no saved layout out as tabs.
- *
- * Submit order is workspace → panes, sequentially, collecting failures rather
- * than aborting: the workspace existing but a pane missing is recoverable
- * from inside it; a pane posted to a workspace that was never created is not.
- * Zero selected is a valid answer — it means today's old behavior (an empty
- * workspace you name and fill inside).
+ * Subshells are not chosen here any more: existing ones join the workspace by
+ * being clicked in the sidebar or dragged onto it, and a fresh launch files
+ * itself, so this dialog only owns the name.
  */
 export function NewWorkspaceDialog({
   open,
@@ -59,268 +36,130 @@ export function NewWorkspaceDialog({
 }): JSX.Element {
   const navigate = useNavigate();
   const invalidate = useInvalidateWorkspaces();
-  const { data: roster, isError: loadFailed, isLoading: loading } = useSubshellsList();
-  // Agent-created helpers aren't candidates for a human's workspace.
-  const subshells = roster?.filter((subshell) => subshell.crossAgent !== true);
-  // Names already taken, so a same-minute second create does not send the
-  // identical default: two tree branches reading the same is confusion, not
-  // a server rule — the unique `(user, name)` index left with migration 0058,
-  // and nothing 409s on a repeated name anymore.
   const { data: workspaces } = useWorkspaces();
-  // Placement is this dialog's own decision (the workspace it was opened
-  // from, or the split's, or the workspace it just created) — the hook must
-  // not open a SECOND workspace around the pane. See `useCreateSubshell`.
-  const create = useCreateSubshell({ autoFile: false });
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  // The caret rule: a complaint waits until the field has been left.
+  const [nameFocused, setNameFocused] = useState(false);
+  const [nameTouched, setNameTouched] = useState(false);
 
-  const [sshDraft, setSshDraft] = useState(() => sshSessionDraft());
   const draft = makeForm({
-    defaultValues: { kind: "agent" as SubshellKind, mode: "existing" as Mode, form: emptyNewSubshellForm() },
-    validator: ({ mode, kind, form }): Record<string, string> =>
-      mode !== "new" || (kind === "agent" && canSubmit(form))
-        ? {}
-        : {
-            form:
-              kind === "ssh"
-                ? "Connect the SSH subshell first."
-                : (launchDisabledReason(form) ?? "Complete the launch form."),
-          },
+    // Seeded before the open effect runs, so the first frame has a valid,
+    // submittable name instead of a disabled button.
+    defaultValues: { name: defaultWorkspaceName() },
+    validator: ({ name }): FieldProblems =>
+      normalizeLabel(name, WORKSPACE_NAME_MAX) ? {} : { name: "Enter a workspace name." },
     onSubmit: () => submit(),
   });
-  const { kind, mode, form } = useStore(draft.store, (state) => state.values);
-  const setKind = useCallback((value: SubshellKind) => draft.setFieldValue("kind", value), [draft]);
-  const setMode = useCallback((value: Mode) => draft.setFieldValue("mode", value), [draft]);
-  const setForm = useCallback((value: NewSubshellFormValue) => draft.setFieldValue("form", value), [draft]);
-  const [query, setQuery] = useState("");
-  /** Ordered ids to attach; checkbox toggles and successful launches append here. */
-  const [selected, setSelected] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  // A display refusal reads as the checkbox's own result, so the field
-  // renders it; everything else keeps the form-level line.
-  const [launching, setLaunching] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const submitDisabled = useSubmitDisabled(draft, creating || launching);
-  // Set when the workspace exists but at least one pane failed — the footer
-  // becomes Enter (the workspace is real; the missing panes are addable there).
-  const [createdId, setCreatedId] = useState<string | null>(null);
+  const { name } = useStore(draft.store, (state) => state.values);
+  const submitDisabled = useSubmitDisabled(draft, creating);
+  const submitDisabledReason = useSubmitDisabledReason(draft, creating);
 
-  // The landing segment is decided ONCE per open (operator finding
-  // 2026-10-20): an instance with no subshells at all must not open on an
-  // "Existing subshells" tab that can only hold a dead end. While the read is
-  // still loading its size is unknown, so "existing" stands, and a list that
-  // settles AFTER the dialog is open must not yank the segment out from under
-  // the person. The current read therefore rides a ref, and the effect keys
-  // on `open` alone.
-  const readAtOpen = useRef({ loading, subshells });
-  readAtOpen.current = { loading, subshells };
+  // The default trades on the same-minute stamp, so names already held are
+  // read ONCE per open: a list that settles afterwards must not rewrite the
+  // field while the person is typing.
+  const takenAtOpen = useRef<string[]>([]);
+  takenAtOpen.current = Array.isArray(workspaces) ? workspaces.map((workspace) => workspace.name) : [];
+  const setName = useCallback((value: string) => draft.setFieldValue("name", value), [draft]);
   useEffect(() => {
     if (!open) return;
-    const read = readAtOpen.current;
-    setMode(!read.loading && read.subshells !== undefined && read.subshells.length === 0 ? "new" : "existing");
-  }, [open, setMode]);
+    setError(null);
+    setCreating(false);
+    setNameFocused(false);
+    setNameTouched(false);
+    setName(uniqueWorkspaceName(defaultWorkspaceName(), takenAtOpen.current));
+  }, [open, setName]);
 
   function reset() {
-    setSshDraft(sshSessionDraft());
-    setMode("existing");
-    setKind("agent");
-    setQuery("");
-    setForm(emptyNewSubshellForm());
-    setSelected([]);
     setError(null);
-    setLaunching(false);
     setCreating(false);
-    setCreatedId(null);
   }
 
-  function toggle(id: string) {
-    if (creating || launching) return;
-    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  }
-
-  function enter(id: string) {
+  function dismiss() {
+    if (creating) return;
     onOpenChange(false);
     reset();
-    void navigate({ to: "/workspaces/$id", params: { id }, search: {} });
   }
 
   async function submit() {
-    if (creating || launching || (mode === "new" && (kind !== "agent" || !canSubmit(form)))) return;
+    if (creating) return;
+    const cleaned = normalizeLabel(name, WORKSPACE_NAME_MAX);
+    if (!cleaned) return;
     setError(null);
     setCreating(true);
-    let toAdd = selected;
-    if (mode === "new") {
-      try {
-        const launched = await create.mutateAsync(form);
-        toAdd = [...selected, launched.id];
-        // Keep the successful launch selected if workspace creation fails;
-        // retrying must not start another process.
-        setSelected(toAdd);
-        setMode("existing");
-        setForm(emptyNewSubshellForm());
-      } catch (err) {
-        setError(createSubshellErrorMessage(err, "Failed to launch subshell"));
-        setCreating(false);
-        return;
-      }
-    }
     let id: string;
     try {
-      const taken = Array.isArray(workspaces) ? workspaces.map((w) => w.name) : [];
-      const created = await apiPost<{ id: string }>("/api/workspaces", {
-        name: uniqueWorkspaceName(defaultWorkspaceName(), taken),
-      });
+      const created = await apiPost<{ id: string }>("/api/workspaces", { name: cleaned });
       id = created.id;
     } catch (err) {
       setError(errMessage(err, "Failed to create workspace"));
       setCreating(false);
       return;
     }
-    let failed = 0;
-    for (const subshellId of toAdd) {
-      try {
-        await apiPost(`/api/workspaces/${id}/panes`, { subshellId });
-      } catch {
-        failed += 1;
-      }
-    }
     await invalidate();
-    setCreating(false);
-    if (failed > 0) {
-      setCreatedId(id);
-      setError(
-        `Workspace created, but ${failed} subshell${failed === 1 ? "" : "s"} could not be added. You can add them from inside.`,
-      );
-      return;
-    }
-    enter(id);
+    onOpenChange(false);
+    reset();
+    void navigate({ to: "/workspaces/$id", params: { id }, search: {} });
   }
 
-  // ONE variable decides "the agent branch is on screen": the split below and the
-  // JSX that mounts `NewSubshellForm` both read it, because written twice the two
-  // can drift, and the drift silences the refusal (a display refusal handed to a
-  // field that was never rendered, with the form line empty too). The field owns
-  // it while that control is on screen and switched on; otherwise the form line
-  // takes it back, so it is never both invisible and orphaned.
-  const agentBranch = !createdId && mode !== "existing" && !(kind === "ssh" && open);
-  const { field: displayLaunchError, form: formLaunchError } = splitLaunchError(
-    error,
-    displayFieldOwnsRefusal({ mounted: agentBranch, virtualDisplay: form.virtualDisplay }),
-  );
   return (
     <Dialog
       open={open}
-      // A half-filled launch form is not disposable (ruling 2026-09-30):
-      // only a deliberate act closes this - X, Cancel, or a successful add.
       onOpenChange={formDialogOpenChange((next) => {
-        if (creating || launching) return;
-        onOpenChange(next);
-        if (!next) reset();
+        if (creating) return;
+        if (next) onOpenChange(true);
+        else dismiss();
       })}
     >
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>New workspace</DialogTitle>
-          <DialogDescription>Start it with subshells already tiled in, or empty.</DialogDescription>
+          <DialogDescription>Name it now; you can add subshells inside.</DialogDescription>
         </DialogHeader>
-
-        <fieldset disabled={creating || launching}>
-          <Segmented
-            ariaLabel="What to add"
-            options={[
-              { value: "existing", label: "Existing subshells" },
-              { value: "new", label: "New subshell" },
-            ]}
-            value={mode}
-            onChange={(next) => {
-              if (!launching) setMode(next);
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void draft.handleSubmit();
+          }}
+        >
+          <Input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            onFocus={() => setNameFocused(true)}
+            onBlur={() => {
+              setNameFocused(false);
+              setNameTouched(true);
             }}
+            maxLength={WORKSPACE_NAME_MAX}
+            aria-label="Workspace name"
+            aria-invalid={!normalizeLabel(name, WORKSPACE_NAME_MAX)}
+            autoFocus
           />
-        </fieldset>
-        <LaunchRefusal error={formLaunchError}>
-          {createdId ? (
-            // The workspace exists; the error line above says which adds failed.
-            <p className="text-muted-foreground text-sm">The workspace is created. Enter it to add the rest.</p>
-          ) : mode === "existing" ? (
-            <ExistingSubshellList
-              subshells={subshells ?? []}
-              // Nothing is a member yet (the workspace does not exist), so the
-              // eligible roster is the candidate list; 0 means none to add.
-              totalCount={subshells?.length}
-              query={query}
-              onQueryChange={setQuery}
-              loadFailed={loadFailed}
-              loading={loading}
-              selected={new Set(selected)}
-              onToggle={toggle}
-            />
-          ) : (
-            <div className="flex flex-col gap-4">
-              <SubshellKindPicker value={kind} onChange={setKind} disabled={launching || creating} />
-              {!agentBranch ? (
-                <ConnectPanel
-                  draft={sshDraft}
-                  onDraftChange={setSshDraft}
-                  onPendingChange={setLaunching}
-                  onLeave={() => {
-                    reset();
-                    onOpenChange(false);
-                  }}
-                  onCreated={(id) => {
-                    setSelected((prev) => [...prev, id]);
-                    setMode("existing");
-                  }}
-                />
-              ) : (
-                <NewSubshellForm
-                  value={form}
-                  onChange={setForm}
-                  onLeave={() => {
-                    reset();
-                    onOpenChange(false);
-                  }}
-                  launchError={displayLaunchError}
-                />
-              )}
-            </div>
+          {nameTouched && !nameFocused && !normalizeLabel(name, WORKSPACE_NAME_MAX) && (
+            <p role="alert" className={`mt-1 ${REQUIREMENT_CAPTION_CLASS}`}>
+              Enter a workspace name.
+            </p>
           )}
-        </LaunchRefusal>
-        {!createdId && selected.length > 0 && (
-          <p className="text-detail text-muted-foreground">
-            {selected.length === 1 ? "1 subshell" : `${selected.length} subshells`} to add
-          </p>
-        )}
-
-        <DialogFooter>
-          {createdId ? (
-            <Button onClick={() => enter(createdId)}>Enter workspace</Button>
-          ) : (
-            <>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  reset();
-                  onOpenChange(false);
-                }}
-                disabled={creating || launching}
-                disabledReason={"Wait for the workspace action to finish."}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={() => void draft.handleSubmit()}
-                disabled={submitDisabled}
-                disabledReason={
-                  creating || launching
-                    ? "Wait for the workspace action to finish."
-                    : kind === "ssh"
-                      ? "Connect the SSH subshell first."
-                      : launchDisabledReason(form)
-                }
-              >
-                {creating ? "Creating…" : "Create workspace"}
-              </Button>
-            </>
-          )}
-        </DialogFooter>
+          {error && <p className="mt-1 text-destructive text-detail">{error}</p>}
+          <DialogFooter className="mt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={dismiss}
+              disabled={creating}
+              disabledReason="Wait for the workspace to be created."
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={submitDisabled}
+              disabledReason={creating ? "Wait for the workspace to be created." : submitDisabledReason}
+            >
+              {creating ? "Creating…" : "Create workspace"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

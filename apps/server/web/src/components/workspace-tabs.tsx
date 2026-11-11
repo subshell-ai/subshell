@@ -261,8 +261,8 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
 
   /**
    * Adds `subshellId` to the workspace and selects it. `direction` comes from
-   * `SubshellPicker`'s placement control, which this flat tab list has no use
-   * for — every pane it adds becomes one more tab, never a split.
+   * the add dialog; this flat tab list has no use for it — every pane it adds
+   * becomes one more tab, never a split.
    */
   async function handleAdd(subshellId: string, _direction: SplitDirection): Promise<boolean> {
     let landed = false;
@@ -363,7 +363,7 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
         fallbackName={detail.workspace.name}
         panes={detail.panes}
         workspaceId={detail.workspace.id}
-        actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
+        actions={<SubshellPicker workspaceId={detail.workspace.id} onAdd={handleAdd} />}
       />
       {/* The selected pane's key bar owns home-indicator clearance. Padding
         this column as well would leave an extra safe-area band below it.

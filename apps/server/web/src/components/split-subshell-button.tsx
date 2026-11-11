@@ -21,8 +21,7 @@ import type { SplitDirection, WorkspaceRow } from "@/types/workspace";
  * concept. It holds this subshell from the first moment (spec 2026-10-17:
  * drafts are gone, a workspace simply exists as long as it has a tab), is
  * named after this subshell, and is editable like any other. What the user
- * does here is pick the second pane, which is the existing add-a-pane
- * dialog, unchanged.
+ * does here is launch the second pane through the add-a-pane dialog.
  *
  * The pane itself is NOT added here. The `add`/`dir` search params carry the
  * choice into the workspace page, which runs the same `handleAdd` every later
@@ -93,7 +92,6 @@ export function SplitSubshellButton({ subshell }: { subshell: SubshellView }): J
       <AddSubshellDialog
         open={open}
         onOpenChange={setOpen}
-        excludeSubshellIds={[subshell.id]}
         // Same plugin, same machine, same directory: a split is almost always
         // "another one of these", and every one of the three is re-pickable.
         initialForm={{

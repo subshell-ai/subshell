@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
@@ -38,17 +38,16 @@ function makeSubshell(overrides: Partial<SubshellView> & { id: string }): Subshe
 
 /** Renders the dialog open, with the subshell list already in cache. */
 function renderDialog(props: {
-  excludeSubshellIds: string[];
   initialForm?: { nodeId?: string };
-  onAdd?: (subshellId: string, direction: SplitDirection) => Promise<unknown>;
+  title?: string;
+  description?: string;
+  // biome-ignore lint/suspicious/noConfusingVoidType: mirrors the dialog's success contract
+  onAdd?: (subshellId: string, direction: SplitDirection) => Promise<boolean | void>;
 }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  // The base list gets the same freshness pin as the filtered halves below:
-  // a seeded cache at the default staleTime is STALE on mount, so the dialog's
-  // observer refetches it for real. On CI that refetch hits a refused port 80,
-  // the failure flips subshellsFailed, and the mode switch the newOnly branch
-  // just hid reappears mid-assertion (laptop green only because a real server
-  // answers this machine's :80). Nothing in these tests wants a live list.
+  // The launch form reads the roster and the per-node filtered halves. Pin
+  // them: a seeded cache at the default staleTime is STALE on mount, and the
+  // observer refetches for real. On CI that refetch hits a refused port 80.
   qc.setQueryDefaults(SUBSHELLS_QUERY_KEY, { staleTime: Infinity });
   qc.setQueryData(SUBSHELLS_QUERY_KEY, [
     makeSubshell({ id: "here", name: "here" }),
@@ -85,8 +84,8 @@ describe("AddSubshellDialog", () => {
   afterEach(cleanup);
 
   it.each(["Cancel", "Close"])("%s discards the launch draft", async (action) => {
-    renderDialog({ excludeSubshellIds: ["here", "other", "remote"] });
-    await screen.findByRole("heading", { name: "New subshell" });
+    renderDialog({});
+    await screen.findByRole("heading", { name: "Add a subshell" });
     const field = document.querySelector<HTMLInputElement>("#picker-working-dir");
     if (!field) throw new Error("Working directory input is missing");
     const initial = field.value;
@@ -98,55 +97,17 @@ describe("AddSubshellDialog", () => {
     await waitFor(() => expect(document.querySelector<HTMLInputElement>("#picker-working-dir")?.value).toBe(initial));
   });
 
-  it("leaves out the subshells it was told to exclude", async () => {
-    renderDialog({ excludeSubshellIds: ["here"] });
-    expect(await screen.findByText("other")).toBeTruthy();
-    expect(screen.queryByText("here")).toBeNull();
-    expect(screen.getByText("remote")).toBeTruthy();
-  });
-
-  it("disables the mode switch while an add is in flight", async () => {
-    // The pre-newOnly suite asserted this through the old dialog; the branch
-    // is unchanged and still needs a pin: no mode flip (or double add) while
-    // an add is running. The click retries inside waitFor because the list
-    // re-renders once the filtered queries hydrate: on a starved runner the
-    // first click can land on an element React has already replaced, and a
-    // detached node dispatches events the root never sees. EVERY pending
-    // promise is released, so a failure mid-loop cannot leave the dialog
-    // mounted busy into the next test.
-    const releases: (() => void)[] = [];
-    renderDialog({
-      excludeSubshellIds: [],
-      onAdd: () =>
-        new Promise<void>((resolve) => {
-          releases.push(resolve);
-        }),
-    });
-    await screen.findByText("other");
-    try {
-      await waitFor(() => {
-        fireEvent.click(screen.getByRole("button", { name: /other/ }));
-        expect(screen.getByRole("button", { name: "Existing subshell" }).closest("fieldset[disabled]")).not.toBeNull();
-      });
-    } finally {
-      await act(async () => {
-        for (const release of releases) release();
-      });
-    }
-  });
-
-  it("opens the launch form directly when every subshell is already included", async () => {
-    renderDialog({ excludeSubshellIds: ["here", "other", "remote"] });
-    expect(await screen.findByRole("heading", { name: "New subshell" })).toBeTruthy();
+  it("offers only the launch form, with no existing-subshell choice", async () => {
+    renderDialog({});
+    expect(await screen.findByRole("heading", { name: "Add a subshell" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Start subshell" })).toBeTruthy();
     expect(screen.queryByText("Existing subshell")).toBeNull();
     expect(screen.queryByPlaceholderText(/Search by name/)).toBeNull();
-    expect(screen.queryByText(/Every subshell is already/)).toBeNull();
   });
 
-  it("lists available subshells across nodes even when the launch draft names one", async () => {
-    renderDialog({ excludeSubshellIds: [], initialForm: { nodeId: "box" } });
-    expect(await screen.findByText("remote")).toBeTruthy();
-    expect(screen.getByText("other")).toBeTruthy();
+  it("a caller's title and description name the flow", async () => {
+    renderDialog({ title: "Split", description: "Split this pane beside another subshell." });
+    expect(await screen.findByRole("heading", { name: "Split" })).toBeTruthy();
+    expect(screen.getByText("Split this pane beside another subshell.")).toBeTruthy();
   });
 });

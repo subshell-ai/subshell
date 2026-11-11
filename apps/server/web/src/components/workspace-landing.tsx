@@ -60,7 +60,7 @@ export function WorkspaceLanding({ keepWorkspaceSection = false }: { keepWorkspa
         <EmptyState
           icon={TerminalSquare}
           title="Open your subshells together"
-          description="Choose subshells to add to a workspace."
+          description="Create a workspace, then add subshells from the sidebar."
           actionLabel="New workspace"
           onAction={() => quickAdd.openNewWorkspace()}
         />

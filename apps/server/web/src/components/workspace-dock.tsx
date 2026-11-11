@@ -597,6 +597,9 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   /** Resolves true when the pane row now exists server-side; false when it does not and the banner says why. */
   const handleAdd = useCallback(
     async (subshellId: string, direction: SplitDirection): Promise<boolean> => {
+      // A summary-read failure still means the pane landed, so only `addPane`
+      // decides this flag.
+      let paneAdded = false;
       try {
         // The pane row is created first, and everything after this point
         // runs inside a `finally` that always calls `onRefetch` — once this
@@ -607,11 +610,12 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         // subshell as available in the picker, and turn a retry into a
         // duplicate.
         const newPane = await addPane(subshellId);
+        paneAdded = true;
         try {
           // The subshell's own summary is fetched fresh rather than taken
           // from any list the caller might have had on hand —
-          // `SubshellPicker` carries only an id, whether the subshell was
-          // picked from the list or launched from the dialog — so the new
+          // `SubshellPicker` carries only an id, launched from the dialog or
+          // arrived through the split intent — so the new
           // panel's title and content are correct from the moment it's
           // added instead of waiting on the next poll.
           const subshell = await apiFetch<SubshellView>(`/api/subshells/${subshellId}`);
@@ -670,17 +674,17 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         }
       } catch (err) {
         setError(errMessage(err, "Failed to add subshell"));
-        return false;
+        return paneAdded;
       }
       return true;
     },
     [addPanel, addPane, focusAddedPane, onRefetch],
   );
 
-  // The split that created this workspace. The picker chose (or launched) the
+  // The split that created this workspace. The add dialog launched the
   // second subshell before the workspace existed, so attaching it is this
   // page's job — done through the same `handleAdd` every later add uses, so
-  // the direction the picker asked for is honoured by one code path.
+  // the direction the dialog asked for is honoured by one code path.
   useEffect(() => {
     // The intent is spent the moment the add starts, not when it finishes: the
     // body below awaits a refetch, which re-renders this component, and
@@ -811,12 +815,12 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
         fallbackName={detail.workspace.name}
         panes={detail.panes}
         workspaceId={detail.workspace.id}
-        actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
+        actions={<SubshellPicker workspaceId={detail.workspace.id} onAdd={handleAdd} />}
       />
       {/* biome-ignore lint/a11y/noStaticElementInteractions: an HTML5 DROP
           target, not a click handler — drag events carry no tap/keyboard
-          semantics to lose, and the keyboard-reachable equivalent of this
-          gesture is the "Add subshell" dialog beside it. */}
+          semantics to lose, and selecting the sidebar row is the
+          keyboard-reachable equivalent of this gesture. */}
       <div
         ref={dockEl}
         className="relative flex-1 overflow-hidden bg-terminal-canvas"

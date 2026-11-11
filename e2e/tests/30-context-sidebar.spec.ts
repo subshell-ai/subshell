@@ -31,8 +31,8 @@ test("the unified sidebar transfers workspace membership and restores section de
       .click();
     await page.getByRole("menuitem", { name: "Add subshell", exact: true }).click();
     const addDialog = page.getByRole("dialog", { name: "Add a subshell", exact: true });
-    await expect(addDialog.getByRole("button", { name: "Existing subshell", exact: true })).toBeVisible();
-    await expect(addDialog.getByRole("button", { name: "New subshell", exact: true })).toBeVisible();
+    await expect(addDialog.getByRole("button", { name: "Start subshell", exact: true })).toBeVisible();
+    await expect(addDialog.getByRole("button", { name: "Existing subshell", exact: true })).toHaveCount(0);
     await expect(addDialog.getByRole("button", { name: "Split right", exact: true })).toHaveCount(0);
     await addDialog.getByRole("button", { name: "Close", exact: true }).click();
     await expect(sidebar.locator(`a[href="/subshells/${panes[0]}"]`)).toBeVisible();

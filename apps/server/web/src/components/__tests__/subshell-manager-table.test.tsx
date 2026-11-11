@@ -13,8 +13,8 @@ import { SubshellManagerTable } from "@/components/subshell-manager-table";
 import type { SubshellSection } from "@/lib/subshell-sections";
 import type { SubshellView } from "@/types/subshell";
 
-/** A full SubshellView with overridable fields — the fixture idiom from the
- *  sibling list/picker tests (existing-subshell-list.test.tsx). */
+/** A full SubshellView with overridable fields — the fixture idiom the
+ *  sibling subshell-list tests use. */
 function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
   return {
     id: "id-1",

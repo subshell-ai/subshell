@@ -1,3 +1,6 @@
+/** The server normalizes and caps workspace names at 120 characters. */
+export const WORKSPACE_NAME_MAX = 120;
+
 /** The locale stamp a fresh workspace's default name carries. */
 function stamp(date: Date): string {
   return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });

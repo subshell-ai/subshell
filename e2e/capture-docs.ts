@@ -291,8 +291,6 @@ try {
   const sidebarMargin = await page.addStyleTag({ content: "aside { margin: 12px; height: calc(100% - 24px); }" });
   await capture(page, "workspace-browser", page.locator("aside"));
   await sidebarMargin.evaluate((element) => element.parentNode?.removeChild(element));
-  await page.getByRole("button", { name: "Add a subshell to this workspace" }).click();
-  await capture(page, "add-subshell", dialog);
   await close();
 
   // ── The preview badge and the switch's gold line. Both ride a pane that owns
