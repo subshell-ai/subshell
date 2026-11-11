@@ -8,6 +8,7 @@ import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import type { InstancePluginRow, PluginImpact } from "@/hooks/use-instance-plugins";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
 import { Route } from "@/routes/settings_.plugins";
+import type { ServerDeployment } from "@/types/server-deployment";
 
 /**
  * The instance plugins page (spec 2026-09-10 §6, §6.1): catalog installs are
@@ -45,6 +46,7 @@ interface PageFixture {
   /** `GET /api/plugins/updates` answers 500 (the query failed, not a plugin) */
   failUpdates?: boolean;
   /** The deployment view the restart offer reads; defaults to a restartable host */
+  deployment?: ServerDeployment;
 }
 
 function row(f: RowFixture): InstancePluginRow {
