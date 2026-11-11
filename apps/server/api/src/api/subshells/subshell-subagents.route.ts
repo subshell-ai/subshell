@@ -1,9 +1,12 @@
+import { ApiError } from "@internal/backend-errors";
+import { getHarness, type HarnessSubagentSnapshot } from "@internal/pane-runtime";
 import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/api/middleware/context.plugin.js";
 import { apiModels } from "@/api/schemas/index.js";
 import { HarnessSubagents } from "@/modules/subshells/harness-subagents.js";
+import { SubshellError } from "@/modules/subshells/subshells.service.js";
 import { HttpError } from "@/shared/errors.js";
 
 // One registry per database context. The WeakMap key is the app's `ctx.db`;
@@ -18,6 +21,57 @@ function registry(context: object): HarnessSubagents {
   return value;
 }
 
+/**
+ * One picker act per pane at a time. A hook integration types into the pane's
+ * own UI and then reads it back, so two overlapping clicks would interleave
+ * their keystrokes. A restart checks the generation again before accepting
+ * the result; the lock itself stays keyed by pane id so the old act still
+ * owns it until it finishes.
+ */
+const selecting = new Set<string>();
+
+/**
+ * Why this caller may not drive a hook integration's own picker, or undefined
+ * when it may. That path types into the pane, so it needs `edit` (and the ssh
+ * owner/kind rule), plus the `subshells:execute` ceiling the select door
+ * itself enforces for scoped system keys. The extension bridge's queued
+ * command stays open to viewers.
+ */
+function nativeSelectRefusal(
+  row: { access: string; ssh: boolean },
+  actor: string,
+  systemPermissions: string[] | null | undefined,
+): string | undefined {
+  if (actor === "subshell-key") return "Subshell keys cannot change the shared view.";
+  if (actor === "system-key" && systemPermissions !== null && !systemPermissions?.includes("subshells:execute"))
+    return "This key needs the subshells:execute permission.";
+  if (row.ssh && (actor !== "cookie" || row.access !== "owner"))
+    return "SSH panes only accept input from the owner's browser session.";
+  if (row.access !== "owner" && row.access !== "edit")
+    return "Switching this harness's view types into the pane, so it needs edit access.";
+  return undefined;
+}
+
+/**
+ * A hook integration that drives its own picker answers navigation without a
+ * bridge heartbeat. Its snapshot's `canSelect` is therefore the plugin
+ * declaration, bounded by the caller's own edit/ssh authority; the 15 s
+ * silence gate belongs to extension bridges, whose queued command would rot
+ * once the bridge stopped polling.
+ */
+function withNativeSelection(
+  snapshot: HarnessSubagentSnapshot,
+  harnessId: string,
+  alive: boolean,
+  refusal: string | undefined,
+): HarnessSubagentSnapshot {
+  if (!alive) return snapshot;
+  const support = getHarness(harnessId)?.subagents;
+  if (support?.discovery !== "hooks" || !support.select) return snapshot;
+  return refusal === undefined
+    ? { ...snapshot, canSelect: true, unavailableReason: undefined }
+    : { ...snapshot, canSelect: false, unavailableReason: refusal };
+}
 const identifier = t.String({
   minLength: 1,
   maxLength: 256,
@@ -97,8 +151,9 @@ const ReportResponseSchema = t.Object({
 /**
  * `/api/subshells/:id/subagents*`: the harness subagents surface. Reads are
  * ordinary visibility-filtered reads (viewer sees what the parent's children
- * are); `select` changes the parent's SHARED view, so it stays open to anyone
- * who may watch the pane, while typing still requires edit. `report` is the
+ * are). Extension-backed selection changes the parent's SHARED view and stays
+ * open to anyone who may watch the pane; a hook integration that types into
+ * the harness's own picker needs edit, plus the ssh owner rule. `report` is the
  * fourth harness self-report surface (with attention, harness-session, and
  * exit): the route accepts ONLY the subshell's own key, checked before any row
  * is read, and a harness reports about itself, never another subshell. State
@@ -111,13 +166,18 @@ export const subshellSubagentsRoute = new Elysia()
   .use(apiModels)
   .get(
     "/subagents",
-    async ({ user, actor, apiKeyPermissions, ctx }) => {
+    async ({ user, actor, apiKeyPermissions, systemKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "read");
       const rows = await ctx.services.subshells.listSubshells(user.id, { previews: false });
       return Object.fromEntries(
         rows.map((row) => [
           row.id,
-          registry(ctx.db).read(row.id, row.startedAt ?? "", row.status === "running" && row.alive === true),
+          withNativeSelection(
+            registry(ctx.db).read(row.id, row.startedAt ?? "", row.status === "running" && row.alive === true),
+            row.harnessId,
+            row.status === "running" && row.alive === true,
+            nativeSelectRefusal(row, actor, systemKeyPermissions),
+          ),
         ]),
       );
     },
@@ -139,10 +199,15 @@ export const subshellSubagentsRoute = new Elysia()
   )
   .get(
     "/:id/subagents",
-    async ({ params, user, actor, apiKeyPermissions, ctx }) => {
+    async ({ params, user, actor, apiKeyPermissions, systemKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "read");
       const row = await ctx.services.subshells.getSubshell(user.id, params.id, actor);
-      return registry(ctx.db).read(row.id, row.startedAt ?? "", row.status === "running" && row.alive === true);
+      return withNativeSelection(
+        registry(ctx.db).read(row.id, row.startedAt ?? "", row.status === "running" && row.alive === true),
+        row.harnessId,
+        row.status === "running" && row.alive === true,
+        nativeSelectRefusal(row, actor, systemKeyPermissions),
+      );
     },
     {
       response: {
@@ -162,16 +227,57 @@ export const subshellSubagentsRoute = new Elysia()
   .post(
     "/:id/subagents/select",
     async ({ params, body, user, actor, apiKeyPermissions, ctx }) => {
-      // This changes the shared view, not the agent's work. Viewers may navigate;
-      // they still cannot type, stop, steer, or answer approval prompts.
+      // This changes the shared view, not the agent's work. Extension-backed
+      // navigation stays open to viewers; the hook path requires edit because
+      // it types into the pane.
       requirePerm({ actor, apiKeyPermissions }, "subshells", "read");
       if (actor === "subshell-key") throw new HttpError(403, "Subshell keys cannot change the shared agent view");
       const row = await ctx.services.subshells.getSubshell(user.id, params.id, actor);
-      if (
-        row.status !== "running" ||
-        row.alive !== true ||
-        !registry(ctx.db).select(row.id, row.startedAt ?? "", body.agentId)
-      ) {
+      if (row.status !== "running" || row.alive !== true) {
+        throw new HttpError(409, "This subagent view isn't available. Use the harness's own agent selector.");
+      }
+      const generation = row.startedAt ?? "";
+      const state = registry(ctx.db).read(row.id, generation, true);
+      const support = getHarness(row.harnessId)?.subagents;
+      if (support?.discovery === "hooks" && support.select) {
+        // A hook integration drives its harness's own picker in the pane.
+        // The integration verifies the picker's highlight and returns the row
+        // id it showed; a queued command would never be picked up by a
+        // hook-only harness, so this path bypasses the report loop entirely.
+        if (body.agentId !== null && !state.agents.some((agent) => agent.id === body.agentId)) {
+          throw new HttpError(409, "This subagent view isn't available. Use the harness's own agent selector.");
+        }
+        const lock = row.id;
+        if (selecting.has(lock)) {
+          throw new HttpError(409, "Another agent switch is still in progress. Wait for it to finish.");
+        }
+        selecting.add(lock);
+        try {
+          const hadRoster = state.agents.length > 0;
+          const pane = await ctx.services.subshells.harnessSubagentPane(user.id, params.id, actor);
+          const result = await support.select({ agentId: body.agentId, agents: state.agents, pane });
+          const recorded = registry(ctx.db).markSelected(row.id, generation, result.selectedId);
+          if (!recorded) {
+            // A quiet pane has no state at all; the plugin's own short-circuit
+            // proves the parent view, so a null return is a no-op success. Use
+            // the pre-act roster: re-reading with this generation would delete
+            // a restarted run's newer state.
+            if (result.selectedId !== null || hadRoster) {
+              throw new HttpError(409, "The pane changed while switching agents. Try again.");
+            }
+          }
+          return { ok: true } as const;
+        } catch (err) {
+          // Preserve the service's own refusals (404 invisible, 403 ssh,
+          // node offline, maintenance) instead of flattening them into a
+          // generic picker failure.
+          if (err instanceof HttpError || err instanceof ApiError || err instanceof SubshellError) throw err;
+          throw new HttpError(409, "The harness didn't switch views. Use its own agent selector.");
+        } finally {
+          selecting.delete(lock);
+        }
+      }
+      if (!registry(ctx.db).select(row.id, generation, body.agentId)) {
         throw new HttpError(409, "This subagent view isn't available. Use the harness's own agent selector.");
       }
       return { ok: true } as const;
@@ -190,7 +296,7 @@ export const subshellSubagentsRoute = new Elysia()
       detail: {
         operationId: "selectHarnessSubagent",
         tags: ["subshells"],
-        description: "Queue a switch of the parent's terminal view to one of its reported children",
+        description: "Switch the parent's terminal view to one of its reported children",
       },
     },
   )

@@ -28,11 +28,11 @@ If Codex reports that Subshell MCP failed, open `/mcp` and follow [MCP troublesh
 
 ## Subagent monitoring hooks
 
-Subshell adds hooks labeled **Subshell subagent monitoring** when it launches Codex. They report subagent identifiers, types, and start/stop events to your Subshell server so active subagents appear beneath their parent in the sidebar. They also clear the list when you clear the Codex conversation. The reporter doesn't send prompts or transcripts.
+Subshell adds hooks labeled **Subshell subagent monitoring** when it launches Codex. They report subagent identifiers, types, task names, and start/stop events to your Subshell server so active subagents appear beneath their parent in the sidebar. Clicking a reported child drives Codex's own `/subagents` picker to show it; clicking the parent returns to Main. The reporter doesn't send prompts or transcripts.
 
-In Codex, open `/hooks` to review the **SessionStart**, **SubagentStart**, and **SubagentStop** hooks and trust them if you want monitoring enabled. Codex may ask you to review them again when their definitions change. Leaving them untrusted or disabled prevents monitoring; you can still use Codex normally.
+In Codex, open `/hooks` to review the **SessionStart**, **SubagentStart**, **SubagentStop**, and **PostToolUse** hooks and trust them if you want monitoring enabled. Codex may ask you to review them again when their definitions change. Leaving them untrusted or disabled prevents monitoring; you can still use Codex normally.
 
-These hooks report status only. Use Codex's own controls to open a subagent. See [Subagents](/agents/subagents) for supported navigation.
+Subshell supplies these hooks as per-run config overrides. Codex replaces its own `hooks.*` table for that run, so a personal `PostToolUse` auditor won't run in a Subshell-launched Codex. The `PostToolUse` entry is only the spawn-task-name reporter; launch Codex outside Subshell if you rely on that auditor.
 
 ## Next steps
 

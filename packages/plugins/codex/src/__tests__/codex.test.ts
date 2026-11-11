@@ -38,7 +38,7 @@ describe("CodexPlugin", () => {
       reporter: bunLaunch,
     });
     const overrides = args.filter((arg) => arg.startsWith("hooks."));
-    expect(overrides).toHaveLength(3);
+    expect(overrides).toHaveLength(4);
     for (const override of overrides) {
       const parsed = Bun.TOML.parse(override) as {
         hooks: Record<string, { hooks: { statusMessage: string; command: string; timeout: number }[] }[]>;
@@ -208,5 +208,168 @@ describe("CodexPlugin", () => {
     expect(plugin.validatePreset(preset({ name: " " })).valid).toBe(false);
     expect(plugin.validatePreset(preset({ flags: ["pure"] })).valid).toBe(false);
     expect(plugin.validatePreset(preset()).valid).toBe(true);
+  });
+
+  it("declares native navigation and the hook-picker driver", () => {
+    expect(plugin.subagents?.navigation).toBe("native");
+    expect(typeof plugin.subagents?.select).toBe("function");
+  });
+
+  it("marks every monitoring hook with the compatible reporter verb", () => {
+    const args = plugin.buildCommand({
+      binary: "/usr/bin/codex",
+      cwd: "/tmp/ws",
+      subshellName: "",
+      preset: preset(),
+      reporter: bunLaunch,
+    });
+    for (const override of args.filter((arg) => arg.startsWith("hooks."))) {
+      const parsed = Bun.TOML.parse(override) as {
+        hooks: Record<string, { hooks: { command: string }[] }[]>;
+      };
+      expect(Object.values(parsed.hooks)[0]?.[0]?.hooks[0]?.command).toContain("'subagents'");
+    }
+  });
+
+  it("selects a child by the id Codex prints, not the server roster's position", async () => {
+    const overlay = [
+      "Subagents",
+      "Select an agent to watch. alt+← previous, alt+→ next.",
+      "",
+      "› 1. • Main [default] (current)  01a1c7f0-825a-7ce2-8a88-f858e555322f",
+      "  2. • /root/reply               01a1c7f0-9481-7e60-af5d-71094b1d4e8a",
+      "",
+      "  enter select · esc back",
+    ].join("\n");
+    let typed = "";
+    let screen = "› Ask Codex to do anything\nMain [default]";
+    const result = await plugin.subagents?.select?.({
+      agentId: "01a1c7f0-9481-7e60-af5d-71094b1d4e8a",
+      agents: [],
+      pane: {
+        read: async () => screen,
+        type: async (text) => {
+          typed += text;
+          if (text === "/subagents") screen = "› /subagents\nMain [default]";
+          else if (text === "\r" && screen.includes("› /subagents")) screen = overlay;
+          else if (text === "2") screen = overlay.replace("› 1.", "  1.").replace("  2.", "› 2.");
+          else if (text === "\r" && screen.includes("› 2.")) {
+            screen = "This sub-agent is controlled by its parent. Direct input is disabled.";
+          }
+        },
+      },
+    });
+    expect(result).toEqual({ selectedId: "01a1c7f0-9481-7e60-af5d-71094b1d4e8a" });
+    expect(typed).toBe("/subagents\r2\r");
+  });
+
+  it("finds a picker row whose id wraps in a narrow pane", async () => {
+    const overlay = [
+      "Subagents",
+      "Select an agent to watch. alt+← previous, alt+→ next.",
+      "",
+      "› 1. • Main [default] (current)  01a1c7f0-825a-7ce2-8a88-",
+      "  f858e555322f",
+      "  2. • /root/reply               01a1c7f0-9481-7e60-af5d-",
+      "  71094b1d4e8a",
+      "",
+      "  enter select · esc back",
+    ].join("\n");
+    let typed = "";
+    let screen = "› Ask Codex to do anything\nMain [default]";
+    const result = await plugin.subagents?.select?.({
+      agentId: "01a1c7f0-9481-7e60-af5d-71094b1d4e8a",
+      agents: [],
+      pane: {
+        read: async () => screen,
+        type: async (text) => {
+          typed += text;
+          if (text === "/subagents") screen = "› /subagents\nMain [default]";
+          else if (text === "\r" && screen.includes("› /subagents")) screen = overlay;
+          else if (text === "2") screen = overlay.replace("› 1.", "  1.").replace("  2.", "› 2.");
+          else if (text === "\r" && screen.includes("› 2.")) {
+            screen = "This sub-agent is controlled by its parent. Direct input is disabled.";
+          }
+        },
+      },
+    });
+    expect(result).toEqual({ selectedId: "01a1c7f0-9481-7e60-af5d-71094b1d4e8a" });
+    expect(typed).toBe("/subagents\r2\r");
+  });
+
+  it("accepts a picker that closes on the digit itself", async () => {
+    const overlay = [
+      "Subagents",
+      "Select an agent to watch. alt+← previous, alt+→ next.",
+      "",
+      "› 1. • Main [default] (current)  01a1c7f0-825a-7ce2-8a88-f858e555322f",
+      "  2. • /root/reply               01a1c7f0-9481-7e60-af5d-71094b1d4e8a",
+      "",
+      "  enter select · esc back",
+    ].join("\n");
+    let typed = "";
+    let screen = "› Ask Codex to do anything\nMain [default]";
+    const result = await plugin.subagents?.select?.({
+      agentId: "01a1c7f0-9481-7e60-af5d-71094b1d4e8a",
+      agents: [],
+      pane: {
+        read: async () => screen,
+        type: async (text) => {
+          typed += text;
+          if (text === "/subagents") screen = "› /subagents\nMain [default]";
+          else if (text === "\r" && screen.includes("› /subagents")) screen = overlay;
+          else if (text === "2") screen = "This sub-agent is controlled by its parent. Direct input is disabled.";
+        },
+      },
+    });
+    expect(result).toEqual({ selectedId: "01a1c7f0-9481-7e60-af5d-71094b1d4e8a" });
+    expect(typed).toBe("/subagents\r2");
+  });
+
+  it("matches the row's trailing id, not a uuid inside its label", async () => {
+    const id1 = "01a1c7f0-825a-7ce2-8a88-f858e555322f";
+    const id2 = "01a1c7f0-9481-7e60-af5d-71094b1d4e8a";
+    const overlay = [
+      "Subagents",
+      "Select an agent to watch. alt+← previous, alt+→ next.",
+      "",
+      `› 1. • Main [default] (current)  ${id1}`,
+      `  2. • /root/mentions-${id1}       ${id2}`,
+      "",
+      "  enter select · esc back",
+    ].join("\n");
+    let typed = "";
+    let screen = "› Ask Codex to do anything\nMain [default]";
+    const result = await plugin.subagents?.select?.({
+      agentId: id2,
+      agents: [],
+      pane: {
+        read: async () => screen,
+        type: async (text) => {
+          typed += text;
+          if (text === "/subagents") screen = "› /subagents\nMain [default]";
+          else if (text === "\r" && screen.includes("› /subagents")) screen = overlay;
+          else if (text === "2") screen = "Viewing sub-agent";
+        },
+      },
+    });
+    expect(result).toEqual({ selectedId: id2 });
+    expect(typed).toBe("/subagents\r2");
+  });
+
+  it("returns to Main without touching a draft prompt", async () => {
+    let typed = "";
+    const result = await plugin.subagents?.select?.({
+      agentId: null,
+      agents: [],
+      pane: {
+        read: async () => "› a draft the user hasn't sent\nMain [default]",
+        type: async (text) => {
+          typed += text;
+        },
+      },
+    });
+    expect(result).toEqual({ selectedId: null });
+    expect(typed).toBe("");
   });
 });

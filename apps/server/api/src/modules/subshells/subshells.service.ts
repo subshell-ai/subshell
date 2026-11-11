@@ -1,5 +1,5 @@
 import { homedir as osHomedir } from "node:os";
-import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
+import { BackendErrorCodes, stripAnsi, throwApiError } from "@internal/backend-errors";
 // The attention kinds are imported from the reporter that SPEAKS them rather
 // than restated here: the old local `Extract<NotifyKind, …>`, widened once to
 // `NotifyKind | "resumed"`, admitted push kinds (`crashed`, `maintenance`, …)
@@ -7,7 +7,13 @@ import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 // line. `resumed` is deliberately NOT a `NotifyKind` in either file: resuming
 // is a state change, nothing rings for it.
 import type { AttentionKind } from "@internal/mcp-core";
-import { allHarnesses, getHarness, submitPaneInput, tmuxSocketFor } from "@internal/pane-runtime";
+import {
+  allHarnesses,
+  getHarness,
+  type HarnessSubagentPane,
+  submitPaneInput,
+  tmuxSocketFor,
+} from "@internal/pane-runtime";
 import type { ApiKeyPermission } from "@internal/subshell-protocol";
 import {
   joinPresetPrompt,
@@ -126,8 +132,11 @@ class SubshellCreateError extends Error {
   }
 }
 
-/** Thrown when a subshell (or its owner-visible surface) does not exist; maps to 404. */
-class SubshellError extends Error {
+/**
+ * Thrown when a subshell (or its owner-visible surface) does not exist; maps to 404.
+ * Exported so routes can preserve that refusal instead of flattening it.
+ */
+export class SubshellError extends Error {
   readonly code: string;
   readonly status = 404;
   constructor(code: string, message: string) {
@@ -1043,6 +1052,38 @@ export class SubshellsService extends BaseService {
         doNotLog: true,
       });
     }
+  }
+
+  /**
+   * Hands a hook integration the two pane operations it needs to drive its
+   * harness's own agent picker: a stripped screen read and raw byte input.
+   * Gated at `edit` because this types bytes into the pane; view-only grantees
+   * still cannot turn watching into input. The ssh owner-only rule applies
+   * before the launcher is resolved. The integration, not the caller, chooses
+   * the bytes.
+   *
+   * @throws SubshellError 404 when absent or invisible to the caller.
+   * @throws ApiError 409 SUBSHELL_NOT_RUNNING when the row or its pane is gone.
+   * @throws ApiError 403 SSH_OWNER_INPUT_ONLY for a non-owner on an ssh pane.
+   */
+  async harnessSubagentPane(viewerId: string, id: string, actor: GuardActor): Promise<HarnessSubagentPane> {
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
+    if (row.status !== "running" || row.alive !== 1) {
+      throwApiError({
+        code: BackendErrorCodes.SUBSHELL_NOT_RUNNING,
+        message: "This subshell isn't running, so its agent picker can't be used. No input was sent.",
+        doNotLog: true,
+      });
+    }
+    this.#requireInputAuthority(row, viewerId, actor);
+    const launcher = launcherFor(row.nodeId);
+    const socket = row.tmuxSocket ?? tmuxSocketFor(id);
+    return {
+      read: async () => stripAnsi(await launcher.capture(socket, id).catch(rethrowLaunchRefusal)),
+      type: async (text) => {
+        if (text) await launcher.sendInput(socket, id, text).catch(rethrowLaunchRefusal);
+      },
+    };
   }
 
   /**

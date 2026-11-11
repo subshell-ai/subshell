@@ -248,6 +248,9 @@ export class HarnessSubagents {
         state.labels.set(agent.id, state.nextLabel++);
       }
     }
+    // A selected child that stopped (or a snapshot omitted) is no longer a
+    // view the server can describe; the header must fall back to the parent.
+    if (state.selectedId !== null && !activeIds.has(state.selectedId)) state.selectedId = null;
     if (input.selectedId !== undefined) state.selectedId = input.selectedId;
     if (input.canSelect !== undefined) state.canSelect = input.canSelect;
     if (input.unavailableReason !== undefined) state.unavailableReason = input.unavailableReason;
@@ -271,6 +274,20 @@ export class HarnessSubagents {
       return false;
     if (agentId !== null && !state.agents.some((agent) => agent.id === agentId)) return false;
     state.command = { id: crypto.randomUUID(), agentId, expiresAt: Date.now() + 5000 };
+    return true;
+  }
+
+  /**
+   * Records the view a hook integration's own picker actually showed. The
+   * integration read the pane back and returned the id, so this is a
+   * confirmed selection rather than a queued command. Returns false when the
+   * generation changed mid-flight or the id is not a reported child.
+   */
+  markSelected(id: string, generation: string, selectedId: string | null): boolean {
+    const state = this.states.get(id);
+    if (!state || state.generation !== generation) return false;
+    if (selectedId !== null && !state.agents.some((agent) => agent.id === selectedId)) return false;
+    state.selectedId = selectedId;
     return true;
   }
 }

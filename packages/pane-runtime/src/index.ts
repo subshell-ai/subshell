@@ -9,6 +9,10 @@
 export {
   capabilitiesFor,
   HARNESS_CAPABILITIES,
+  type HarnessSubagentPane,
+  type HarnessSubagentSelect,
+  type HarnessSubagentSelectInput,
+  type HarnessSubagentSelectResult,
   isDocsUrl,
   isHarnessType,
   type JoinInput,

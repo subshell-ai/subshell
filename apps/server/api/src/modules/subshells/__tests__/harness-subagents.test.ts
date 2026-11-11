@@ -37,6 +37,17 @@ describe("harness subagents", () => {
     expect(state.read("pane", "run", true).selectedId).toBe("child");
     expect(state.select("pane", "run", null)).toBe(true);
   });
+  test("a hook picker records what it verified without queueing a bridge command", () => {
+    const state = new HarnessSubagents();
+    state.report("pane", "run", { event: "snapshot", agents: [child], canSelect: true });
+    expect(state.markSelected("pane", "run", "foreign")).toBe(false);
+    expect(state.markSelected("pane", "run", "child")).toBe(true);
+    expect(state.read("pane", "run", true).selectedId).toBe("child");
+    state.report("pane", "run", { event: "snapshot", agents: [] });
+    expect(state.read("pane", "run", true).selectedId).toBeNull();
+    expect(state.report("pane", "run", { event: "snapshot", agents: [child] })).toEqual({});
+    expect(state.markSelected("pane", "new-run", null)).toBe(false);
+  });
   test("a pane that can select and answers carries no unavailableReason", () => {
     // The field description promises a reason exactly when selection is off.
     // The old shape attached the "doesn't support switching" default to
@@ -300,4 +311,11 @@ test("new metadata updates the same child in place without resetting its elapsed
   const agents = state.read("p", "r", true).agents;
   expect(agents).toHaveLength(1);
   expect(agents[0]).toMatchObject({ id: "a", name: "Tester", activity: "Run tests", startedAt });
+});
+
+test("a Codex spawn name pairs with the generic child that starts next", () => {
+  const state = new HarnessSubagents();
+  state.report("p", "r", { event: "describe", agentName: "sleeper" });
+  state.report("p", "r", { event: "start", agents: [{ id: "a", name: "default", status: "running" }] });
+  expect(state.read("p", "r", true).agents[0]?.name).toBe("sleeper");
 });
