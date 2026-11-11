@@ -100,7 +100,39 @@ const PluginRowSchema = t.Object({
       description: "Driven program's command name, from the plugin this process resolves (built-in or installed)",
     }),
   ),
-  version: t.Optional(t.String({ description: "Installed package version (absent when not installed)" })),
+  version: t.Optional(
+    t.String({
+      description:
+        "Version of the copy in use: this build's version for a built-in that answers from the bundle, otherwise the installed copy's (absent when not installed)",
+    }),
+  ),
+  source: t.Optional(
+    t.Union([t.Literal("build"), t.Literal("npm"), t.Literal("unrecorded")], {
+      description:
+        "Where the bytes of the copy in use came from: this build (embedded or seeded), an npm registry, or a directory with no sidecar whose origin nothing on the machine can prove. Absent only for a catalog row, which has no copy to describe",
+    }),
+  ),
+  restartRequired: t.Optional(
+    t.Boolean({
+      description:
+        "Present only as true: a newer copy is on disk but this process still answers from the older one, and a restart is the remedy",
+    }),
+  ),
+  shadowed: t.Optional(
+    t.Object(
+      {
+        version: t.String({ description: "The losing copy's version" }),
+        source: t.Union([t.Literal("build"), t.Literal("npm"), t.Literal("unrecorded")], {
+          description: "Where the losing copy's bytes came from",
+        }),
+        error: t.Optional(t.String({ description: "Why the losing copy cannot win: it will not load" })),
+      },
+      {
+        description:
+          "The installed copy that lost to the one in use; absent when nothing was displaced, which is the healthy state of a seeded built-in",
+      },
+    ),
+  ),
   installed: t.Boolean({ description: "Whether the instance store holds this plugin" }),
   enabled: t.Boolean({
     description: "Offered or merely held (spec §6.1). An install the flag table never touched reads enabled",
@@ -233,6 +265,13 @@ function toRow(id: string, s: CatalogSources): Static<typeof PluginRowSchema> | 
     ...(report?.pickable === false || (!report && harness?.pickable === false) ? { pickable: false } : {}),
     ...(harness ? { binary: harness.binaryName } : {}),
     ...(report?.version ? { version: report.version } : {}),
+    // The copy in USE, not merely the one on disk: a built-in answers from the
+    // bundle unless a newer installed copy loads, so `source` and `shadowed`
+    // describe the winner and what it displaced. A catalog row has no report
+    // (nothing installed) and so claims no origin it could not prove.
+    ...(report?.source ? { source: report.source } : {}),
+    ...(report?.restartRequired ? { restartRequired: true } : {}),
+    ...(report?.shadowed ? { shadowed: report.shadowed } : {}),
     installed: report !== undefined,
     enabled: s.state.get(id) !== false, // an absent row means enabled
     // "This build carries the bytes" — the one-click question. Once the
