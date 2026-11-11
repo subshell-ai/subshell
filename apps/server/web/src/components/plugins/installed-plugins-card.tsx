@@ -8,7 +8,9 @@ import {
   errMessage,
   Switch,
 } from "@internal/node-admin";
+import { ArrowUpCircle, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { PluginIcon } from "@/components/plugin-icon";
 import { UpdatePluginsDialog } from "@/components/plugins/update-plugins-dialog";
 import { type InstancePluginRow, useSetPluginEnabled } from "@/hooks/use-instance-plugins";
@@ -180,21 +182,21 @@ export function InstalledPluginsCard({
           <section key={group.id} className="space-y-2">
             {headed && <h3 className="font-strong text-label">{group.heading}</h3>}
             {/* A headerless table: ONE grid per GROUP, so the source
-            badge, the switch and Uninstall share their tracks and line up
-            down the card. Each row was its own bordered flex box before, and
-            `auto` sizes per CONTAINER — so every row placed its controls
-            wherever that row's own name and version left them, a different x
-            in every row. One grid with `auto` tracks sizes each column to its
-            widest cell, which is the alignment a table gives and per-row flex
-            containers cannot.
+            badge, the switch and the actions menu share their tracks and
+            line up down the card. Each row was its own bordered flex box
+            before, and `auto` sizes per CONTAINER — so every row placed its
+            controls wherever that row's own name and version left them, a
+            different x in every row. One grid with `auto` tracks sizes each
+            column to its widest cell, which is the alignment a table gives
+            and per-row flex containers cannot.
 
             Rows are `display: contents` (the inner wrapper below): the row
             element draws nothing, so its cells are the grid's own children.
             That is also why every cell is ALWAYS rendered, even when empty —
             a skipped cell would slide the rest of that row one column left.
 
-            Two columns below `sm`, four above: the badge, the switch and
-            Uninstall fall to a second line on a phone rather than crushing
+            Two columns below `sm`, four above: the badge, the switch and the
+            actions menu fall to a second line on a phone rather than crushing
             the name.
 
             One grid per group rather than one for the card: `auto` tracks
@@ -204,145 +206,153 @@ export function InstalledPluginsCard({
             spanning the headings would let a long network name push every
             agent's switch rightwards. */}
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
-              {group.rows.map((p, index) => (
-                <div key={p.id} className="contents">
-                  {/* Spans the full width, so it starts its own grid row and
+              {group.rows.map((p, index) => {
+                const offer = p.offer;
+                // The row's acts live behind one ⋯ button, the same ActionsMenu
+                // the preset rows use: the list shows the entity and its
+                // version pair, not a cluster of text buttons. Update is only
+                // an item when the registry offered a newer version, and it
+                // holds while a batch is running so a second install cannot
+                // start over the first; Uninstall stays available, as it was.
+                const actions: ActionItem[] = [
+                  ...(offer
+                    ? [
+                        {
+                          label: `Update to ${offer.to}`,
+                          icon: ArrowUpCircle,
+                          disabled: update.isPending,
+                          onSelect: () => setUpdateDialog([offer]),
+                        },
+                      ]
+                    : []),
+                  { label: "Uninstall", icon: Trash2, destructive: true, onSelect: () => onUninstall(p) },
+                ];
+                return (
+                  <div key={p.id} className="contents">
+                    {/* Spans the full width, so it starts its own grid row and
                   cannot displace a cell: the rows carry no border of their
                   own any more, and a rule between them is what keeps a
                   multi-line row from reading as two. */}
-                  {index > 0 && <div aria-hidden className="col-span-full border-t" />}
-                  <div className="flex min-w-0 items-center gap-3">
-                    <PluginIcon pluginId={p.id} name={p.name} className="size-8" />
-                    <div className="min-w-0">
-                      <p className="truncate font-strong">{p.name}</p>
-                      <p className="truncate text-detail text-muted-foreground">
-                        {/* The version becomes the PAIR once there is an
+                    {index > 0 && <div aria-hidden className="col-span-full border-t" />}
+                    <div className="flex min-w-0 items-center gap-3">
+                      <PluginIcon pluginId={p.id} name={p.name} className="size-8" />
+                      <div className="min-w-0">
+                        <p className="truncate font-strong">{p.name}</p>
+                        <p className="truncate text-detail text-muted-foreground">
+                          {/* The version becomes the PAIR once there is an
                         offer, in its own span so from → to reads as one fact
                         rather than a version with a sibling. */}
-                        {p.id}
-                        {p.offer ? (
-                          <>
-                            {" · "}
-                            <span>{`v${p.version ?? p.offer.from} → v${p.offer.to}`}</span>
-                          </>
-                        ) : (
-                          p.version !== undefined && ` · v${p.version}`
-                        )}
-                        {p.binary !== undefined && ` · drives ${p.binary}`}
-                      </p>
+                          {p.id}
+                          {p.offer ? (
+                            <>
+                              {" · "}
+                              <span>{`v${p.version ?? p.offer.from} → v${p.offer.to}`}</span>
+                            </>
+                          ) : (
+                            p.version !== undefined && ` · v${p.version}`
+                          )}
+                          {p.binary !== undefined && ` · drives ${p.binary}`}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                  <span className="justify-self-start">{sourceLabel(p)}</span>
-                  {canManage ? (
-                    <Switch
-                      className="justify-self-start"
-                      checked={p.enabled}
-                      aria-label={`${p.name} enabled`}
-                      disabled={setEnabled.isPending}
-                      onCheckedChange={async (checked) => {
-                        // Disabling a NETWORK stops publishing this server at an
-                        // address someone is currently reaching it on — a phone,
-                        // a laptop elsewhere — which is not what "disable a
-                        // plugin" reads as anywhere else in this list. Every
-                        // other type is a launch option that stops being
-                        // offered, and asking about those would be the ask
-                        // nobody reads. Enabling is never confirmed: it takes
-                        // nothing away.
-                        if (!checked && p.type === "network") {
-                          const proceed = await confirmAction({
-                            title: "Disable this network plugin?",
-                            description: `Disabling stops publishing this server on ${p.name}.`,
-                            confirmLabel: "Disable",
-                            danger: true,
-                          });
-                          // The switch is controlled by the SERVER's answer, so a
-                          // cancel leaves it exactly where it was with nothing to
-                          // put back.
-                          if (!proceed) return;
-                        }
-                        setEnabled.mutate(
-                          { id: p.id, enabled: checked },
-                          {
-                            // A later success retires the row's old failure text:
-                            // leaving it up reads as "still broken" under a
-                            // switch that just moved, and the error IS gone.
-                            onSuccess: () =>
-                              setRowErrors((prev) => {
-                                if (prev[p.id] === undefined) return prev;
-                                const { [p.id]: _retired, ...rest } = prev;
-                                return rest;
-                              }),
-                            onError: (err) =>
-                              setRowErrors((prev) => ({
-                                ...prev,
-                                [p.id]: errMessage(err, "The change was not saved."),
-                              })),
-                          },
-                        );
-                      }}
-                    />
-                  ) : (
-                    <span className="justify-self-start">{p.enabled ? "enabled" : "disabled"}</span>
-                  )}
-                  {/* Always a cell, even for a reader who manages nothing — an
+                    <span className="justify-self-start">{sourceLabel(p)}</span>
+                    {canManage ? (
+                      <Switch
+                        className="justify-self-start"
+                        checked={p.enabled}
+                        aria-label={`${p.name} enabled`}
+                        disabled={setEnabled.isPending}
+                        onCheckedChange={async (checked) => {
+                          // Disabling a NETWORK stops publishing this server at an
+                          // address someone is currently reaching it on — a phone,
+                          // a laptop elsewhere — which is not what "disable a
+                          // plugin" reads as anywhere else in this list. Every
+                          // other type is a launch option that stops being
+                          // offered, and asking about those would be the ask
+                          // nobody reads. Enabling is never confirmed: it takes
+                          // nothing away.
+                          if (!checked && p.type === "network") {
+                            const proceed = await confirmAction({
+                              title: "Disable this network plugin?",
+                              description: `Disabling stops publishing this server on ${p.name}.`,
+                              confirmLabel: "Disable",
+                              danger: true,
+                            });
+                            // The switch is controlled by the SERVER's answer, so a
+                            // cancel leaves it exactly where it was with nothing to
+                            // put back.
+                            if (!proceed) return;
+                          }
+                          setEnabled.mutate(
+                            { id: p.id, enabled: checked },
+                            {
+                              // A later success retires the row's old failure text:
+                              // leaving it up reads as "still broken" under a
+                              // switch that just moved, and the error IS gone.
+                              onSuccess: () =>
+                                setRowErrors((prev) => {
+                                  if (prev[p.id] === undefined) return prev;
+                                  const { [p.id]: _retired, ...rest } = prev;
+                                  return rest;
+                                }),
+                              onError: (err) =>
+                                setRowErrors((prev) => ({
+                                  ...prev,
+                                  [p.id]: errMessage(err, "The change was not saved."),
+                                })),
+                            },
+                          );
+                        }}
+                      />
+                    ) : (
+                      <span className="justify-self-start">{p.enabled ? "enabled" : "disabled"}</span>
+                    )}
+                    {/* Always a cell, even for a reader who manages nothing — an
                   omitted one would pull this row's earlier cells rightwards
                   out of their columns. */}
-                  {canManage ? (
-                    <div className="flex items-center gap-1 justify-self-end">
-                      {/* The version pair above is the offer; this is the act.
-                          Every update control holds while one is running, so a
-                          second install cannot start over the first. */}
-                      {p.offer && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={update.isPending}
-                          disabledReason="Wait for the current update to finish."
-                          onClick={() => p.offer && setUpdateDialog([p.offer])}
-                        >
-                          Update to {p.offer.to}
-                        </Button>
-                      )}
-                      <Button variant="ghost" size="sm" onClick={() => onUninstall(p)}>
-                        Uninstall {p.name}
-                      </Button>
-                    </div>
-                  ) : (
-                    <span />
-                  )}
-                  {p.description && <p className="col-span-full text-detail text-muted-foreground">{p.description}</p>}
-                  {/* Which row the sequential queue is on. The mutation's
+                    {canManage ? (
+                      <div className="flex items-center justify-self-end">
+                        <ActionsMenu label={p.name} items={actions} />
+                      </div>
+                    ) : (
+                      <span />
+                    )}
+                    {p.description && (
+                      <p className="col-span-full text-detail text-muted-foreground">{p.description}</p>
+                    )}
+                    {/* Which row the sequential queue is on. The mutation's
                   pending flag is global, so this is the only thing that says
                   WHICH plugin is being replaced; the accessible name carries
                   the plugin, the visible line stays short. */}
-                  {p.id === applyingId && (
-                    <p
-                      role="status"
-                      aria-label={`Updating ${p.name}`}
-                      className="col-span-full text-detail text-muted-foreground"
-                    >
-                      Updating…
-                    </p>
-                  )}
-                  {/* A broken install keeps its row precisely so it can say this;
+                    {p.id === applyingId && (
+                      <p
+                        role="status"
+                        aria-label={`Updating ${p.name}`}
+                        className="col-span-full text-detail text-muted-foreground"
+                      >
+                        Updating…
+                      </p>
+                    )}
+                    {/* A broken install keeps its row precisely so it can say this;
                   every launch of it fails, and the operator needs to know why. */}
-                  {p.broken && <p className="col-span-full text-destructive text-detail">Not loaded: {p.broken}</p>}
-                  {rowErrors[p.id] && <p className="col-span-full text-destructive text-detail">{rowErrors[p.id]}</p>}
-                  {/* An installed copy that lost resolution is why an update
+                    {p.broken && <p className="col-span-full text-destructive text-detail">Not loaded: {p.broken}</p>}
+                    {rowErrors[p.id] && <p className="col-span-full text-destructive text-detail">{rowErrors[p.id]}</p>}
+                    {/* An installed copy that lost resolution is why an update
                   can still do something: the store's bytes are not the ones
                   running, and saying which copy is which is the whole row. */}
-                  {p.shadowed && (
-                    <p className="col-span-full text-detail text-muted-foreground">
-                      {`Installed copy v${p.shadowed.version} (${
-                        p.shadowed.source === "npm" ? "npm" : "this build"
-                      }) is not in use${p.shadowed.error ? `: ${p.shadowed.error}` : "; the bundled copy is newer"}.`}
-                    </p>
-                  )}
-                  {updateErrors[p.id] && (
-                    <p className="col-span-full text-destructive text-detail">{updateErrors[p.id]}</p>
-                  )}
-                </div>
-              ))}
+                    {p.shadowed && (
+                      <p className="col-span-full text-detail text-muted-foreground">
+                        {`Installed copy v${p.shadowed.version} (${
+                          p.shadowed.source === "npm" ? "npm" : "this build"
+                        }) is not in use${p.shadowed.error ? `: ${p.shadowed.error}` : "; the bundled copy is newer"}.`}
+                      </p>
+                    )}
+                    {updateErrors[p.id] && (
+                      <p className="col-span-full text-destructive text-detail">{updateErrors[p.id]}</p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </section>
         ))}

@@ -245,6 +245,13 @@ async function eventually(check: () => boolean, timeoutMs = 10_000): Promise<voi
   }
 }
 
+/** Opens a row's ⋯ menu the keyboard way; see `actions-menu.test.tsx`. */
+async function openRowMenu(name: string): Promise<void> {
+  const trigger = await screen.findByRole("button", { name: `Actions for ${name}` });
+  fireEvent.keyDown(trigger, { key: "ArrowDown" });
+  await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBeGreaterThan(0));
+}
+
 afterEach(cleanup);
 
 describe("instance plugins page", () => {
@@ -339,13 +346,14 @@ describe("instance plugins page", () => {
     const m = mockServer(fixture);
     try {
       renderPage();
-      fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
+      await openRowMenu("Acme");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Uninstall" }));
       expect(await screen.findByText(/4 presets use it, across 3 users/i)).toBeDefined();
       const keep = screen.getByRole("radio", { name: /keep the presets/i }) as HTMLInputElement;
       expect(keep.checked).toBe(true);
       expect(screen.getByText(/running subshells are unaffected/i)).toBeDefined();
-      // The dialog's own confirm is the only button named exactly "Uninstall";
-      // the row buttons name their plugin.
+      // The dialog's own confirm is the only BUTTON named exactly
+      // "Uninstall"; the row's item is a menuitem.
       fireEvent.click(screen.getByRole("button", { name: /^uninstall$/i }));
       await waitFor(() => expect(m.deletedWith()).toEqual({ mode: "keep" }));
     } finally {
@@ -362,7 +370,8 @@ describe("instance plugins page", () => {
     const m = mockServer(fixture);
     try {
       renderPage();
-      fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
+      await openRowMenu("Acme");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Uninstall" }));
       await screen.findByText(/4 presets use it, across 3 users/i);
       fireEvent.click(screen.getByRole("radio", { name: /delete the 4 presets permanently/i }));
       fireEvent.click(screen.getByRole("button", { name: /^uninstall$/i }));
@@ -381,7 +390,8 @@ describe("instance plugins page", () => {
     const m = mockServer(fixture);
     try {
       renderPage();
-      fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
+      await openRowMenu("Acme");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Uninstall" }));
       await screen.findByText(/4 presets use it, across 3 users/i);
       expect(screen.getByText(/restart of one whose preset was deleted will fail/i)).toBeDefined();
     } finally {
@@ -398,7 +408,8 @@ describe("instance plugins page", () => {
     const m = mockServer(fixture);
     try {
       renderPage();
-      fireEvent.click(await screen.findByRole("button", { name: /uninstall/i }));
+      await openRowMenu("Acme");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Uninstall" }));
       expect(await screen.findByText(/no presets use it/i)).toBeDefined();
       expect(screen.getByRole("radio", { name: /keep the presets/i })).toBeDefined();
       fireEvent.click(screen.getByRole("button", { name: /^uninstall$/i }));
@@ -445,7 +456,8 @@ describe("instance plugins page", () => {
       const presetsGets = () => m.calls.filter((c) => c.method === "GET" && c.pathname === "/api/presets").length;
       await screen.findByText("Thing");
       expect(presetsGets()).toBeGreaterThanOrEqual(1);
-      fireEvent.click(screen.getByRole("button", { name: "Uninstall Thing" }));
+      await openRowMenu("Thing");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Uninstall" }));
       const dialog = await screen.findByRole("dialog");
       fireEvent.click(within(dialog).getByRole("radio", { name: /Delete the presets/i }));
       fireEvent.click(within(dialog).getByRole("button", { name: "Uninstall" }));
@@ -468,7 +480,8 @@ describe("instance plugins page", () => {
           m.calls.filter((c) => c.method === "GET" && c.pathname === "/api/plugins/updates").length,
         ).toBeGreaterThanOrEqual(1),
       );
-      fireEvent.click(screen.getByRole("button", { name: "Uninstall Thing" }));
+      await openRowMenu("Thing");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Uninstall" }));
       const dialog = await screen.findByRole("dialog");
       fireEvent.click(within(dialog).getByRole("button", { name: "Uninstall" }));
       await waitFor(() => expect(m.deletedWith()).toMatchObject({ mode: "keep" }));
@@ -648,7 +661,7 @@ describe("instance plugins page", () => {
     try {
       renderPage();
       expect(await screen.findByText("Pi")).toBeDefined();
-      expect(screen.queryByRole("button", { name: /uninstall/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /^Actions for / })).toBeNull();
       expect(screen.queryByRole("switch")).toBeNull();
       expect(screen.queryByLabelText(/install from npm/i)).toBeNull();
       // The READ is open to every authenticated actor; only the writes are admin-only.

@@ -49,7 +49,7 @@ function renderCard(
   plugins: InstancePluginRow[],
   canManage = true,
   updates: PluginUpdateRow[] = [],
-  extra: { checkErrors?: string[] } = {},
+  extra: { checkErrors?: string[]; onUninstall?: (plugin: InstancePluginRow) => void } = {},
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
@@ -57,7 +57,7 @@ function renderCard(
       <InstalledPluginsCard
         plugins={plugins}
         canManage={canManage}
-        onUninstall={() => {}}
+        onUninstall={extra.onUninstall ?? (() => {})}
         updates={updates}
         onCheck={() => {}}
         checking={false}
@@ -69,28 +69,40 @@ function renderCard(
 
 const offer = (id: string, name: string, from: string, to: string): PluginUpdateRow => ({ id, name, from, to });
 
+/**
+ * Opens a row's ⋯ menu the keyboard way, the `actions-menu.test.tsx` idiom:
+ * pointerdown cannot be emulated in Happy DOM, and ArrowDown is equivalent.
+ */
+async function openMenu(name: string) {
+  fireEvent.keyDown(screen.getByRole("button", { name: `Actions for ${name}` }), { key: "ArrowDown" });
+  await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBeGreaterThan(0));
+}
+
 afterEach(cleanup);
 
 describe("InstalledPluginsCard", () => {
-  it("both controls stay reachable by their accessible names", () => {
+  it("puts the row's acts behind its actions menu, beside the switch", async () => {
     renderCard([row({ id: "pi", name: "Pi" })]);
     expect(screen.getByRole("switch", { name: "Pi enabled" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "Uninstall Pi" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Actions for Pi" })).toBeDefined();
+    await openMenu("Pi");
+    expect(screen.getByRole("menuitem", { name: "Uninstall" })).toBeDefined();
   });
 
   it("a reader who manages nothing gets the state as a badge, and no controls", () => {
     renderCard([row({ id: "pi", name: "Pi", enabled: false })], false);
     expect(screen.queryByRole("switch")).toBeNull();
-    expect(screen.queryByRole("button", { name: /uninstall/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /actions for/i })).toBeNull();
     expect(screen.getByText("disabled")).toBeDefined();
   });
 
-  it("shows the version pair and the update action on an npm row", () => {
+  it("shows the version pair in the row and the update act in its menu", async () => {
     renderCard([row({ id: "third", name: "Third", source: "npm", version: "1.0.0" })], true, [
       offer("third", "Third", "1.0.0", "1.1.0"),
     ]);
     expect(screen.getByText("v1.0.0 → v1.1.0")).toBeDefined();
-    expect(screen.getByRole("button", { name: "Update to 1.1.0" })).toBeDefined();
+    await openMenu("Third");
+    expect(screen.getByRole("menuitem", { name: "Update to 1.1.0" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Check for updates" })).toBeDefined();
   });
 
@@ -100,7 +112,8 @@ describe("InstalledPluginsCard", () => {
       renderCard([row({ id: "third", name: "Third", source: "npm", version: "1.0.0" })], true, [
         offer("third", "Third", "1.0.0", "1.1.0"),
       ]);
-      fireEvent.click(screen.getByRole("button", { name: "Update to 1.1.0" }));
+      await openMenu("Third");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Update to 1.1.0" }));
       const dialog = screen.getByRole("dialog");
       expect(within(dialog).getByText("Update this plugin?")).toBeDefined();
       expect(within(dialog).getByText("Third")).toBeDefined();
@@ -117,6 +130,17 @@ describe("InstalledPluginsCard", () => {
     } finally {
       m.restore();
     }
+  });
+
+  it("offers only Uninstall when the registry has nothing newer, and hands the row over", async () => {
+    const uninstalled: string[] = [];
+    renderCard([row({ id: "pi", name: "Pi", source: "npm", version: "1.3.0" })], true, [], {
+      onUninstall: (plugin) => uninstalled.push(plugin.id),
+    });
+    await openMenu("Pi");
+    expect(screen.queryByRole("menuitem", { name: /^Update/ })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Uninstall" }));
+    expect(uninstalled).toEqual(["pi"]);
   });
 
   it("updates all offers one at a time and keeps a failure on its row", async () => {
@@ -210,11 +234,13 @@ describe("InstalledPluginsCard", () => {
       fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Update all" }));
       expect((await screen.findByRole("status", { name: "Updating Third" })).textContent).toBe("Updating…");
       expect(screen.getAllByRole("status")).toHaveLength(1);
-      // Every control holds while the queue runs, whichever row is active.
-      // `aria-disabled` rather than the native attribute: a button with a
-      // disabled reason stays focusable so its explanation can be read.
-      expect(screen.getByRole("button", { name: "Update to 1.1.0" }).getAttribute("aria-disabled")).toBe("true");
-      expect(screen.getByRole("button", { name: "Update to 2.1.0" }).getAttribute("aria-disabled")).toBe("true");
+      // Every row's Update item holds while the queue runs, whichever row is
+      // active. `aria-disabled` rather than the native attribute: the item
+      // stays focusable so its explanation can be read.
+      await openMenu("Third");
+      await openMenu("Fourth");
+      expect(screen.getByRole("menuitem", { name: "Update to 1.1.0" }).getAttribute("aria-disabled")).toBe("true");
+      expect(screen.getByRole("menuitem", { name: "Update to 2.1.0" }).getAttribute("aria-disabled")).toBe("true");
 
       // The queue moves on INSIDE the awaited mutation, so the transition is
       // flushed by an act scope rather than left queued until a waiter gives up.
