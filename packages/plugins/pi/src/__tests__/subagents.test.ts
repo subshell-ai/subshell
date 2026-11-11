@@ -38,10 +38,51 @@ test("the example's provisional zero exit code does not hide running children", 
   await handlers.get("tool_execution_start")?.({
     toolName: "subagent",
     toolCallId: "next",
-    args: { agent: "explore" },
+    args: { agent: "explore", async: false },
   });
   expect(reports.at(-1)?.agents).toHaveLength(1);
   await handlers.get("tool_execution_end")?.({ toolCallId: "next" });
+  expect(reports.at(-1)?.agents).toHaveLength(0);
+});
+test("async children survive the launching tool and retire on the extension's events", async () => {
+  const handlers = new Map<string, (event: unknown) => Promise<void>>();
+  const events = new Map<string, (event: unknown) => void>();
+  const reports: { agents: { id: string; name: string; status: string }[] }[] = [];
+  const install = new Function(
+    "process",
+    "fetch",
+    "setInterval",
+    "clearInterval",
+    SUBAGENT_BRIDGE.replace("export default", "return"),
+  )(
+    { env: { SUBSHELL_BASE_URL: "http://fixture", SUBSHELL_API_KEY: "fixture", SUBSHELL_ID: "pane" } },
+    async (_url: string, init: { body: string }) => {
+      reports.push(JSON.parse(init.body));
+      return Response.json({});
+    },
+    () => ({ unref: () => {} }),
+    () => {},
+  );
+  install({
+    on: (name: string, handler: (event: unknown) => Promise<void>) => handlers.set(name, handler),
+    events: { on: (name: string, handler: (event: unknown) => void) => events.set(name, handler) },
+  });
+  await handlers.get("tool_execution_start")?.({
+    toolName: "subagent",
+    toolCallId: "call",
+    args: { agent: "worker", async: true },
+  });
+  await handlers.get("tool_execution_end")?.({ toolCallId: "call" });
+  expect(reports.at(-1)?.agents).toHaveLength(1);
+  events.get("subagent:async-started")?.({
+    id: "run-1",
+    toolCallId: "call",
+    agent: "worker",
+  });
+  await Promise.resolve();
+  expect(reports.at(-1)?.agents).toEqual([{ id: "run-1:0", name: "worker", status: "running" }]);
+  events.get("subagent:async-complete")?.({ runId: "run-1" });
+  await Promise.resolve();
   expect(reports.at(-1)?.agents).toHaveLength(0);
 });
 
@@ -131,4 +172,31 @@ test("session_start resets the roster and session_shutdown stops the timer", asy
   await handlers.get("session_shutdown")?.(undefined);
   expect(cleared).toBe(1);
   expect(reports.at(-1)?.agents).toHaveLength(0);
+});
+
+test("snapshots leave the server's selected view alone", async () => {
+  const reports: Record<string, unknown>[] = [];
+  const install = new Function(
+    "process",
+    "fetch",
+    "setInterval",
+    "clearInterval",
+    SUBAGENT_BRIDGE.replace("export default", "return"),
+  )(
+    { env: { SUBSHELL_BASE_URL: "http://fixture", SUBSHELL_API_KEY: "fixture", SUBSHELL_ID: "pane" } },
+    async (_url: string, init: { body: string }) => {
+      reports.push(JSON.parse(init.body));
+      return Response.json({});
+    },
+    () => ({ unref: () => {} }),
+    () => {},
+  );
+  const handlers = new Map<string, (event: unknown) => Promise<void>>();
+  install({
+    on: (name: string, handler: (event: unknown) => Promise<void>) => handlers.set(name, handler),
+    events: { on: () => {} },
+  });
+  await handlers.get("session_start")?.(undefined);
+  expect(reports.at(-1)?.selectedId).toBeUndefined();
+  expect(reports.at(-1)?.canSelect).toBeUndefined();
 });

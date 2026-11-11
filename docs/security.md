@@ -972,10 +972,12 @@ An extension integration refreshes its snapshot while attached and can queue a
 view command; view grantees may use that path, the integration must have
 reported native navigation within 15 seconds, queued requests expire after five
 seconds, and only a subsequent harness report changes the selected header.
-A hook integration uses the plugin's `select` callback instead: the trusted
-plugin types only its own fixed picker keys into the pane, so this path requires
-`edit` (and the ssh owner-only input rule), not merely visibility. It has no
-bridge heartbeat to wait on; it chooses the row by the id Codex prints, verifies the highlight when the picker stays open, and records that row's id. Typing,
+An integration with a `select` callback uses it instead: the trusted plugin
+sends only its harness's own fixed picker or inspector keys into the pane, so
+this path requires `edit` (and the ssh owner-only input rule), not merely
+visibility. It has no bridge heartbeat to wait on; it selects by the harness's
+printed id or reported name, verifies the selected row, and records that row's
+id. Typing,
 steering and approval responses still use the existing edit gate. Integrations
 without either native mechanism remain status-only; caller-provided keyboard
 automation is not a fallback.

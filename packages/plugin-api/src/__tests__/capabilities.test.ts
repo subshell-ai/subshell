@@ -158,6 +158,18 @@ describe("capabilityMismatches: the subagent descriptor's values", () => {
     expect(capabilityMismatches(p, "agent-harness")).toEqual([]);
   });
 
+  it("accepts select on either discovery, because the host types into the same pane", () => {
+    const select = async () => ({ selectedId: null });
+    expect(
+      capabilityMismatches(
+        harness(["subagents"], {
+          subagents: { discovery: "extension", navigation: "native", select },
+        }),
+        "agent-harness",
+      ),
+    ).toEqual([]);
+  });
+
   it("refuses a discovery word outside the set at load", () => {
     // This is the loader's job because the alternative is worse: a registry
     // plugin shipping `discovery: "teleport"` would pass every install-time

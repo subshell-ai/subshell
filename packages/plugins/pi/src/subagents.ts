@@ -11,13 +11,18 @@ export default function (pi) {
     if (typeof activity === 'string' && activity.trim()) entry.activity = activity.trim().slice(0,160);
     agents.set(id, entry);
   };
+  // Async calls keep their children after the launching tool returns; the
+  // subagent extension's own lifecycle events retire them. Foreground calls
+  // end with the tool, as before.
+  const asyncCalls = new Set();
+  const asyncRuns = new Map();
   let busy = false;
   const report = async () => {
     if (busy || !process.env.SUBSHELL_API_KEY || !process.env.SUBSHELL_BASE_URL || !process.env.SUBSHELL_ID) return;
     busy = true;
     try { await fetch(process.env.SUBSHELL_BASE_URL + '/api/subshells/' + process.env.SUBSHELL_ID + '/subagents/report', {
       method: 'POST', headers: { authorization: 'Bearer ' + process.env.SUBSHELL_API_KEY, 'content-type': 'application/json' },
-      body: JSON.stringify({ event: 'snapshot', agents: [...agents.values()].slice(0,256), selectedId: null, canSelect: false }),
+      body: JSON.stringify({ event: 'snapshot', agents: [...agents.values()].slice(0,256) }),
       signal: AbortSignal.timeout(2000)
     }); } catch {} finally { busy = false; }
   };
@@ -26,6 +31,7 @@ export default function (pi) {
   pi.on('session_shutdown', async () => { clearInterval(timer); agents.clear(); await report(); });
   pi.on('tool_execution_start', async e => {
     if (e.toolName !== 'subagent') return;
+    if (e.args?.async !== false) asyncCalls.add(e.toolCallId);
     const tasks = Array.isArray(e.args?.tasks) ? e.args.tasks : e.args?.agent ? [e.args] : [];
     for (let i = 0; i < Math.min(tasks.length,256); i++) put(e.toolCallId + ':' + i, String(tasks[i]?.agent || 'Subagent'));
     await report();
@@ -45,8 +51,40 @@ export default function (pi) {
     await report();
   });
   pi.on('tool_execution_end', async e => {
-    for (const id of agents.keys()) if (id.startsWith(e.toolCallId + ':')) agents.delete(id);
+    if (!asyncCalls.has(e.toolCallId)) {
+      for (const id of agents.keys()) if (id.startsWith(e.toolCallId + ':')) agents.delete(id);
+    }
+    asyncCalls.delete(e.toolCallId);
     await report();
+  });
+  // The installed pi-subagents extension publishes a richer lifecycle than
+  // the bundled example: one run id, then completion when the child settles.
+  // Replace the tool-call rows it supersedes so a single child has one row.
+  pi.events.on('subagent:async-started', value => {
+    if (!value || typeof value !== 'object') return;
+    const call = typeof value.toolCallId === 'string' ? value.toolCallId : '';
+    if (call) {
+      asyncCalls.add(call);
+      for (const id of agents.keys()) if (id.startsWith(call + ':')) agents.delete(id);
+    }
+    const runId = typeof value.id === 'string' ? value.id : call;
+    if (!runId) return;
+    const names = Array.isArray(value.agents) && value.agents.length ? value.agents : [value.agent];
+    const ids = [];
+    for (let i = 0; i < Math.min(names.length,256); i++) {
+      const id = runId + ':' + i;
+      put(id, String(names[i] || 'Subagent'));
+      ids.push(id);
+    }
+    asyncRuns.set(runId, ids);
+    void report();
+  });
+  pi.events.on('subagent:async-complete', value => {
+    const runId = value && typeof value === 'object' && typeof value.runId === 'string' ? value.runId : '';
+    if (!runId) return;
+    for (const id of asyncRuns.get(runId) || []) agents.delete(id);
+    asyncRuns.delete(runId);
+    void report();
   });
   // Extensions with their own execution model can publish this metadata-only
   // event instead of emulating the bundled tool's progress payload.

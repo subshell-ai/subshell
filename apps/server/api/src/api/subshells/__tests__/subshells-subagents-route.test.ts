@@ -82,8 +82,10 @@ describe("harness subagent reporting and selection", () => {
     );
   }
   it("keeps reports across requests, rejects foreign reporters, and queues only known children", async () => {
-    const a = await subshellWithToken();
-    const b = await subshellWithToken();
+    // Hermes has no pane driver, so this is the report-loop path the queue
+    // serves; a native picker is covered by its own tests below.
+    const a = await subshellWithToken("running", "hermes");
+    const b = await subshellWithToken("running", "hermes");
     const cookie = { cookie: `better-auth.session_token=${ownerCookie}` };
     const body = { event: "snapshot", agents: [{ id: "child", name: "Review", status: "running" }], canSelect: true };
     expect((await request(a.id, "/report", { authorization: `Bearer ${b.key}` }, body)).status).toBe(403);
@@ -263,7 +265,7 @@ describe("harness subagent reporting and selection", () => {
     const a = await subshellWithToken();
     await issueSubshellToken(a.id, userId);
     expect((await request(a.id, "/report", { authorization: `Bearer ${a.key}` }, body)).status).toBe(401);
-    const b = await subshellWithToken();
+    const b = await subshellWithToken("running", "hermes");
     // Pane-reported text is a NAME path: control characters (ESC included)
     // fold to spaces and format characters drop before anything is stored.
     const raw = {
@@ -290,7 +292,7 @@ describe("harness subagent reporting and selection", () => {
     });
     try {
       const cookie = { cookie: `better-auth.session_token=${await signIn(email, pw)}` };
-      const a = await subshellWithToken();
+      const a = await subshellWithToken("running", "hermes");
       await request(
         a.id,
         "/report",
@@ -396,6 +398,34 @@ describe("harness subagent reporting and selection", () => {
         "/report",
         { authorization: `Bearer ${a.key}` },
         { event: "snapshot", agents: [{ id: "child", name: "Review", status: "running" }] },
+      );
+      await new SubshellSharesRepository(db).replaceForSubshell(
+        a.id,
+        [{ granteeUserId: viewerId, permission: "edit" }],
+        userId,
+      );
+      const cookie = { cookie: `better-auth.session_token=${await signIn(email, pw)}` };
+      const snapshot = (await (await request(a.id, "", cookie)).json()) as { canSelect: boolean };
+      expect(snapshot.canSelect).toBe(true);
+    } finally {
+      await deleteUserByEmailOrId(email);
+    }
+  });
+  it("advertises native selection for an extension bridge with a pane driver", async () => {
+    const email = `subagent-native-pi-${crypto.randomUUID()}@subshell.local`;
+    const viewerId = await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    try {
+      const a = await subshellWithToken("running", "pi");
+      await request(
+        a.id,
+        "/report",
+        { authorization: `Bearer ${a.key}` },
+        { event: "snapshot", agents: [{ id: "call:0", name: "review", status: "running" }] },
       );
       await new SubshellSharesRepository(db).replaceForSubshell(
         a.id,

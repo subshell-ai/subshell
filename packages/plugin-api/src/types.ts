@@ -939,10 +939,6 @@ export function capabilityMismatches(plugin: SubshellPlugin | NetworkPlugin, typ
         if (typeof support.select !== "function") problems.push("subagents.select, when present, must be a function");
         if (support.navigation !== "native")
           problems.push('subagents.select requires subagents.navigation to be "native"');
-        if (support.discovery !== "hooks")
-          problems.push(
-            'subagents.select is only for "hooks" integrations; extension integrations use the report-loop command',
-          );
       }
     }
     const previews = (plugin as SubshellPlugin).previews;
