@@ -28,7 +28,7 @@ function childRow(index: number): PickerRow {
  */
 function pickerHarness(
   rows: readonly PickerRow[],
-  options: { open?: boolean; selected?: number; formatId?: (id: string) => string } = {},
+  options: { open?: boolean; selected?: number; currentRow?: number; formatId?: (id: string) => string } = {},
 ) {
   const typed: string[] = [];
   const maxVisible = 8;
@@ -47,7 +47,7 @@ function pickerHarness(
     for (const [offset, row] of visible.entries()) {
       const index = top + offset + 1;
       const marker = index - 1 === selected ? "›" : " ";
-      const suffix = index === 1 ? " (current)" : "";
+      const suffix = index - 1 === (options.currentRow ?? 0) ? " (current)" : "";
       const id = options.formatId?.(row.id) ?? row.id;
       lines.push(`${marker} ${index}. • ${row.name}${suffix}  ${id}`);
     }
@@ -381,6 +381,49 @@ describe("CodexPlugin", () => {
     const result = await plugin.subagents?.select?.({ agentId: target.id, agents: [], pane: harness.pane });
     expect(result).toEqual({ selectedId: target.id });
     expect(harness.state().selected).toBe(2);
+  });
+
+  it("switches to a child when the picker hides its id column", async () => {
+    // Codex hides the description column when the name column leaves under 24
+    // columns beside it, which is what a sidebar-width pane does to long task
+    // names. Only the row's label identifies the child then.
+    const rows = [MAIN_ROW, childRow(1), childRow(2)];
+    const harness = pickerHarness(rows, { formatId: () => "" });
+    const target = rows[2] as PickerRow;
+    const agents = rows.slice(1).map((row) => ({
+      id: row.id,
+      name: row.name.replace(/^\/root\//, ""),
+      status: "running" as const,
+      startedAt: 0,
+    }));
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents, pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
+    expect(harness.state()).toEqual({ open: false, selected: 2, main: false });
+  });
+
+  it("matches a hidden-id row that Codex marks as the current view", async () => {
+    const rows = [MAIN_ROW, childRow(1), childRow(2)];
+    const harness = pickerHarness(rows, { open: true, selected: 2, currentRow: 2, formatId: () => "" });
+    const target = rows[2] as PickerRow;
+    const agents = rows.slice(1).map((row) => ({
+      id: row.id,
+      name: row.name.replace(/^\/root\//, ""),
+      status: "running" as const,
+      startedAt: 0,
+    }));
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents, pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
+    expect(harness.typed).toEqual(["\r"]);
+  });
+
+  it("doesn't guess a hidden-id row by a name the roster doesn't share", async () => {
+    const rows = [MAIN_ROW, childRow(1), childRow(2)];
+    const harness = pickerHarness(rows, { formatId: () => "" });
+    const target = rows[2] as PickerRow;
+    const agents = [{ id: target.id, name: "another_task", status: "running" as const, startedAt: 0 }];
+    await expect(plugin.subagents?.select?.({ agentId: target.id, agents, pane: harness.pane })).rejects.toThrow(
+      "didn't list that subagent",
+    );
   });
 
   it("matches the row's trailing id, not a uuid inside its label", async () => {
