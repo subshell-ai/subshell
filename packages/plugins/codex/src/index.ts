@@ -223,13 +223,43 @@ function pickerRowId(text: string): string | undefined {
 }
 
 /**
+ * A hidden-id row's label, joined across the popup's wrapped continuation
+ * lines. Codex wraps the whole row at the popup width and indents the
+ * continuation by the row's prefix; task names are [a-z0-9_] with no spaces,
+ * so trimming the indent and concatenating restores the name exactly.
+ */
+function wrappedPickerRowLabel(lines: string[], start: number, match: RegExpMatchArray): string {
+  let label = (match[2] ?? "").trimEnd();
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    if (line.trim() === "") break;
+    if (PICKER_ROW.test(line) || /^\s*[↑↓]\s*$/.test(line) || /^\s*enter select/.test(line)) break;
+    label += line.trim();
+  }
+  return label;
+}
+
+/** One painted row, with whether it is the one Codex marks as selected. */
+interface PaintedPickerRow {
+  index: number;
+  text: string;
+  label: string;
+  highlighted: boolean;
+}
+
+/**
  * The numbered rows actually painted on the current page, in order. A scrolled
  * page starts at any number; wrapped task names can begin with "2. ", so each
  * row must be the one after the previous to count.
+ *
+ * Codex paints its id column for every row or hides it for all of them. A
+ * narrow pane hides it, and a long name then wraps, so the label is joined
+ * back together. With the column painted, the id stays the identity and its
+ * own wrapped fragments are joined by {@link pickerRowText}.
  */
-function paintedPickerRows(screen: string): { index: number; text: string; label: string }[] {
+function paintedPickerRows(screen: string): PaintedPickerRow[] {
   const lines = pickerLines(screen) ?? [];
-  const rows: { index: number; text: string; label: string }[] = [];
+  const starts: { index: number; start: number; match: RegExpMatchArray }[] = [];
   let previous: number | undefined;
   for (let i = 0; i < lines.length; i++) {
     const match = lines[i]?.match(PICKER_ROW);
@@ -237,9 +267,21 @@ function paintedPickerRows(screen: string): { index: number; text: string; label
     const index = Number(match[1]);
     if (previous !== undefined && index !== previous + 1) continue;
     previous = index;
-    rows.push({ index, text: pickerRowText(lines, i, match), label: match[2] ?? "" });
+    starts.push({ index, start: i, match });
   }
-  return rows;
+  // The first painted row tells the layout: the id is one column for the
+  // whole popup, and a long id wraps onto continuation lines.
+  const first = starts[0];
+  const idsVisible = first !== undefined && pickerRowId(pickerRowText(lines, first.start, first.match)) !== undefined;
+  return starts.map(({ index, start, match }) => {
+    const label = idsVisible ? (match[2] ?? "") : wrappedPickerRowLabel(lines, start, match);
+    return {
+      index,
+      text: idsVisible ? pickerRowText(lines, start, match) : label,
+      label,
+      highlighted: HIGHLIGHTED_ROW.test(lines[start] ?? ""),
+    };
+  });
 }
 
 /**
@@ -291,15 +333,9 @@ function pickerIndex(screen: string, target: PickerTarget | null): number | unde
   return undefined;
 }
 
-/** The row Codex marks with `›` after a picker keypress, plus its printed id. */
-function highlightedPickerRow(screen: string): { index: number; text: string; label: string } | undefined {
-  const lines = pickerLines(screen);
-  if (!lines) return undefined;
-  for (let i = 0; i < lines.length; i++) {
-    const match = lines[i]?.match(HIGHLIGHTED_ROW);
-    if (match) return { index: Number(match[1]), text: pickerRowText(lines, i, match), label: match[2] ?? "" };
-  }
-  return undefined;
+/** The row Codex marks with `›` after a picker keypress. */
+function highlightedPickerRow(screen: string): PaintedPickerRow | undefined {
+  return paintedPickerRows(screen).find((row) => row.highlighted);
 }
 
 /** What a painted page shows: its ordered row numbers and the highlight. */

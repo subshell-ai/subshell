@@ -28,7 +28,13 @@ function childRow(index: number): PickerRow {
  */
 function pickerHarness(
   rows: readonly PickerRow[],
-  options: { open?: boolean; selected?: number; currentRow?: number; formatId?: (id: string) => string } = {},
+  options: {
+    open?: boolean;
+    selected?: number;
+    currentRow?: number;
+    wrapNameAt?: number;
+    formatId?: (id: string) => string;
+  } = {},
 ) {
   const typed: string[] = [];
   const maxVisible = 8;
@@ -49,7 +55,17 @@ function pickerHarness(
       const marker = index - 1 === selected ? "›" : " ";
       const suffix = index - 1 === (options.currentRow ?? 0) ? " (current)" : "";
       const id = options.formatId?.(row.id) ?? row.id;
-      lines.push(`${marker} ${index}. • ${row.name}${suffix}  ${id}`);
+      const label = `${row.name}${suffix}`;
+      const width = options.wrapNameAt ?? 0;
+      const chunks =
+        width > 0
+          ? Array.from({ length: Math.ceil(label.length / width) }, (_, chunk) =>
+              label.slice(chunk * width, (chunk + 1) * width),
+            )
+          : [label];
+      const prefix = `${marker} ${index}. • `;
+      lines.push(`${prefix}${chunks[0] ?? ""}  ${id}`);
+      for (const chunk of chunks.slice(1)) lines.push(`${" ".repeat(prefix.length)}${chunk}`);
     }
     if (top + visible.length < rows.length) lines.push("↓");
     lines.push("  enter select · esc back");
@@ -399,6 +415,18 @@ describe("CodexPlugin", () => {
     const result = await plugin.subagents?.select?.({ agentId: target.id, agents, pane: harness.pane });
     expect(result).toEqual({ selectedId: target.id });
     expect(harness.state()).toEqual({ open: false, selected: 2, main: false });
+  });
+
+  it("switches to a child whose hidden-id label wraps", async () => {
+    const longName = "/root/verify_subagent_alpha_with_a_very_long_descriptive_name";
+    const target = { name: longName, id: "01a1ccde-06b4-7512-a433-c172760eac4d" };
+    const harness = pickerHarness([MAIN_ROW, target], { formatId: () => "", wrapNameAt: 24 });
+    const agents = [
+      { id: target.id, name: longName.replace(/^\/root\//, ""), status: "running" as const, startedAt: 0 },
+    ];
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents, pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
+    expect(harness.state()).toEqual({ open: false, selected: 1, main: false });
   });
 
   it("matches a hidden-id row that Codex marks as the current view", async () => {
