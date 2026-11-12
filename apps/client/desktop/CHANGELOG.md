@@ -1,5 +1,13 @@
 # @internal/desktop-client
 
+## 1.5.16
+
+### Patch Changes
+
+- [#538](https://github.com/subshell-ai/subshell/pull/538) [`d20ec69`](https://github.com/subshell-ai/subshell/commit/d20ec691672e8f41cf628dde67a72a75f263cf33) Thanks [@theogravity](https://github.com/theogravity)! - Ship the Codex sidebar change: Codex subagents are status-only again. Selecting a child no longer drives Codex's `/subagents` picker, and the rows explain that Subshell can't switch views in this harness; use Codex's own picker instead. The bundled CLIs and both desktop apps carry the updated built-in plugin.
+- Updated dependencies [[`d20ec69`](https://github.com/subshell-ai/subshell/commit/d20ec691672e8f41cf628dde67a72a75f263cf33)]:
+  - @internal/node@3.6.7
+
 ## 1.5.15
 
 ### Patch Changes
