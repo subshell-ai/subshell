@@ -476,7 +476,9 @@ async function highlightPickerRow(
  * Completed children remain in the list, so the target is chosen by the id
  * printed on its row, never by the server roster's position. A narrow pane
  * hides that id column, and there the row's printed name is the identity;
- * two rows sharing it are refused rather than guessed.
+ * two rows sharing it are refused rather than guessed. Rows 1-9 are picked by
+ * their painted number, which Codex accepts immediately; deeper rows are
+ * paged and arrowed.
  */
 async function selectCodexSubagent(input: HarnessSubagentSelectInput): Promise<HarnessSubagentSelectResult> {
   const { agentId, agents, pane } = input;
@@ -514,13 +516,27 @@ async function selectCodexSubagent(input: HarnessSubagentSelectInput): Promise<H
     screen = await revealPickerRow(pane, target, screen, wait);
     const index = pickerIndex(screen, target);
     if (index === undefined) throw new Error("Codex didn't list that subagent in its picker.");
-    screen = await highlightPickerRow(pane, index, wait);
-    const row = highlightedPickerRow(screen);
-    if (row === undefined) throw new Error("Codex didn't highlight a row in its picker.");
+    const row = paintedPickerRows(screen).find((candidate) => candidate.index === index);
+    if (row === undefined) throw new Error("Codex didn't list that subagent in its picker.");
     if (target === null ? !/^\s*Main\s*\[default\]/.test(row.label) : !pickerRowMatches(row, target)) {
-      throw new Error("Codex highlighted a different row in its picker.");
+      throw new Error("Codex listed a different row for that subagent.");
     }
-    await pane.type("\r");
+    if (index <= 9) {
+      // Codex's picker picks rows 1-9 by their painted number and accepts
+      // immediately. That is the one direct jump the TUI offers; deeper rows
+      // have only paging and arrows.
+      await pane.type(String(index));
+    } else {
+      screen = await highlightPickerRow(pane, index, wait);
+      const highlighted = highlightedPickerRow(screen);
+      if (highlighted === undefined) throw new Error("Codex didn't highlight a row in its picker.");
+      if (
+        target === null ? !/^\s*Main\s*\[default\]/.test(highlighted.label) : !pickerRowMatches(highlighted, target)
+      ) {
+        throw new Error("Codex highlighted a different row in its picker.");
+      }
+      await pane.type("\r");
+    }
     screen = await waitForPickerClosed(pane, wait(3000));
     if (agentId === null ? !isMainView(screen) : isMainView(screen)) {
       throw new Error("Codex didn't switch to the selected agent.");

@@ -106,6 +106,12 @@ function pickerHarness(
         } else if (text === "\u001b[A") {
           selected = Math.max(0, selected - 1);
           ensureVisible();
+        } else if (/^[1-9]$/.test(text)) {
+          const index = Number(text) - 1;
+          if (index < rows.length) {
+            selected = index;
+            open = false;
+          }
         } else if (text === "\u001b[B") {
           selected = Math.min(rows.length - 1, selected + 1);
           ensureVisible();
@@ -349,8 +355,17 @@ describe("CodexPlugin", () => {
     const target = rows[2] as PickerRow;
     const result = await plugin.subagents?.select?.({ agentId: target.id, agents: [], pane: harness.pane });
     expect(result).toEqual({ selectedId: target.id });
+    expect(harness.typed).toEqual(["/subagents", "\r", "3"]);
+  });
+
+  it("jumps straight to a first-page row with the picker's number shortcut", async () => {
+    const rows = [MAIN_ROW, ...Array.from({ length: 20 }, (_, index) => childRow(index + 1))];
+    const harness = pickerHarness(rows, { open: true, selected: 9 });
+    const target = rows[2] as PickerRow; // row 3
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents: [], pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
     expect(harness.state()).toEqual({ open: false, selected: 2, main: false });
-    expect(harness.typed).toEqual(["/subagents", "\r", "\u001b[B", "\u001b[B", "\r"]);
+    expect(harness.typed).toEqual(["\u001b[H", "3"]);
   });
 
   it("pages past the eight painted rows to reach a child below the fold", async () => {
@@ -383,7 +398,7 @@ describe("CodexPlugin", () => {
     const result = await plugin.subagents?.select?.({ agentId: null, agents: [], pane: harness.pane });
     expect(result).toEqual({ selectedId: null });
     expect(harness.state()).toEqual({ open: false, selected: 0, main: true });
-    expect(harness.typed).toEqual(["\u001b[H", "\r"]);
+    expect(harness.typed).toEqual(["\u001b[H", "1"]);
   });
 
   it("closes a picker it opened when the clicked child is no longer listed", async () => {
@@ -466,7 +481,7 @@ describe("CodexPlugin", () => {
     }));
     const result = await plugin.subagents?.select?.({ agentId: target.id, agents, pane: harness.pane });
     expect(result).toEqual({ selectedId: target.id });
-    expect(harness.typed).toEqual(["\r"]);
+    expect(harness.typed).toEqual(["3"]);
   });
 
   it("doesn't guess a hidden-id row by a name the roster doesn't share", async () => {
