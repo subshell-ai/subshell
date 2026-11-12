@@ -20,6 +20,10 @@ function childRow(index: number): PickerRow {
   return { name: `/root/child_${index}`, id: `01a1c7f0-825a-7ce2-8a88-${String(index).padStart(12, "0")}` };
 }
 
+/** The same canonical path twice: a closed thread Codex still lists, then its reuse. */
+const STALE_ID = "01a1ccde-0000-7000-8000-000000000001";
+const LIVE_ID = "01a1ccde-0000-7000-8000-000000000002";
+
 /**
  * A stand-in for Codex's `/subagents` picker: eight painted rows over the whole
  * roster, Home/PageDown/arrow navigation, and Enter following the highlight.
@@ -28,7 +32,14 @@ function childRow(index: number): PickerRow {
  */
 function pickerHarness(
   rows: readonly PickerRow[],
-  options: { open?: boolean; selected?: number; formatId?: (id: string) => string } = {},
+  options: {
+    open?: boolean;
+    selected?: number;
+    currentRow?: number;
+    pendingRow?: number;
+    wrapNameAt?: number;
+    formatId?: (id: string) => string;
+  } = {},
 ) {
   const typed: string[] = [];
   const maxVisible = 8;
@@ -47,9 +58,20 @@ function pickerHarness(
     for (const [offset, row] of visible.entries()) {
       const index = top + offset + 1;
       const marker = index - 1 === selected ? "›" : " ";
-      const suffix = index === 1 ? " (current)" : "";
+      const pending = index - 1 === options.pendingRow ? " (needs approval)" : "";
+      const current = index - 1 === (options.currentRow ?? 0) ? " (current)" : "";
       const id = options.formatId?.(row.id) ?? row.id;
-      lines.push(`${marker} ${index}. • ${row.name}${suffix}  ${id}`);
+      const label = `${row.name}${pending}${current}`;
+      const width = options.wrapNameAt ?? 0;
+      const chunks =
+        width > 0
+          ? Array.from({ length: Math.ceil(label.length / width) }, (_, chunk) =>
+              label.slice(chunk * width, (chunk + 1) * width),
+            )
+          : [label];
+      const prefix = `${marker} ${index}. • `;
+      lines.push(`${prefix}${chunks[0] ?? ""}  ${id}`);
+      for (const chunk of chunks.slice(1)) lines.push(`${" ".repeat(prefix.length)}${chunk}`);
     }
     if (top + visible.length < rows.length) lines.push("↓");
     lines.push("  enter select · esc back");
@@ -381,6 +403,146 @@ describe("CodexPlugin", () => {
     const result = await plugin.subagents?.select?.({ agentId: target.id, agents: [], pane: harness.pane });
     expect(result).toEqual({ selectedId: target.id });
     expect(harness.state().selected).toBe(2);
+  });
+
+  it("switches to a child when the picker hides its id column", async () => {
+    // Codex hides the description column when the name column leaves under 24
+    // columns beside it, which is what a sidebar-width pane does to long task
+    // names. Only the row's label identifies the child then.
+    const rows = [MAIN_ROW, childRow(1), childRow(2)];
+    const harness = pickerHarness(rows, { formatId: () => "" });
+    const target = rows[2] as PickerRow;
+    const agents = rows.slice(1).map((row) => ({
+      id: row.id,
+      name: row.name.replace(/^\/root\//, ""),
+      status: "running" as const,
+      startedAt: 0,
+    }));
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents, pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
+    expect(harness.state()).toEqual({ open: false, selected: 2, main: false });
+  });
+
+  it("switches to a child whose hidden-id label wraps", async () => {
+    const longName = "/root/verify_subagent_alpha_with_a_very_long_descriptive_name";
+    const target = { name: longName, id: "01a1ccde-06b4-7512-a433-c172760eac4d" };
+    const harness = pickerHarness([MAIN_ROW, target], { formatId: () => "", wrapNameAt: 24 });
+    const agents = [
+      { id: target.id, name: longName.replace(/^\/root\//, ""), status: "running" as const, startedAt: 0 },
+    ];
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents, pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
+    expect(harness.state()).toEqual({ open: false, selected: 1, main: false });
+  });
+
+  it("switches to a nested child whose hidden-id label is its canonical path", async () => {
+    const nested = { name: "/root/task1/task_3", id: "01a1ccde-06b4-7512-a433-c172760eac4e" };
+    const harness = pickerHarness([MAIN_ROW, nested], { formatId: () => "" });
+    const agents = [{ id: nested.id, name: nested.name, status: "running" as const, startedAt: 0 }];
+    const result = await plugin.subagents?.select?.({ agentId: nested.id, agents, pane: harness.pane });
+    expect(result).toEqual({ selectedId: nested.id });
+    expect(harness.state()).toEqual({ open: false, selected: 1, main: false });
+  });
+
+  it("matches a hidden-id child whose own name contains a UUID", async () => {
+    const name = `/root/review-${MAIN_ROW.id}`;
+    const target = { name, id: "01a1ccde-06b4-7512-a433-c172760eac4f" };
+    const harness = pickerHarness([MAIN_ROW, target], { formatId: () => "" });
+    const agents = [{ id: target.id, name: name.replace(/^\/root\//, ""), status: "running" as const, startedAt: 0 }];
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents, pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
+    expect(harness.state()).toEqual({ open: false, selected: 1, main: false });
+  });
+
+  it("matches a hidden-id row that Codex marks as the current view", async () => {
+    const rows = [MAIN_ROW, childRow(1), childRow(2)];
+    const harness = pickerHarness(rows, { open: true, selected: 2, currentRow: 2, formatId: () => "" });
+    const target = rows[2] as PickerRow;
+    const agents = rows.slice(1).map((row) => ({
+      id: row.id,
+      name: row.name.replace(/^\/root\//, ""),
+      status: "running" as const,
+      startedAt: 0,
+    }));
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents, pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
+    expect(harness.typed).toEqual(["\r"]);
+  });
+
+  it("doesn't guess a hidden-id row by a name the roster doesn't share", async () => {
+    const rows = [MAIN_ROW, childRow(1), childRow(2)];
+    const harness = pickerHarness(rows, { formatId: () => "" });
+    const target = rows[2] as PickerRow;
+    const agents = [{ id: target.id, name: "another_task", status: "running" as const, startedAt: 0 }];
+    await expect(plugin.subagents?.select?.({ agentId: target.id, agents, pane: harness.pane })).rejects.toThrow(
+      "didn't list that subagent",
+    );
+  });
+
+  it("uses the printed id when a closed row shares the target's label", async () => {
+    const stale = { name: "/root/worker", id: STALE_ID };
+    const live = { name: "/root/worker", id: LIVE_ID };
+    const harness = pickerHarness([MAIN_ROW, stale, live], { formatId: (id) => `\n  ${id}` });
+    const agents = [{ id: LIVE_ID, name: "worker", status: "running" as const, startedAt: 0 }];
+    const result = await plugin.subagents?.select?.({ agentId: LIVE_ID, agents, pane: harness.pane });
+    expect(result).toEqual({ selectedId: LIVE_ID });
+    expect(harness.state().selected).toBe(2);
+  });
+
+  it("refuses two hidden-id rows with the same label", async () => {
+    const stale = { name: "/root/worker", id: STALE_ID };
+    const live = { name: "/root/worker", id: LIVE_ID };
+    const harness = pickerHarness([MAIN_ROW, stale, live], { formatId: () => "" });
+    const agents = [{ id: LIVE_ID, name: "worker", status: "running" as const, startedAt: 0 }];
+    await expect(plugin.subagents?.select?.({ agentId: LIVE_ID, agents, pane: harness.pane })).rejects.toThrow(
+      "more than one row",
+    );
+  });
+
+  it("refuses a duplicate hidden label that only repeats on a later page", async () => {
+    const stale = { name: "/root/worker", id: STALE_ID };
+    const live = { name: "/root/worker", id: LIVE_ID };
+    const rows = [MAIN_ROW, childRow(1), stale, ...Array.from({ length: 16 }, (_, index) => childRow(index + 2)), live];
+    const harness = pickerHarness(rows, { formatId: () => "" });
+    const agents = [{ id: LIVE_ID, name: "worker", status: "running" as const, startedAt: 0 }];
+    await expect(plugin.subagents?.select?.({ agentId: LIVE_ID, agents, pane: harness.pane })).rejects.toThrow(
+      "more than one row",
+    );
+  });
+
+  it("switches to a unique hidden-id child below the fold", async () => {
+    const rows = [MAIN_ROW, ...Array.from({ length: 20 }, (_, index) => childRow(index + 1))];
+    const harness = pickerHarness(rows, { formatId: () => "" });
+    const target = rows[18] as PickerRow;
+    const agents = rows.slice(1).map((row) => ({
+      id: row.id,
+      name: row.name.replace(/^\/root\//, ""),
+      status: "running" as const,
+      startedAt: 0,
+    }));
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents, pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
+    expect(harness.state().selected).toBe(18);
+  });
+
+  it("matches a hidden-id row marked pending and current", async () => {
+    const rows = [MAIN_ROW, childRow(1), childRow(2)];
+    const harness = pickerHarness(rows, {
+      open: true,
+      selected: 2,
+      currentRow: 2,
+      pendingRow: 2,
+      formatId: () => "",
+    });
+    const target = rows[2] as PickerRow;
+    const agents = rows.slice(1).map((row) => ({
+      id: row.id,
+      name: row.name.replace(/^\/root\//, ""),
+      status: "running" as const,
+      startedAt: 0,
+    }));
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents, pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
   });
 
   it("matches the row's trailing id, not a uuid inside its label", async () => {

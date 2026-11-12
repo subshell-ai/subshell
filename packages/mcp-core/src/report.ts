@@ -195,13 +195,15 @@ async function resolveBody(
       };
     // Codex's spawn tool posts its completed call as PostToolUse, carrying the
     // human task name the TUI shows; its SubagentStart payload itself carries
-    // only the generic `default` type. Measured against codex-cli 0.167.0, the
-    // spawn's PostToolUse arrives BEFORE that child's SubagentStart, so park
-    // the name for the start that follows. Only a successful spawn reports an
-    // `/root/<name>` task path; a failed call leaves no label behind. Re-check
-    // this shape on a Codex version bump: a nested path would also stop names.
-    // This avoids replacing the user's PreToolUse policy hook. The task body arrives
-    // encrypted and is deliberately not forwarded.
+    // only the role type. Measured against codex-cli 0.167.0, the spawn's
+    // PostToolUse arrives BEFORE that child's SubagentStart, so park the name
+    // and the role for the start that follows. Only a successful spawn reports
+    // a canonical `/root/...` path; a failed call leaves no label behind. A
+    // nested spawn's path names the whole tree (`/root/parent/child`), which is
+    // exactly what the picker prints, so it becomes the label; a root child
+    // keeps the bare task name the sidebar shows. Re-check this shape on a
+    // Codex version bump. This avoids replacing the user's PreToolUse policy
+    // hook. The task body arrives encrypted and is deliberately not forwarded.
     if (
       hook === "PostToolUse" &&
       (payload.tool_name === "collaborationspawn_agent" || payload.tool_name === "spawn_agent")
@@ -212,6 +214,7 @@ async function resolveBody(
           : {};
       const taskName = toolInput.task_name;
       const agentName = typeof taskName === "string" ? taskName.trim().slice(0, 160) : "";
+      const agentType = typeof toolInput.agent_type === "string" ? toolInput.agent_type.trim().slice(0, 160) : "";
       if (!agentName) return undefined;
       let response: Record<string, unknown> | undefined;
       try {
@@ -221,8 +224,16 @@ async function resolveBody(
         return undefined;
       }
       const childPath = response?.task_name;
-      if (typeof childPath !== "string" || !/^\/root\/[^/]+$/.test(childPath)) return undefined;
-      return { path: "subagents/report", json: { event: "describe", agentName } };
+      if (typeof childPath !== "string" || !/^\/root\/[^/]+(?:\/[^/]+)*$/.test(childPath)) return undefined;
+      const label = childPath === `/root/${agentName}` ? agentName : childPath;
+      return {
+        path: "subagents/report",
+        json: {
+          event: "describe",
+          agentName: label.slice(0, 160),
+          ...(agentType ? { agentType } : {}),
+        },
+      };
     }
     // Claude Code's SubagentStart payload carries no task label (measured
     // against the hooks reference), but the Agent tool's own input does:

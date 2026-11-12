@@ -4,6 +4,7 @@ import {
   type HarnessSubagentPane,
   type HarnessSubagentSelectInput,
   type HarnessSubagentSelectResult,
+  type HarnessSubagentView,
   MCP_SERVER_NAME,
   type McpLaunchSpec,
   type McpRegistration,
@@ -222,13 +223,43 @@ function pickerRowId(text: string): string | undefined {
 }
 
 /**
+ * A hidden-id row's label, joined across the popup's wrapped continuation
+ * lines. Codex wraps the whole row at the popup width and indents the
+ * continuation by the row's prefix; task names are [a-z0-9_] with no spaces,
+ * so trimming the indent and concatenating restores the name exactly.
+ */
+function wrappedPickerRowLabel(lines: string[], start: number, match: RegExpMatchArray): string {
+  let label = (match[2] ?? "").trimEnd();
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    if (line.trim() === "") break;
+    if (PICKER_ROW.test(line) || /^\s*[↑↓]\s*$/.test(line) || /^\s*enter select/.test(line)) break;
+    label += line.trim();
+  }
+  return label;
+}
+
+/** One painted row, with whether it is the one Codex marks as selected. */
+interface PaintedPickerRow {
+  index: number;
+  text: string;
+  label: string;
+  highlighted: boolean;
+}
+
+/**
  * The numbered rows actually painted on the current page, in order. A scrolled
  * page starts at any number; wrapped task names can begin with "2. ", so each
  * row must be the one after the previous to count.
+ *
+ * Codex paints its id column for every row or hides it for all of them. A
+ * narrow pane hides it, and a long name then wraps, so the label is joined
+ * back together. With the column painted, the id stays the identity and its
+ * own wrapped fragments are joined by {@link pickerRowText}.
  */
-function paintedPickerRows(screen: string): { index: number; text: string; label: string }[] {
+function paintedPickerRows(screen: string): PaintedPickerRow[] {
   const lines = pickerLines(screen) ?? [];
-  const rows: { index: number; text: string; label: string }[] = [];
+  const starts: { index: number; start: number; match: RegExpMatchArray }[] = [];
   let previous: number | undefined;
   for (let i = 0; i < lines.length; i++) {
     const match = lines[i]?.match(PICKER_ROW);
@@ -236,32 +267,91 @@ function paintedPickerRows(screen: string): { index: number; text: string; label
     const index = Number(match[1]);
     if (previous !== undefined && index !== previous + 1) continue;
     previous = index;
-    rows.push({ index, text: pickerRowText(lines, i, match), label: match[2] ?? "" });
+    starts.push({ index, start: i, match });
   }
-  return rows;
+  // The first painted row tells the layout: the id is one column for the
+  // whole popup, and a long id wraps onto continuation lines.
+  const first = starts[0];
+  const idsVisible = first !== undefined && pickerRowId(pickerRowText(lines, first.start, first.match)) !== undefined;
+  return starts.map(({ index, start, match }) => {
+    const label = idsVisible ? (match[2] ?? "") : wrappedPickerRowLabel(lines, start, match);
+    return {
+      index,
+      text: idsVisible ? pickerRowText(lines, start, match) : label,
+      label,
+      highlighted: HIGHLIGHTED_ROW.test(lines[start] ?? ""),
+    };
+  });
 }
 
-function pickerIndex(screen: string, agentId: string | null): number | undefined {
+/**
+ * The child a picker act targets, with the names its row may print. The id
+ * column is authoritative when Codex paints it, but a narrow pane hides the
+ * description column (the picker needs 24 columns beside the names), so only
+ * the row's label identifies the child there. Codex labels a path-backed
+ * child by its canonical agent path, while the hooks report the bare task
+ * name the parent asked for; both forms are matched.
+ */
+interface PickerTarget {
+  id: string;
+  labels: readonly string[];
+}
+
+function pickerTarget(agentId: string, agents: readonly HarnessSubagentView[]): PickerTarget {
+  const name = agents.find((agent) => agent.id === agentId)?.name.trim() ?? "";
+  return {
+    id: agentId,
+    labels: name === "" ? [] : [name, name.startsWith("/") ? name : `/root/${name}`],
+  };
+}
+
+/** A row's printed name without the picker's own state suffixes. */
+function pickerRowLabel(label: string): string {
+  let text = label.trim();
+  for (;;) {
+    const stripped = text.replace(/\s+\((?:current|needs approval)\)$/, "");
+    if (stripped === text) return text;
+    text = stripped;
+  }
+}
+
+/** Whether this row printed the target's id; a painted id is decisive. */
+function pickerRowIdMatch(row: { text: string }, target: PickerTarget): boolean {
+  return pickerRowId(row.text)?.toLowerCase() === target.id.toLowerCase();
+}
+
+/** Whether this row carries the target's name, when no other id is printed. */
+function pickerRowLabelMatch(row: { text: string; label: string }, target: PickerTarget): boolean {
+  const label = pickerRowLabel(row.label);
+  if (!target.labels.includes(label)) return false;
+  // A UUID the label itself carries is part of the child's name, because a
+  // hidden id column prints no separate token. One the label doesn't carry is
+  // the printed id column, and a different id means another thread reused the
+  // name, so this row is not the target.
+  const printedId = pickerRowId(row.text);
+  return printedId === undefined || label.toLowerCase().includes(printedId.toLowerCase());
+}
+
+/** Whether a painted row is the target: a printed id wins, its label is the fallback. */
+function pickerRowMatches(row: { text: string; label: string }, target: PickerTarget): boolean {
+  return pickerRowIdMatch(row, target) || pickerRowLabelMatch(row, target);
+}
+
+function pickerIndex(screen: string, target: PickerTarget | null): number | undefined {
   if (!hasPicker(screen)) return undefined;
-  for (const row of paintedPickerRows(screen)) {
-    if (agentId === null) {
-      if (/^\s*Main\s*\[default\]/.test(row.label)) return row.index;
-      continue;
-    }
-    if (pickerRowId(row.text)?.toLowerCase() === agentId.toLowerCase()) return row.index;
-  }
-  return undefined;
+  const rows = paintedPickerRows(screen);
+  if (target === null) return rows.find((row) => /^\s*Main\s*\[default\]/.test(row.label))?.index;
+  // A printed id is authoritative. Codex keeps closed children listed and
+  // releases their path for reuse, so a same-name row may appear earlier.
+  return (
+    rows.find((row) => pickerRowIdMatch(row, target))?.index ??
+    rows.find((row) => pickerRowLabelMatch(row, target))?.index
+  );
 }
 
-/** The row Codex marks with `›` after a picker keypress, plus its printed id. */
-function highlightedPickerRow(screen: string): { index: number; text: string; label: string } | undefined {
-  const lines = pickerLines(screen);
-  if (!lines) return undefined;
-  for (let i = 0; i < lines.length; i++) {
-    const match = lines[i]?.match(HIGHLIGHTED_ROW);
-    if (match) return { index: Number(match[1]), text: pickerRowText(lines, i, match), label: match[2] ?? "" };
-  }
-  return undefined;
+/** The row Codex marks with `›` after a picker keypress. */
+function highlightedPickerRow(screen: string): PaintedPickerRow | undefined {
+  return paintedPickerRows(screen).find((row) => row.highlighted);
 }
 
 /** What a painted page shows: its ordered row numbers and the highlight. */
@@ -277,43 +367,84 @@ function pickerHasMoreBelow(screen: string): boolean {
   return overlay !== -1 && /^\s*↓\s*$/m.test(screen.slice(overlay));
 }
 
-/**
- * Bring the target onto the painted page. Codex's selection view paints at
- * most eight rows over a roster that can hold dozens, so the row a click names
- * is usually off-screen when the picker opens on Main. Home first makes a scan
- * visit every row exactly once even when a previous attempt left the picker
- * scrolled; PageDown then walks the list until the printed id appears.
- */
-async function revealPickerRow(
+/** Return the picker to row 1, so every scan starts from a known page. */
+async function homePicker(pane: HarnessSubagentPane, screen: string, wait: (ms: number) => number): Promise<string> {
+  if (paintedPickerRows(screen)[0]?.index === 1) return screen;
+  const before = pickerPageSignature(screen);
+  await pane.type(PICKER_HOME);
+  screen = await waitForScreen(pane, (next) => !hasPicker(next) || pickerPageSignature(next) !== before, wait(1500));
+  if (!hasPicker(screen)) throw new Error("Codex closed its agent picker before selecting.");
+  if (paintedPickerRows(screen)[0]?.index !== 1) throw new Error("Codex didn't move its picker to the top.");
+  return screen;
+}
+
+/** Page down once, and prove the popup moved. */
+async function pagePickerDown(
   pane: HarnessSubagentPane,
-  agentId: string | null,
   screen: string,
   wait: (ms: number) => number,
 ): Promise<string> {
-  if (paintedPickerRows(screen)[0]?.index !== 1) {
-    const before = pickerPageSignature(screen);
-    await pane.type(PICKER_HOME);
-    screen = await waitForScreen(pane, (next) => !hasPicker(next) || pickerPageSignature(next) !== before, wait(1500));
-    if (!hasPicker(screen)) throw new Error("Codex closed its agent picker before selecting.");
-    if (paintedPickerRows(screen)[0]?.index !== 1) throw new Error("Codex didn't move its picker to the top.");
+  const before = pickerPageSignature(screen);
+  await pane.type(PICKER_PAGE_DOWN);
+  const next = await waitForScreen(pane, (s) => !hasPicker(s) || pickerPageSignature(s) !== before, wait(1500));
+  if (!hasPicker(next)) throw new Error("Codex closed its agent picker before selecting.");
+  if (pickerPageSignature(next) === before) throw new Error("Codex didn't move its picker page.");
+  return next;
+}
+
+/**
+ * Bring the target onto the painted page. Codex's selection view paints at
+ * most eight rows over a roster that can hold dozens, so the row a click names
+ * is usually off-screen when the picker opens on Main. Home first makes the
+ * scan deterministic even when a previous attempt left the picker scrolled;
+ * PageDown then walks the list, and row numbers dedupe overlapping pages.
+ */
+async function revealPickerRow(
+  pane: HarnessSubagentPane,
+  target: PickerTarget | null,
+  screen: string,
+  wait: (ms: number) => number,
+): Promise<string> {
+  screen = await homePicker(pane, screen, wait);
+  if (target === null) {
+    for (;;) {
+      if (pickerIndex(screen, null) !== undefined) return screen;
+      // The down arrow is the list's own end-of-page marker: no arrow means the
+      // painted page is the last one, so an absent target is absent from the roster.
+      if (!pickerHasMoreBelow(screen)) throw new Error("Codex didn't list that subagent in its picker.");
+      screen = await pagePickerDown(pane, screen, wait);
+    }
   }
+  // A printed id settles identity immediately. With the id column hidden,
+  // count the distinct rows whose name matches across the whole picker: a
+  // closed child keeps its row and Codex releases its path for reuse, so two
+  // rows can print the same name. Guessing one would show the wrong child.
+  const labelRows = new Set<number>();
   for (;;) {
-    if (pickerIndex(screen, agentId) !== undefined) return screen;
-    // The down arrow is the list's own end-of-page marker: no arrow means the
-    // painted page is the last one, so an absent id is absent from the roster.
+    const rows = paintedPickerRows(screen);
+    if (rows.some((row) => pickerRowIdMatch(row, target))) return screen;
+    for (const row of rows) {
+      if (pickerRowLabelMatch(row, target)) labelRows.add(row.index);
+    }
+    if (!pickerHasMoreBelow(screen)) break;
+    screen = await pagePickerDown(pane, screen, wait);
+  }
+  if (labelRows.size === 0) throw new Error("Codex didn't list that subagent in its picker.");
+  if (labelRows.size > 1) throw new Error("Codex listed more than one row for that subagent.");
+  // The scan ended on the last page; go back to the one row that matched.
+  screen = await homePicker(pane, screen, wait);
+  for (;;) {
+    if (paintedPickerRows(screen).some((row) => pickerRowLabelMatch(row, target))) return screen;
     if (!pickerHasMoreBelow(screen)) throw new Error("Codex didn't list that subagent in its picker.");
-    const before = pickerPageSignature(screen);
-    await pane.type(PICKER_PAGE_DOWN);
-    screen = await waitForScreen(pane, (next) => !hasPicker(next) || pickerPageSignature(next) !== before, wait(1500));
-    if (!hasPicker(screen)) throw new Error("Codex closed its agent picker before selecting.");
-    if (pickerPageSignature(screen) === before) throw new Error("Codex didn't move its picker page.");
+    screen = await pagePickerDown(pane, screen, wait);
   }
 }
 
 /**
- * Move the highlight onto the target row, one painted step at a time, then
- * verify the row's printed id before Enter. Arrows are used, never the row's
- * digit: the digit shortcut only reaches rows 1-9 and accepts immediately.
+ * Move the highlight onto the target row one painted step at a time. Arrows
+ * are used, never the row's digit: the digit shortcut only reaches rows 1-9
+ * and accepts immediately. The caller re-reads the row and verifies its
+ * identity before Enter.
  */
 async function highlightPickerRow(
   pane: HarnessSubagentPane,
@@ -343,10 +474,13 @@ async function highlightPickerRow(
  * Codex keeps its agent picker entirely inside the TUI. Read the pane, send
  * the picker's own keys, then read it back to confirm the view actually moved.
  * Completed children remain in the list, so the target is chosen by the id
- * printed on its row, never by the server roster's position.
+ * printed on its row, never by the server roster's position. A narrow pane
+ * hides that id column, and there the row's printed name is the identity;
+ * two rows sharing it are refused rather than guessed.
  */
 async function selectCodexSubagent(input: HarnessSubagentSelectInput): Promise<HarnessSubagentSelectResult> {
-  const { agentId, pane } = input;
+  const { agentId, agents, pane } = input;
+  const target = agentId === null ? null : pickerTarget(agentId, agents);
   const deadline = Date.now() + 20_000;
   const wait = (ms: number) => Math.max(0, Math.min(ms, deadline - Date.now()));
   let screen = await pane.read();
@@ -377,17 +511,13 @@ async function selectCodexSubagent(input: HarnessSubagentSelectInput): Promise<H
     screen = await waitForScreen(pane, hasPicker, wait(3000));
   }
   try {
-    screen = await revealPickerRow(pane, agentId, screen, wait);
-    const index = pickerIndex(screen, agentId);
+    screen = await revealPickerRow(pane, target, screen, wait);
+    const index = pickerIndex(screen, target);
     if (index === undefined) throw new Error("Codex didn't list that subagent in its picker.");
     screen = await highlightPickerRow(pane, index, wait);
     const row = highlightedPickerRow(screen);
-    const shownId = agentId === null ? null : (pickerRowId(row?.text ?? "") ?? null);
-    if (
-      agentId === null
-        ? !/^\s*Main\s*\[default\]/.test(row?.label ?? "")
-        : shownId?.toLowerCase() !== agentId.toLowerCase()
-    ) {
+    if (row === undefined) throw new Error("Codex didn't highlight a row in its picker.");
+    if (target === null ? !/^\s*Main\s*\[default\]/.test(row.label) : !pickerRowMatches(row, target)) {
       throw new Error("Codex highlighted a different row in its picker.");
     }
     await pane.type("\r");
