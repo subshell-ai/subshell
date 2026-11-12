@@ -90,12 +90,16 @@ const OVERLAY_MARKER = "Select an agent to watch.";
 const EMPTY_COMPOSER = "Ask Codex to do anything";
 /** ESC [ 1 ; 3 D — Codex's Alt+Left, which returns a subagent view to Main. */
 const ALT_LEFT = "\u001b[1;3D";
-/** The picker's own navigation bytes: Home atoms the scan to the top, PageDown
- * paints the next page, and the arrows move the highlight onto a painted row. */
+/** The picker's own navigation bytes: Home/End atom a scan to an edge,
+ * PageUp/PageDown paint the neighbouring page, and the arrows move the
+ * highlight onto a painted row. */
 const PICKER_HOME = "\u001b[H";
+const PICKER_END = "\u001b[F";
+const PICKER_PAGE_UP = "\u001b[5~";
 const PICKER_PAGE_DOWN = "\u001b[6~";
 const PICKER_UP = "\u001b[A";
 const PICKER_DOWN = "\u001b[B";
+const PICKER_PAGE_LIMIT = 256;
 const ESCAPE = "\u001b";
 
 /**
@@ -161,6 +165,13 @@ async function typeCommand(pane: HarnessSubagentPane, text: string): Promise<voi
   await pane.type("\r");
 }
 
+/** One poll slice: the picker gets a frame to repaint before the next read. */
+function delay(ms: number): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, ms);
+  return promise;
+}
+
 async function waitForScreen(
   pane: HarnessSubagentPane,
   predicate: (screen: string) => boolean,
@@ -170,7 +181,7 @@ async function waitForScreen(
   let screen = await pane.read();
   while (!predicate(screen)) {
     if (Date.now() >= deadline) throw new Error("Timed out waiting for Codex's agent picker.");
-    await new Promise((resolve) => setTimeout(resolve, 75));
+    await delay(25);
     screen = await pane.read();
   }
   return screen;
@@ -184,7 +195,7 @@ async function waitForPickerClosed(pane: HarnessSubagentPane, timeoutMs: number)
     const screen = await pane.read();
     if (!hasPicker(screen) && previous !== undefined && !hasPicker(previous)) return screen;
     previous = screen;
-    await new Promise((resolve) => setTimeout(resolve, 75));
+    await delay(75);
   }
   throw new Error("Timed out waiting for Codex's agent picker to close.");
 }
@@ -367,6 +378,12 @@ function pickerHasMoreBelow(screen: string): boolean {
   return overlay !== -1 && /^\s*↓\s*$/m.test(screen.slice(overlay));
 }
 
+/** Whether Codex paints its up arrow, i.e. rows exist above the painted page. */
+function pickerHasMoreAbove(screen: string): boolean {
+  const overlay = screen.lastIndexOf(OVERLAY_MARKER);
+  return overlay !== -1 && /^\s*↑\s*$/m.test(screen.slice(overlay));
+}
+
 /** Return the picker to row 1, so every scan starts from a known page. */
 async function homePicker(pane: HarnessSubagentPane, screen: string, wait: (ms: number) => number): Promise<string> {
   if (paintedPickerRows(screen)[0]?.index === 1) return screen;
@@ -378,7 +395,7 @@ async function homePicker(pane: HarnessSubagentPane, screen: string, wait: (ms: 
   return screen;
 }
 
-/** Page down once, and prove the popup moved. */
+/** Move one painted page forward, and prove the popup moved. */
 async function pagePickerDown(
   pane: HarnessSubagentPane,
   screen: string,
@@ -392,12 +409,34 @@ async function pagePickerDown(
   return next;
 }
 
+/** Move one painted page backward, and prove the popup moved. */
+async function pagePickerUp(pane: HarnessSubagentPane, screen: string, wait: (ms: number) => number): Promise<string> {
+  const before = pickerPageSignature(screen);
+  await pane.type(PICKER_PAGE_UP);
+  const next = await waitForScreen(pane, (s) => !hasPicker(s) || pickerPageSignature(s) !== before, wait(1500));
+  if (!hasPicker(next)) throw new Error("Codex closed its agent picker before selecting.");
+  if (pickerPageSignature(next) === before) throw new Error("Codex didn't move its picker page.");
+  return next;
+}
+
+/** Jump to the last painted page, where the down arrow disappears. */
+async function endPicker(pane: HarnessSubagentPane, screen: string, wait: (ms: number) => number): Promise<string> {
+  await pane.type(PICKER_END);
+  screen = await waitForScreen(pane, (next) => !hasPicker(next) || !pickerHasMoreBelow(next), wait(1500));
+  if (!hasPicker(screen)) throw new Error("Codex closed its agent picker before selecting.");
+  if (pickerHasMoreBelow(screen)) throw new Error("Codex didn't move its picker to the end.");
+  return screen;
+}
+
 /**
  * Bring the target onto the painted page. Codex's selection view paints at
- * most eight rows over a roster that can hold dozens, so the row a click names
- * is usually off-screen when the picker opens on Main. Home first makes the
- * scan deterministic even when a previous attempt left the picker scrolled;
- * PageDown then walks the list, and row numbers dedupe overlapping pages.
+ * most eight rows over a roster that can hold hundreds, so the row a click
+ * names is usually off-screen when the picker opens on Main. A printed id
+ * settles identity on sight. With the id column hidden, the driver scans
+ * forward to the first page printing the target's name, then jumps to the
+ * last page and walks back to that row: every later page is checked for a
+ * second row printing the same name, and the walk ends on the candidate
+ * instead of starting over from the top.
  */
 async function revealPickerRow(
   pane: HarnessSubagentPane,
@@ -405,39 +444,63 @@ async function revealPickerRow(
   screen: string,
   wait: (ms: number) => number,
 ): Promise<string> {
+  // A row already painted settles the act: a printed id is decisive, and Main
+  // has only one row. This keeps a click on the visible child instant.
+  if (target === null) {
+    if (paintedPickerRows(screen).some((row) => /^\s*Main\s*\[default\]/.test(row.label))) return screen;
+  } else if (paintedPickerRows(screen).some((row) => pickerRowIdMatch(row, target))) {
+    return screen;
+  }
   screen = await homePicker(pane, screen, wait);
   if (target === null) {
-    for (;;) {
+    for (let page = 0; page < PICKER_PAGE_LIMIT; page++) {
       if (pickerIndex(screen, null) !== undefined) return screen;
       // The down arrow is the list's own end-of-page marker: no arrow means the
       // painted page is the last one, so an absent target is absent from the roster.
       if (!pickerHasMoreBelow(screen)) throw new Error("Codex didn't list that subagent in its picker.");
       screen = await pagePickerDown(pane, screen, wait);
     }
+    throw new Error("Codex didn't move its picker page.");
   }
-  // A printed id settles identity immediately. With the id column hidden,
-  // count the distinct rows whose name matches across the whole picker: a
-  // closed child keeps its row and Codex releases its path for reuse, so two
-  // rows can print the same name. Guessing one would show the wrong child.
   const labelRows = new Set<number>();
-  for (;;) {
+  let labelIndex: number | undefined;
+  for (let page = 0; page < PICKER_PAGE_LIMIT; page++) {
     const rows = paintedPickerRows(screen);
     if (rows.some((row) => pickerRowIdMatch(row, target))) return screen;
     for (const row of rows) {
-      if (pickerRowLabelMatch(row, target)) labelRows.add(row.index);
+      if (!pickerRowLabelMatch(row, target)) continue;
+      labelRows.add(row.index);
+      labelIndex ??= row.index;
+      if (labelRows.size > 1) throw new Error("Codex listed more than one row for that subagent.");
     }
-    if (!pickerHasMoreBelow(screen)) break;
-    screen = await pagePickerDown(pane, screen, wait);
-  }
-  if (labelRows.size === 0) throw new Error("Codex didn't list that subagent in its picker.");
-  if (labelRows.size > 1) throw new Error("Codex listed more than one row for that subagent.");
-  // The scan ended on the last page; go back to the one row that matched.
-  screen = await homePicker(pane, screen, wait);
-  for (;;) {
-    if (paintedPickerRows(screen).some((row) => pickerRowLabelMatch(row, target))) return screen;
+    if (labelIndex !== undefined) break;
     if (!pickerHasMoreBelow(screen)) throw new Error("Codex didn't list that subagent in its picker.");
     screen = await pagePickerDown(pane, screen, wait);
   }
+  if (labelIndex === undefined) throw new Error("Codex didn't list that subagent in its picker.");
+  // The candidate page was the last painted page, so no later row exists.
+  if (!pickerHasMoreBelow(screen)) return screen;
+  screen = await endPicker(pane, screen, wait);
+  for (let page = 0; page < PICKER_PAGE_LIMIT; page++) {
+    const rows = paintedPickerRows(screen);
+    for (const row of rows) {
+      if (!pickerRowLabelMatch(row, target)) continue;
+      labelRows.add(row.index);
+      if (labelRows.size > 1) throw new Error("Codex listed more than one row for that subagent.");
+    }
+    if (rows.some((row) => row.index === labelIndex)) return screen;
+    const first = rows[0]?.index ?? 1;
+    const last = rows[rows.length - 1]?.index ?? first;
+    if (last < labelIndex) {
+      // The backward walk overshot above the candidate; come back down.
+      if (!pickerHasMoreBelow(screen)) throw new Error("Codex didn't list that subagent in its picker.");
+      screen = await pagePickerDown(pane, screen, wait);
+    } else {
+      if (!pickerHasMoreAbove(screen)) throw new Error("Codex didn't list that subagent in its picker.");
+      screen = await pagePickerUp(pane, screen, wait);
+    }
+  }
+  throw new Error("Codex didn't move its picker page.");
 }
 
 /**

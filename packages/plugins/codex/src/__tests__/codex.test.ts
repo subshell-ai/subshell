@@ -103,6 +103,12 @@ function pickerHarness(
         } else if (text === "\u001b[6~") {
           selected = Math.min(rows.length - 1, selected + maxVisible);
           ensureVisible();
+        } else if (text === "\u001b[5~") {
+          selected = Math.max(0, selected - maxVisible);
+          ensureVisible();
+        } else if (text === "\u001b[F") {
+          selected = rows.length - 1;
+          ensureVisible();
         } else if (text === "\u001b[A") {
           selected = Math.max(0, selected - 1);
           ensureVisible();
@@ -365,7 +371,45 @@ describe("CodexPlugin", () => {
     const result = await plugin.subagents?.select?.({ agentId: target.id, agents: [], pane: harness.pane });
     expect(result).toEqual({ selectedId: target.id });
     expect(harness.state()).toEqual({ open: false, selected: 2, main: false });
-    expect(harness.typed).toEqual(["\u001b[H", "3"]);
+    expect(harness.typed).toEqual(["3"]);
+  });
+
+  it("checks a long hidden-id list once, walking back to the candidate", async () => {
+    const rows = [MAIN_ROW, ...Array.from({ length: 20 }, (_, index) => childRow(index + 1))];
+    const harness = pickerHarness(rows, { formatId: () => "" });
+    const target = rows[2] as PickerRow; // row 3
+    const agents = rows.slice(1).map((row) => ({
+      id: row.id,
+      name: row.name.replace(/^\/root\//, ""),
+      status: "running" as const,
+      startedAt: 0,
+    }));
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents, pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
+    expect(harness.state().selected).toBe(2);
+    // The candidate is on page one; the suffix is checked backward from the
+    // end, never walked forward a second time.
+    expect(harness.typed.filter((key) => key === "\u001b[6~")).toHaveLength(0);
+    expect(harness.typed.filter((key) => key === "\u001b[5~")).toHaveLength(3);
+    expect(harness.typed.filter((key) => key === "\u001b[F")).toHaveLength(1);
+  });
+
+  it("finds a middle hidden-id child with one forward pass", async () => {
+    const rows = [MAIN_ROW, ...Array.from({ length: 20 }, (_, index) => childRow(index + 1))];
+    const harness = pickerHarness(rows, { formatId: () => "" });
+    const target = rows[9] as PickerRow; // row 10
+    const agents = rows.slice(1).map((row) => ({
+      id: row.id,
+      name: row.name.replace(/^\/root\//, ""),
+      status: "running" as const,
+      startedAt: 0,
+    }));
+    const result = await plugin.subagents?.select?.({ agentId: target.id, agents, pane: harness.pane });
+    expect(result).toEqual({ selectedId: target.id });
+    expect(harness.state().selected).toBe(9);
+    expect(harness.typed.filter((key) => key === "\u001b[6~")).toHaveLength(2);
+    expect(harness.typed.filter((key) => key === "\u001b[F")).toHaveLength(1);
+    expect(harness.typed.filter((key) => key === "\u001b[5~")).toHaveLength(2);
   });
 
   it("pages past the eight painted rows to reach a child below the fold", async () => {
@@ -380,16 +424,18 @@ describe("CodexPlugin", () => {
     expect(harness.typed.filter((key) => /^\d+$/.test(key))).toEqual([]);
     expect(harness.typed.filter((key) => key === "\u001b[6~")).toHaveLength(3);
     expect(harness.typed.filter((key) => key === "\u001b[A")).toHaveLength(4);
+    expect(harness.typed.filter((key) => key === "\u001b[F")).toHaveLength(0);
+    expect(harness.typed.filter((key) => key === "\u001b[5~")).toHaveLength(0);
   });
 
   it("normalizes a picker a previous attempt left scrolled", async () => {
     const rows = [MAIN_ROW, ...Array.from({ length: 30 }, (_, index) => childRow(index + 1))];
     const harness = pickerHarness(rows, { open: true, selected: 25 });
-    const target = rows[20] as PickerRow;
+    const target = rows[2] as PickerRow;
     const result = await plugin.subagents?.select?.({ agentId: target.id, agents: [], pane: harness.pane });
     expect(result).toEqual({ selectedId: target.id });
     expect(harness.typed[0]).toBe("\u001b[H");
-    expect(harness.state().selected).toBe(20);
+    expect(harness.state().selected).toBe(2);
   });
 
   it("returns to Main when the picker is scrolled away from it", async () => {
