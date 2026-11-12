@@ -1,5 +1,13 @@
 # @internal/server
 
+## 3.7.1
+
+### Patch Changes
+
+- [#533](https://github.com/subshell-ai/subshell/pull/533) [`25904e9`](https://github.com/subshell-ai/subshell/commit/25904e9cebd112989e524951da9f1a4e15eb2275) Thanks [@theogravity](https://github.com/theogravity)! - Ship the Codex subagent picker fix: a narrow pane hides the picker's id column, so the driver now matches the child by its printed name (including the spawn role and a nested child's canonical path) and switches the parent terminal instead of returning 409.
+- Updated dependencies []:
+  - @internal/pane-runtime@1.0.0
+
 ## 3.7.0
 
 ### Minor Changes
