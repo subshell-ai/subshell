@@ -107,7 +107,7 @@ describe("harness subagent reporting and selection", () => {
     );
   });
   it("keeps a hook picker selectable without a bridge heartbeat", async () => {
-    const a = await subshellWithToken("running", "codex");
+    const a = await subshellWithToken("running");
     const own = { authorization: `Bearer ${a.key}` };
     // A hook-only harness has no snapshot loop to refresh `lastSeen`; its
     // plugin drives the picker itself, so the served snapshot must not fall
@@ -127,6 +127,34 @@ describe("harness subagent reporting and selection", () => {
     };
     expect(state.canSelect).toBe(true);
     expect(state.unavailableReason).toBeUndefined();
+  });
+
+  it("reports Codex subagents as status-only", async () => {
+    // Codex monitors children through hooks but no longer exposes a pane
+    // driver, so the sidebar must show status and the shared reason instead
+    // of offering a switch it can't perform.
+    const a = await subshellWithToken("running", "codex");
+    await request(
+      a.id,
+      "/report",
+      { authorization: `Bearer ${a.key}` },
+      { event: "snapshot", agents: [{ id: "child", name: "Review", status: "running" }] },
+    );
+    const state = (await (await request(a.id, "", { cookie: `better-auth.session_token=${ownerCookie}` })).json()) as {
+      canSelect: boolean;
+      unavailableReason?: string;
+    };
+    expect(state.canSelect).toBe(false);
+    expect(state.unavailableReason).toContain("Subshell can't switch");
+    // The API door refuses too: no sidebar path reaches it, but a direct
+    // caller must not queue a command Codex will never carry out.
+    const selection = await request(
+      a.id,
+      "/select",
+      { cookie: `better-auth.session_token=${ownerCookie}` },
+      { agentId: "child" },
+    );
+    expect(selection.status).toBe(409);
   });
 
   it("answers the batch collection through its own route, visible only to those who see the pane", async () => {
@@ -328,7 +356,7 @@ describe("harness subagent reporting and selection", () => {
       role: "user",
     });
     try {
-      const a = await subshellWithToken("running", "codex", "root@example");
+      const a = await subshellWithToken("running", "claude-code", "root@example");
       await request(
         a.id,
         "/report",
@@ -359,7 +387,7 @@ describe("harness subagent reporting and selection", () => {
       role: "user",
     });
     try {
-      const a = await subshellWithToken("running", "codex");
+      const a = await subshellWithToken("running");
       await request(
         a.id,
         "/report",
@@ -392,7 +420,7 @@ describe("harness subagent reporting and selection", () => {
       role: "user",
     });
     try {
-      const a = await subshellWithToken("running", "codex");
+      const a = await subshellWithToken("running");
       await request(
         a.id,
         "/report",

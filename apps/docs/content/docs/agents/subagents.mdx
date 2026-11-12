@@ -5,7 +5,7 @@ description: "Follow delegated agents beneath their parent subshell and switch s
 
 Subagents appear beneath the subshell that runs their parent agent. They aren't separate subshells, and they don't add tabs to your workspace. Completed subagents disappear from the list.
 
-Open **Workspaces** in the sidebar’s bottom bar. Subagents appear under parents in both the workspace list and the **Subshells** section. When a subshell has active subagents, an arrow appears beneath its status dot. Select the arrow to collapse or expand the connected child rows without changing the focused subshell. Selecting the parent row returns its terminal to the main agent; it never changes disclosure.
+Open **Workspaces** in the sidebar’s bottom bar. Subagents appear under parents in both the workspace list and the **Subshells** section. When a subshell has active subagents, an arrow appears beneath its status dot. Select the arrow to collapse or expand the connected child rows without changing the focused subshell. Selecting the parent row returns its terminal to the main agent when the harness supports view switching; it never changes disclosure.
 
 Each child shows its name and status. When a task description is available, it appears on a second line beneath the name. Hover or focus a child for its status, how long it has been running, and whether you can switch to its view. Generic names such as `default` appear as **Subagent 1**, **Subagent 2**, and so on. These numbers stay stable while the children are active; meaningful names supplied by the harness stay unchanged. This works for subshells running on the server host and on enrolled nodes.
 
@@ -18,7 +18,7 @@ Each child shows its name and status. When a task description is available, it a
 
 When the harness supports native navigation, select a child to show its view in the parent's existing terminal. The header shows the child's name and a branching icon. Select **Back to main agent** in the header, or the parent row in the sidebar, to return. The workspace tab keeps the parent subshell's name.
 
-The view is shared: switching it changes what everyone attached to that subshell sees. A bridge that drives its harness's own view API can be switched by people with view access. Codex, Claude Code, and pi type into their TUI, so a pane driver requires edit access; typing, steering, and answering approval prompts also require edit. The door works one way: a subshell's own key can report its children but can't move the shared view, so an agent can't aim its parent's terminal for the humans watching it.
+The view is shared: switching it changes what everyone attached to that subshell sees. A bridge that drives its harness's own view API can be switched by people with view access. Claude Code and pi type into their TUI, so a pane driver requires edit access; typing, steering, and answering approval prompts also require edit. The door works one way: a subshell's own key can report its children but can't move the shared view, so an agent can't aim its parent's terminal for the humans watching it.
 
 If native navigation isn't available, the children remain visible as status indicators. Hover over or focus a child for an explanation, and use the harness's own controls to open its view.
 
@@ -27,7 +27,7 @@ If native navigation isn't available, the children remain visible as status indi
 | Harness | Discovery | Sidebar navigation |
 | --- | --- | --- |
 | Claude Code | Subagent lifecycle hooks, added at launch. | Opens the selected child transcript from Claude's agent panel; requires edit access. |
-| Codex | Subagent lifecycle and spawn-name hooks, added at launch. Review and trust them through `/hooks`. | Switches the existing `/subagents` picker; rows use the spawn task names. |
+| Codex | Subagent lifecycle and spawn-name hooks, added at launch. Review and trust them through `/hooks`. | Status only. Use Codex's own `/subagents` picker to switch views. |
 | OpenCode | TUI integration, using the native plugin API verified against OpenCode 1.18.18. | Switches the existing TUI; changes made inside the harness also update the header. |
 | Hermes | Configure and approve `subagent_start` and `subagent_stop` shell hooks. The harness's setup instructions include the configuration. | Status only. |
 | pi | pi's own `subagent` example extension (installed into pi separately), or an extension implementing the bridge below. | Opens `/subagents-fleet` focused on the selected child; `Esc` closes it. Requires edit access. |

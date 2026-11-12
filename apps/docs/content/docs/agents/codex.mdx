@@ -28,7 +28,7 @@ If Codex reports that Subshell MCP failed, open `/mcp` and follow [MCP troublesh
 
 ## Subagent monitoring hooks
 
-Subshell adds hooks labeled **Subshell subagent monitoring** when it launches Codex. They report subagent identifiers, types, task names, and start/stop events to your Subshell server so active subagents appear beneath their parent in the sidebar. Clicking a reported child drives Codex's own `/subagents` picker to show it; clicking the parent returns to Main. The reporter doesn't send prompts or transcripts.
+Subshell adds hooks labeled **Subshell subagent monitoring** when it launches Codex. They report subagent identifiers, types, task names, and start/stop events to your Subshell server so active subagents appear beneath their parent in the sidebar. Subshell shows each child's status only; use Codex's own `/subagents` picker to switch views. The reporter doesn't send prompts or transcripts.
 
 In Codex, open `/hooks` to review the **SessionStart**, **SubagentStart**, **SubagentStop**, and **PostToolUse** hooks and trust them if you want monitoring enabled. Codex may ask you to review them again when their definitions change. Leaving them untrusted or disabled prevents monitoring; you can still use Codex normally.
 
