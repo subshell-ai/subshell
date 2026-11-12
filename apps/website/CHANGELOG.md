@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.35
+
+### Patch Changes
+
+- [#533](https://github.com/subshell-ai/subshell/pull/533) [`25904e9`](https://github.com/subshell-ai/subshell/commit/25904e9cebd112989e524951da9f1a4e15eb2275) Thanks [@theogravity](https://github.com/theogravity)! - Deploy the documentation and marketing sites with the Codex subagent picker release.
+
 ## 0.2.34
 
 ### Patch Changes
